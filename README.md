@@ -19,7 +19,6 @@ If you like or are using this project please give it a star. Thanks!
 - Encapsulated rule logic
 - Composite & logical rule composition (AND, OR, NOT)
 - Business rule context with data passing
-- Dependency Injection support
 - Easy-to-use checker APIs
 - Custom exception for broken rules
 
