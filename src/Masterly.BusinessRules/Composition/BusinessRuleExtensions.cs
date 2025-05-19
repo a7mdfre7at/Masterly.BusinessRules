@@ -1,6 +1,4 @@
-﻿using Masterly.BusinessRules.Abstractions;
-
-namespace Masterly.BusinessRules.Composition
+﻿namespace Masterly.BusinessRules
 {
     public static class BusinessRuleExtensions
     {

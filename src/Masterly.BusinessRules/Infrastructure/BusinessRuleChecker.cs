@@ -1,25 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using Masterly.BusinessRules.Abstractions;
-using Masterly.BusinessRules.Core;
 
-namespace Masterly.BusinessRules.Infrastructure
+namespace Masterly.BusinessRules
 {
     public static class BusinessRuleChecker
     {
         public static void CheckAll(params BaseBusinessRule[] rules)
         {
-            var brokenRules = new List<BusinessRuleResult>();
-
-            foreach (BaseBusinessRule rule in rules)
-            {
-                if (rule.IsBroken())
-                {
-                    brokenRules.Add(rule.Evaluate());
-                }
-            }
+            List<BusinessRuleResult> brokenRules = rules.Where(rule => rule.IsBroken()).Select(rule => rule.Evaluate()).ToList();
 
             if (brokenRules.Any())
             {

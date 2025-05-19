@@ -1,9 +1,8 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
-using Masterly.BusinessRules.Abstractions;
-using Masterly.BusinessRules.Core;
+using Masterly.BusinessRules;
 
-namespace Masterly.BusinessRules.Composition
+namespace Masterly.BusinessRules
 {
     public class CompositeBusinessRule : IBusinessRule
     {

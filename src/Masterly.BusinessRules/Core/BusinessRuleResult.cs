@@ -1,6 +1,4 @@
-﻿using Masterly.BusinessRules.Abstractions;
-
-namespace Masterly.BusinessRules.Core
+﻿namespace Masterly.BusinessRules
 {
     public sealed class BusinessRuleResult
     {

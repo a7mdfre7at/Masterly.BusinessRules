@@ -1,12 +1,8 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Masterly.BusinessRules.Abstractions;
-using Masterly.BusinessRules.Core;
 
-namespace Masterly.BusinessRules.Composition
+namespace Masterly.BusinessRules
 {
     public class CompositeAsyncBusinessRule : IAsyncBusinessRule
     {
@@ -40,7 +36,7 @@ namespace Masterly.BusinessRules.Composition
 
         public async Task CheckAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
         {
-            var result = await EvaluateAsync(context, cancellationToken);
+            BusinessRuleResult? result = await EvaluateAsync(context, cancellationToken);
             if (result != null)
                 throw new BusinessRuleValidationException(new[] { result });
         }

@@ -1,4 +1,4 @@
-﻿namespace Masterly.BusinessRules.Core
+﻿namespace Masterly.BusinessRules
 {
     public enum RuleSeverity
     {

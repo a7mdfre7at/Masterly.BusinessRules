@@ -1,7 +1,6 @@
 ﻿using System.Collections.Generic;
-using Masterly.BusinessRules.Abstractions;
 
-namespace Masterly.BusinessRules.Core
+namespace Masterly.BusinessRules
 {
     public abstract class BaseBusinessRule : IBusinessRule
     {
@@ -17,10 +16,7 @@ namespace Masterly.BusinessRules.Core
 
         public abstract bool IsBroken();
 
-        private IEnumerable<BusinessRuleResult> AsEnumerable(BusinessRuleResult result)
-        {
-            return new List<BusinessRuleResult> { result };
-        }
+        private static IEnumerable<BusinessRuleResult> AsEnumerable(BusinessRuleResult result) => new List<BusinessRuleResult> { result };
 
         public BusinessRuleResult Evaluate() => new BusinessRuleResult(Code, Message, Severity);
     }

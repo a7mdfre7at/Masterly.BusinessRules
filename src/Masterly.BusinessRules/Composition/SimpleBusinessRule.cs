@@ -1,7 +1,6 @@
 ﻿using System;
-using Masterly.BusinessRules.Core;
 
-namespace Masterly.BusinessRules.Composition
+namespace Masterly.BusinessRules
 {
     public class SimpleBusinessRule : BaseBusinessRule
     {

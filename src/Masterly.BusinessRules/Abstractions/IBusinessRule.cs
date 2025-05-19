@@ -1,6 +1,4 @@
-﻿using Masterly.BusinessRules.Core;
-
-namespace Masterly.BusinessRules.Abstractions
+﻿namespace Masterly.BusinessRules
 {
     public interface IBusinessRule
     {

@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Masterly.BusinessRules.Core
+namespace Masterly.BusinessRules
 {
     public sealed class BusinessRuleContext
     {

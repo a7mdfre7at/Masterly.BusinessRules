@@ -1,8 +1,7 @@
 ﻿using System.Threading;
 using System.Threading.Tasks;
-using Masterly.BusinessRules.Abstractions;
 
-namespace Masterly.BusinessRules.Core
+namespace Masterly.BusinessRules
 {
     public abstract class BaseAsyncBusinessRule : IAsyncBusinessRule
     {

@@ -3,10 +3,17 @@
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <Nullable>enable</Nullable>
+    
+    <Version>1.0.0</Version>
+    <Authors>Ahmad Omar Al-Freihat</Authors>
+    <Description>
+      A clean, composable, and extensible business rule engine for .NET.</Description>
+    <PackageProjectUrl>https://github.com/a7mdfre7at/Masterly.BusinessRules</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/a7mdfre7at/Masterly.BusinessRules</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>Rule;Business;Engine;Exception;Maserly;Csharp;DotNet;Handle</PackageTags>
+    <PackageIcon>repo_image.png</PackageIcon>
+    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
   </PropertyGroup>
-
-  <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.5" />
-  </ItemGroup>
 
 </Project>
