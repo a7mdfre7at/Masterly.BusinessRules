@@ -1,12 +1,8 @@
-﻿using Masterly.BusinessRules.Abstractions;
-using Masterly.BusinessRules.Core;
-using Masterly.BusinessRules.Infrastructure;
-
-namespace Masterly.BusinessRules.UnitTests;
+﻿namespace Masterly.BusinessRules.UnitTests;
 
 public class AsyncBusinessRuleTests
 {
-    private class AlwaysBrokenAsyncRule : BaseAsyncBusinessRule
+    private sealed class AlwaysBrokenAsyncRule : BaseAsyncBusinessRule
     {
         public override string Code => "ASYNC001";
         public override string Message => "Always broken async.";
@@ -14,7 +10,7 @@ public class AsyncBusinessRuleTests
             => Task.FromResult(true);
     }
 
-    private class AlwaysValidAsyncRule : BaseAsyncBusinessRule
+    private sealed class AlwaysValidAsyncRule : BaseAsyncBusinessRule
     {
         public override string Code => "ASYNC002";
         public override string Message => "Always valid async.";
@@ -27,7 +23,7 @@ public class AsyncBusinessRuleTests
     {
         AlwaysBrokenAsyncRule rule = new();
         BusinessRuleContext context = new();
-        BusinessRuleValidationException ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() => rule.CheckAsync(context));
+        BusinessRuleValidationException ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(() => rule.CheckAsync(context, TestContext.Current.CancellationToken));
         Assert.Single(ex.BrokenRules);
     }
 
@@ -36,7 +32,7 @@ public class AsyncBusinessRuleTests
     {
         AlwaysValidAsyncRule rule = new();
         BusinessRuleContext context = new();
-        await rule.CheckAsync(context);
+        await rule.CheckAsync(context, TestContext.Current.CancellationToken);
     }
 
     [Fact]

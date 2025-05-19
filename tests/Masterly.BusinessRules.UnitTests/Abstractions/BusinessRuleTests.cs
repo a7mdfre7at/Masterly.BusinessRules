@@ -1,11 +1,8 @@
-﻿using Masterly.BusinessRules.Composition;
-using Masterly.BusinessRules.Core;
-
-namespace Masterly.BusinessRules.UnitTests
+﻿namespace Masterly.BusinessRules.UnitTests
 {
     public class BusinessRuleTests
     {
-        private class AlwaysBrokenRule : BaseBusinessRule
+        private sealed class AlwaysBrokenRule : BaseBusinessRule
         {
             public override string Code => "TEST001";
             public override string Message => "Always broken.";
@@ -13,7 +10,7 @@ namespace Masterly.BusinessRules.UnitTests
             public override bool IsBroken() => true;
         }
 
-        private class AlwaysValidRule : BaseBusinessRule
+        private sealed class AlwaysValidRule : BaseBusinessRule
         {
             public override string Code => "TEST002";
             public override string Message => "Always valid.";
