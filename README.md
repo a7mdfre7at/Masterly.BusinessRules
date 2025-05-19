@@ -2,6 +2,15 @@
 
 A clean, composable, and extensible business rule engine for .NET.
 
+<img src="https://raw.githubusercontent.com/a7mdfre7at/Masterly.BusinessRules/master/repo_image.png" width="200" height="180">
+
+[![Nuget](https://img.shields.io/nuget/v/Masterly.BusinessRules?style=flat-square)](https://www.nuget.org/packages/Masterly.BusinessRules) ![Nuget](https://img.shields.io/nuget/dt/Masterly.BusinessRules?style=flat-square) ![GitHub last commit](https://img.shields.io/github/last-commit/a7mdfre7at/Masterly.BusinessRules?style=flat-square) ![GitHub](https://img.shields.io/github/license/a7mdfre7at/Masterly.BusinessRules?style=flat-square) [![Build](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/build.yml) [![CodeQL Analysis](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/codeql.yml) [![Publish to NuGet](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/publish.yml/badge.svg?branch=master)](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/publish.yml)
+
+
+## Give a Star! :star:
+
+If you like or are using this project please give it a star. Thanks!
+
 ---
 
 ## ✨ Features
@@ -143,11 +152,11 @@ public class AgeMustBeAtLeast18Rule(int _age) : IBusinessRule
     public string Code => "AGE_UNDER_18";
     public string Message => "User must be at least 18 years old.";
     public RuleSeverity Severity => RuleSeverity.Error;
-    public bool IsBroken => _age < 18;
+    public bool IsBroken() => _age < 18;
 
     public void Check()
     {
-        if (IsBroken) throw new BusinessRuleValidationException([Evaluate()]);
+        if (IsBroken()) throw new BusinessRuleValidationException([Evaluate()]);
     }
 
     public BusinessRuleResult Evaluate() => new(Code, Message, Severity);
