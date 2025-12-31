@@ -1,45 +1,51 @@
 name: Publish to NuGet
-on:
-  push:
-    branches:
-      - master # Your default release branch
-    paths:
-      - 'src/Masterly.BusinessRules/**'
-  workflow_run:
-    workflows: ["Build"]
-    branches: [master]
-    types: 
-      - completed
-jobs:
-  on-success:
-    name: List Masterly.BusinessRules on nuget.org
-    runs-on: windows-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
-    steps:
-      - uses: actions/checkout@v4
 
-      # Required for a specific dotnet version that doesn't come with ubuntu-latest / windows-latest
-      # Visit bit.ly/2synnZl to see the list of SDKs that are pre-installed with ubuntu-latest / windows-latest
-      - name: Setup dotnet
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Build]
+    branches: [master]
+    types: [completed]
+
+jobs:
+  publish:
+    name: Publish to NuGet
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '6.0.x'
-      
-      # Publish
-      - name: publish on version change
-        uses: alirezanet/publish-nuget@v3.0.4
+          dotnet-version: 9.0.x
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
         with:
-          PROJECT_FILE_PATH: src/Masterly.BusinessRules/Masterly.BusinessRules.csproj # Relative to repository root
-          VERSION_REGEX: <Version>(.*)<\/Version> # Regex pattern to extract version info in a capturing group
-          TAG_COMMIT: true # Flag to enable / disable git tagging
-          TAG_FORMAT: Masterly.BusinessRules-v* # Format of the git tag, [*] gets replaced with version
-          NUGET_KEY: ${{secrets.NUGET_API_KEY}} # nuget.org API key
-  
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Publish to NuGet
+        uses: alirezanet/publish-nuget@v3.1.1
+        with:
+          PROJECT_FILE_PATH: src/Masterly.BusinessRules/Masterly.BusinessRules.csproj
+          VERSION_REGEX: ^\s*<Version>(.*)<\/Version>\s*$
+          TAG_COMMIT: true
+          TAG_FORMAT: v*
+          NUGET_KEY: ${{ secrets.NUGET_API_KEY }}
+          INCLUDE_SYMBOLS: false
+
   on-failure:
-    runs-on: windows-latest
-    name: Publish Failed
+    name: Build Failed
+    runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'failure' }}
     steps:
-      - run: |
-            echo "This workflow has been canceled because of build or test failed" 
-            exit 1
+      - name: Report failure
+        run: |
+          echo "::error::Build workflow failed. NuGet publish skipped."
+          exit 1

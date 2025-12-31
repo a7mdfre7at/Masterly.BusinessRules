@@ -11,7 +11,7 @@ public class CompositeBusinessRuleTests
             new RuleA(true)
         ];
 
-        var composite = new CompositeBusinessRule(rules);
+        CompositeBusinessRule composite = new CompositeBusinessRule(rules);
         Assert.True(composite.IsBroken());
         Assert.Throws<BusinessRuleValidationException>(() => composite.Check());
     }

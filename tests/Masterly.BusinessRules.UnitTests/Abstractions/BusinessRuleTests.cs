@@ -29,7 +29,7 @@
         [Fact]
         public void ValidRule_ShouldNotThrow()
         {
-            var rule = new AlwaysValidRule();
+            AlwaysValidRule rule = new AlwaysValidRule();
             rule.Check();
         }
 
@@ -40,7 +40,7 @@
             CompositeBusinessRule composite = new(rules);
 
             Assert.True(composite.IsBroken());
-            var ex = Assert.Throws<BusinessRuleValidationException>(() => composite.Check());
+            BusinessRuleValidationException ex = Assert.Throws<BusinessRuleValidationException>(() => composite.Check());
             Assert.Single(ex.BrokenRules);
         }
     }

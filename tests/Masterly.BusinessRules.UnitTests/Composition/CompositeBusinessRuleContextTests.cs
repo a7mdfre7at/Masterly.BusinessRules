@@ -8,7 +8,7 @@
 
         public override string Code => "CONTEXT_RULE";
         public override string Message => "Value in context is invalid.";
-        public override bool IsBroken() => !_context.TryGet<int>(_key, out var value) || value < 10;
+        public override bool IsBroken() => !_context.TryGet<int>(_key, out int value) || value < 10;
     }
 
     public class CompositeBusinessRuleContextTests
@@ -16,32 +16,32 @@
         [Fact]
         public void Composite_With_ContextAwareRules_Passes()
         {
-            var context = new BusinessRuleContext();
+            BusinessRuleContext context = new BusinessRuleContext();
             context.Set("threshold", 15);
 
-            var rules = new IBusinessRule[]
+            IBusinessRule[] rules = new IBusinessRule[]
             {
             new ContextAwareRule(context, "threshold")
             };
 
-            var composite = new CompositeBusinessRule(rules);
+            CompositeBusinessRule composite = new CompositeBusinessRule(rules);
             composite.Check(); // should not throw
         }
 
         [Fact]
         public void Composite_With_ContextAwareRules_Fails()
         {
-            var context = new BusinessRuleContext();
+            BusinessRuleContext context = new BusinessRuleContext();
             context.Set("threshold", 5);
 
-            var rules = new IBusinessRule[]
+            IBusinessRule[] rules = new IBusinessRule[]
             {
             new ContextAwareRule(context, "threshold")
             };
 
-            var composite = new CompositeBusinessRule(rules);
+            CompositeBusinessRule composite = new CompositeBusinessRule(rules);
 
-            var ex = Assert.Throws<BusinessRuleValidationException>(() => composite.Check());
+            BusinessRuleValidationException ex = Assert.Throws<BusinessRuleValidationException>(() => composite.Check());
             Assert.Single(ex.BrokenRules);
         }
     }
