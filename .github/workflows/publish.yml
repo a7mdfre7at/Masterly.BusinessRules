@@ -31,7 +31,7 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Publish to NuGet
-        uses: alirezanet/publish-nuget@v3.1.1
+        uses: alirezanet/publish-nuget@v3.1.0
         with:
           PROJECT_FILE_PATH: src/Masterly.BusinessRules/Masterly.BusinessRules.csproj
           VERSION_REGEX: ^\s*<Version>(.*)<\/Version>\s*$
