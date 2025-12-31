@@ -31,7 +31,18 @@ namespace Masterly.BusinessRules
         /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
         public static void CheckAll(params IBusinessRule[] rules)
         {
-            CheckAll(rules, stopOnFirstFailure: false, observer: null, context: null);
+            CheckAllCore(rules, stopOnFirstFailure: false, observer: null, context: null);
+        }
+
+        /// <summary>
+        /// Checks all rules with fail-fast option and throws if any are broken.
+        /// </summary>
+        /// <param name="stopOnFirstFailure">If true, stops checking after the first broken rule.</param>
+        /// <param name="rules">The rules to check.</param>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
+        public static void CheckAll(bool stopOnFirstFailure, params IBusinessRule[] rules)
+        {
+            CheckAllCore(rules, stopOnFirstFailure: stopOnFirstFailure, observer: null, context: null);
         }
 
         /// <summary>
@@ -42,7 +53,19 @@ namespace Masterly.BusinessRules
         /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
         public static void CheckAll(BusinessRuleContext context, params IBusinessRule[] rules)
         {
-            CheckAll(rules, stopOnFirstFailure: false, observer: null, context: context);
+            CheckAllCore(rules, stopOnFirstFailure: false, observer: null, context: context);
+        }
+
+        /// <summary>
+        /// Checks all rules using context with fail-fast option and throws if any are broken.
+        /// </summary>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="stopOnFirstFailure">If true, stops checking after the first broken rule.</param>
+        /// <param name="rules">The rules to check.</param>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
+        public static void CheckAll(BusinessRuleContext context, bool stopOnFirstFailure, params IBusinessRule[] rules)
+        {
+            CheckAllCore(rules, stopOnFirstFailure: stopOnFirstFailure, observer: null, context: context);
         }
 
         /// <summary>
@@ -58,6 +81,15 @@ namespace Masterly.BusinessRules
             bool stopOnFirstFailure = false,
             IRuleExecutionObserver? observer = null,
             BusinessRuleContext? context = null)
+        {
+            CheckAllCore(rules, stopOnFirstFailure, observer, context);
+        }
+
+        private static void CheckAllCore(
+            IEnumerable<IBusinessRule> rules,
+            bool stopOnFirstFailure,
+            IRuleExecutionObserver? observer,
+            BusinessRuleContext? context)
         {
             List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
 

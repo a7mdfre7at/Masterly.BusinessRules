@@ -31,15 +31,69 @@ namespace Masterly.BusinessRules
         /// <summary>
         /// Checks all async rules sequentially and throws if any are broken.
         /// </summary>
+        /// <param name="rules">The async rules to check.</param>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static async Task CheckAllAsync(params IAsyncBusinessRule[] rules)
+        {
+            await CheckAllAsyncCore(new BusinessRuleContext(), rules, stopOnFirstFailure: false, runInParallel: false, observer: null, cancellationToken: default);
+        }
+
+        /// <summary>
+        /// Checks all async rules with fail-fast option and throws if any are broken.
+        /// </summary>
+        /// <param name="stopOnFirstFailure">If true, stops checking after the first broken rule.</param>
+        /// <param name="rules">The async rules to check.</param>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static async Task CheckAllAsync(bool stopOnFirstFailure, params IAsyncBusinessRule[] rules)
+        {
+            await CheckAllAsyncCore(new BusinessRuleContext(), rules, stopOnFirstFailure: stopOnFirstFailure, runInParallel: false, observer: null, cancellationToken: default);
+        }
+
+        /// <summary>
+        /// Checks all async rules sequentially and throws if any are broken.
+        /// </summary>
         /// <param name="context">The context containing data for rule evaluation.</param>
         /// <param name="rules">The async rules to check.</param>
         /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
         /// <returns>A task representing the asynchronous operation.</returns>
-        public static async Task CheckAllAsync(
-            BusinessRuleContext context,
-            params IAsyncBusinessRule[] rules)
+        public static async Task CheckAllAsync(BusinessRuleContext context, params IAsyncBusinessRule[] rules)
         {
-            await CheckAllAsync(context, rules, stopOnFirstFailure: false, runInParallel: false);
+            await CheckAllAsyncCore(context, rules, stopOnFirstFailure: false, runInParallel: false, observer: null, cancellationToken: default);
+        }
+
+        /// <summary>
+        /// Checks all async rules with fail-fast option and throws if any are broken.
+        /// </summary>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="stopOnFirstFailure">If true, stops checking after the first broken rule.</param>
+        /// <param name="rules">The async rules to check.</param>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static async Task CheckAllAsync(BusinessRuleContext context, bool stopOnFirstFailure, params IAsyncBusinessRule[] rules)
+        {
+            await CheckAllAsyncCore(context, rules, stopOnFirstFailure: stopOnFirstFailure, runInParallel: false, observer: null, cancellationToken: default);
+        }
+
+        /// <summary>
+        /// Checks all async rules with options for fail-fast and parallel execution.
+        /// </summary>
+        /// <param name="rules">The async rules to check.</param>
+        /// <param name="stopOnFirstFailure">If true, stops checking after the first broken rule. Cannot be combined with parallel execution.</param>
+        /// <param name="runInParallel">If true, evaluates all rules in parallel for better performance.</param>
+        /// <param name="observer">Optional observer for receiving async rule evaluation callbacks.</param>
+        /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static async Task CheckAllAsync(
+            IEnumerable<IAsyncBusinessRule> rules,
+            bool stopOnFirstFailure = false,
+            bool runInParallel = false,
+            IAsyncRuleExecutionObserver? observer = null,
+            CancellationToken cancellationToken = default)
+        {
+            await CheckAllAsyncCore(new BusinessRuleContext(), rules, stopOnFirstFailure, runInParallel, observer, cancellationToken);
         }
 
         /// <summary>
@@ -61,6 +115,17 @@ namespace Masterly.BusinessRules
             IAsyncRuleExecutionObserver? observer = null,
             CancellationToken cancellationToken = default)
         {
+            await CheckAllAsyncCore(context, rules, stopOnFirstFailure, runInParallel, observer, cancellationToken);
+        }
+
+        private static async Task CheckAllAsyncCore(
+            BusinessRuleContext context,
+            IEnumerable<IAsyncBusinessRule> rules,
+            bool stopOnFirstFailure,
+            bool runInParallel,
+            IAsyncRuleExecutionObserver? observer,
+            CancellationToken cancellationToken)
+        {
             List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
 
             if (runInParallel && !stopOnFirstFailure)
@@ -81,6 +146,42 @@ namespace Masterly.BusinessRules
         /// <summary>
         /// Evaluates all async rules and returns detailed results without throwing exceptions.
         /// </summary>
+        /// <param name="rules">The async rules to evaluate.</param>
+        /// <returns>A result object containing broken and passed rules with filtering capabilities.</returns>
+        public static async Task<AsyncRuleEvaluationResult> EvaluateAllAsync(params IAsyncBusinessRule[] rules)
+        {
+            return await EvaluateAllAsyncCore(new BusinessRuleContext(), rules, runInParallel: false, cancellationToken: default);
+        }
+
+        /// <summary>
+        /// Evaluates all async rules and returns detailed results without throwing exceptions.
+        /// </summary>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="rules">The async rules to evaluate.</param>
+        /// <returns>A result object containing broken and passed rules with filtering capabilities.</returns>
+        public static async Task<AsyncRuleEvaluationResult> EvaluateAllAsync(BusinessRuleContext context, params IAsyncBusinessRule[] rules)
+        {
+            return await EvaluateAllAsyncCore(context, rules, runInParallel: false, cancellationToken: default);
+        }
+
+        /// <summary>
+        /// Evaluates all async rules and returns detailed results without throwing exceptions.
+        /// </summary>
+        /// <param name="rules">The async rules to evaluate.</param>
+        /// <param name="runInParallel">If true, evaluates all rules in parallel for better performance.</param>
+        /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
+        /// <returns>A result object containing broken and passed rules with filtering capabilities.</returns>
+        public static async Task<AsyncRuleEvaluationResult> EvaluateAllAsync(
+            IEnumerable<IAsyncBusinessRule> rules,
+            bool runInParallel = false,
+            CancellationToken cancellationToken = default)
+        {
+            return await EvaluateAllAsyncCore(new BusinessRuleContext(), rules, runInParallel, cancellationToken);
+        }
+
+        /// <summary>
+        /// Evaluates all async rules and returns detailed results without throwing exceptions.
+        /// </summary>
         /// <param name="context">The context containing data for rule evaluation.</param>
         /// <param name="rules">The async rules to evaluate.</param>
         /// <param name="runInParallel">If true, evaluates all rules in parallel for better performance.</param>
@@ -91,6 +192,15 @@ namespace Masterly.BusinessRules
             IEnumerable<IAsyncBusinessRule> rules,
             bool runInParallel = false,
             CancellationToken cancellationToken = default)
+        {
+            return await EvaluateAllAsyncCore(context, rules, runInParallel, cancellationToken);
+        }
+
+        private static async Task<AsyncRuleEvaluationResult> EvaluateAllAsyncCore(
+            BusinessRuleContext context,
+            IEnumerable<IAsyncBusinessRule> rules,
+            bool runInParallel,
+            CancellationToken cancellationToken)
         {
             List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
             List<IAsyncBusinessRule> passedRules = new List<IAsyncBusinessRule>();
