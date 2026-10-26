@@ -16,6 +16,8 @@ namespace Masterly.BusinessRules
     /// A rule that fails to read the context (<see cref="ContextKeyNotFoundException"/> / <see cref="ContextValueTypeMismatchException"/>)
     /// is reported as a <see cref="BusinessRuleContextException"/> naming the rule's <c>Code</c>, with the original exception preserved
     /// as its inner exception; the fault policy then applies to the wrapped exception. Cancellation is never wrapped.
+    /// Violations observed by <see cref="RuleRolloutMode.Shadow"/> gated rules are collected on
+    /// <see cref="AsyncRuleEvaluationResult.ShadowResults"/> and reported through <see cref="IAsyncRuleExecutionObserver.OnShadowViolationAsync"/>.
     /// </summary>
     /// <example>
     /// <code>
@@ -370,25 +372,37 @@ namespace Masterly.BusinessRules
 
             IReadOnlyList<IAsyncBusinessRule> batch = rules as IReadOnlyList<IAsyncBusinessRule> ?? rules.ToList();
             IAsyncRuleExecutionObserver? observer = options.Observer;
+            List<BusinessRuleResult> shadowResults = new List<BusinessRuleResult>();
+            ShadowViolationSink? sink = ShadowViolationSink.Attach(context, out bool attachedSink);
 
-            long batchStart = RuleTiming.Start();
-            if (observer != null)
+            try
             {
-                await observer.OnBatchStartedAsync(batch.Count, cancellationToken);
+                long batchStart = RuleTiming.Start();
+                if (observer != null)
+                {
+                    await observer.OnBatchStartedAsync(batch.Count, cancellationToken);
+                }
+
+                List<RuleEvaluationEntry> entries = options.EffectiveParallel
+                    ? await EvaluateParallelAsync(context, batch, options, sink, shadowResults, cancellationToken)
+                    : await EvaluateSequentialAsync(context, batch, options, stopThreshold, sink, shadowResults, cancellationToken);
+
+                AsyncRuleEvaluationResult result = new AsyncRuleEvaluationResult(entries, RuleTiming.ElapsedSince(batchStart), shadowResults);
+
+                if (observer != null)
+                {
+                    await observer.OnBatchCompletedAsync(result, cancellationToken);
+                }
+
+                return result;
             }
-
-            List<RuleEvaluationEntry> entries = options.EffectiveParallel
-                ? await EvaluateParallelAsync(context, batch, options, cancellationToken)
-                : await EvaluateSequentialAsync(context, batch, options, stopThreshold, cancellationToken);
-
-            AsyncRuleEvaluationResult result = new AsyncRuleEvaluationResult(entries, RuleTiming.ElapsedSince(batchStart));
-
-            if (observer != null)
+            finally
             {
-                await observer.OnBatchCompletedAsync(result, cancellationToken);
+                if (attachedSink)
+                {
+                    ShadowViolationSink.Detach(context);
+                }
             }
-
-            return result;
         }
 
         private static async Task<List<RuleEvaluationEntry>> EvaluateSequentialAsync(
@@ -396,6 +410,8 @@ namespace Masterly.BusinessRules
             IReadOnlyList<IAsyncBusinessRule> batch,
             AsyncRuleEvaluationOptions options,
             RuleSeverity stopThreshold,
+            ShadowViolationSink? sink,
+            List<BusinessRuleResult> shadowResults,
             CancellationToken cancellationToken)
         {
             List<RuleEvaluationEntry> entries = new List<RuleEvaluationEntry>(batch.Count);
@@ -405,6 +421,7 @@ namespace Masterly.BusinessRules
             {
                 RuleEvaluationEntry entry = await EvaluateEntryAsync(index, batch[index], context, options, cancellationToken);
                 entries.Add(entry);
+                await ReportShadowViolationsAsync(sink, options.Observer, shadowResults, cancellationToken);
 
                 if (options.StopOnFirstFailure && entry.Result != null && RuleSeverityThreshold.IsAtLeast(entry.Result.Severity, stopThreshold))
                 {
@@ -425,6 +442,8 @@ namespace Masterly.BusinessRules
             BusinessRuleContext context,
             IReadOnlyList<IAsyncBusinessRule> batch,
             AsyncRuleEvaluationOptions options,
+            ShadowViolationSink? sink,
+            List<BusinessRuleResult> shadowResults,
             CancellationToken cancellationToken)
         {
             Task<RuleEvaluationEntry>[] tasks = new Task<RuleEvaluationEntry>[batch.Count];
@@ -434,7 +453,32 @@ namespace Masterly.BusinessRules
             }
 
             RuleEvaluationEntry[] entries = await Task.WhenAll(tasks);
+            await ReportShadowViolationsAsync(sink, options.Observer, shadowResults, cancellationToken);
             return new List<RuleEvaluationEntry>(entries);
+        }
+
+        /// <summary>
+        /// Hands every shadow violation recorded since the last call to the observer and the batch's shadow results.
+        /// </summary>
+        private static async Task ReportShadowViolationsAsync(
+            ShadowViolationSink? sink,
+            IAsyncRuleExecutionObserver? observer,
+            List<BusinessRuleResult> shadowResults,
+            CancellationToken cancellationToken)
+        {
+            if (sink == null)
+            {
+                return;
+            }
+
+            foreach (ShadowViolation violation in sink.Drain())
+            {
+                shadowResults.Add(violation.Result);
+                if (observer != null)
+                {
+                    await observer.OnShadowViolationAsync(violation.AsAsyncRule(), violation.Result, cancellationToken);
+                }
+            }
         }
 
         private static async Task<RuleEvaluationEntry> EvaluateEntryAsync(

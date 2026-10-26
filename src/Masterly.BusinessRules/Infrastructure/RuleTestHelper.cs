@@ -263,6 +263,23 @@ namespace Masterly.BusinessRules
                 .WhenAsync((ctx, ct) => Task.FromResult(false))
                 .Build();
         }
+
+        /// <summary>
+        /// Creates an in-memory feature flag provider (usable by sync and async gated rules) with one flag set.
+        /// Set further flags with <see cref="InMemoryRuleFeatureFlagProvider.Set(string, RuleRolloutMode, int)"/>;
+        /// flags that were never set report <see cref="RuleRollout.Off"/>.
+        /// </summary>
+        /// <param name="flag">The feature flag to set.</param>
+        /// <param name="mode">The mode the gated rule runs in for callers inside the cohort.</param>
+        /// <param name="percent">The percentage of stable keys inside the cohort. Defaults to everybody.</param>
+        /// <returns>The provider.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="flag"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="flag"/> is empty or white space.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when <paramref name="mode"/> is undefined or <paramref name="percent"/> is outside 0..100.</exception>
+        public static InMemoryRuleFeatureFlagProvider CreateFlagProvider(string flag, RuleRolloutMode mode, int percent = RuleRollout.MaxPercent)
+        {
+            return new InMemoryRuleFeatureFlagProvider().Set(flag, mode, percent);
+        }
     }
 
     /// <summary>

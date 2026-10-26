@@ -29,6 +29,7 @@ If you like or are using this project please give it a star. Thanks!
 - [Typed Context Keys](#typed-context-keys)
 - [Caching](#caching)
 - [Conditional Execution](#conditional-execution)
+- [Shadow Rollout and Feature-Gated Rules](#shadow-rollout-and-feature-gated-rules)
 - [Rule Adapters](#rule-adapters)
 - [Observers](#observers)
 - [Evaluation Results](#evaluation-results)
@@ -52,6 +53,7 @@ If you like or are using this project please give it a star. Thanks!
 - **Rule Metadata** - Name, description, category, tags, and severity
 - **Caching** - Time-based caching for expensive rule evaluations
 - **Conditional Execution** - Execute rules only when preconditions are met
+- **Shadow Rollout and Feature Gates** - `rule.GatedBy(flag, provider, stableKey)` ships a rule dark: `Off`, `Shadow` (evaluated but never blocking; what would have failed lands on `result.ShadowResults` and the `OnShadowViolation` observer hook) or `Enforced`, ramped to a percentage of callers by a stable in-house FNV-1a bucket, all read from an `IRuleFeatureFlagProvider` on every evaluation so the rule class never changes
 - **Rule Adapters** - Convert between sync and async rules
 - **Observers** - Monitor rule execution with per-rule and batch lifecycle callbacks (`OnBatchStarted`, `OnAfterEvaluate` with elapsed time, `OnRuleFaulted`, `OnBatchCompleted`) from both `CheckAll` and `EvaluateAll`
 - **Batch Validation** - Check multiple rules with fail-fast and parallel execution, or pass a `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` object
@@ -810,6 +812,80 @@ IAsyncBusinessRule asyncCondition = new ComplexRule()
 
 ---
 
+## Shadow Rollout and Feature-Gated Rules
+
+Ship a new rule dark and ramp it from your flag provider without touching the rule class. `rule.GatedBy(flag, provider, stableKey)` wraps any rule (sync or async) in a `FeatureGatedBusinessRule` / `FeatureGatedAsyncBusinessRule` that asks an `IRuleFeatureFlagProvider` / `IAsyncRuleFeatureFlagProvider` for the flag's `RuleRollout` on **every evaluation**, so moving a rule from observe-only to blocking is a configuration flip. All seven metadata members are forwarded from the inner rule.
+
+| `RuleRolloutMode` | Inner rule | Gated rule reports | Visible through |
+|-------------------|------------|--------------------|-----------------|
+| `Off` (or the caller is outside the rollout cohort) | not evaluated | passes | a `Skipped` `GATED` node in `Explain` |
+| `Shadow` | evaluated | passes | `observer.OnShadowViolation(rule, result)` and `result.ShadowResults` |
+| `Enforced` | evaluated | its own verdict | like any other rule |
+
+**Ramping.** A `RuleRollout` carries a `Percent` (0..100). A partial rollout needs a `stableKey` selector (a customer id, a tenant id) that `RuleRolloutBucket` hashes with in-house 32-bit FNV-1a into buckets 0..99; the caller is inside the cohort when its bucket is below the percent. The flag name is mixed into the hash, so different flags ramp over different customers, and a customer inside a 10% cohort stays inside when the rollout grows to 20%. A rollout at 100% never calls the stable key selector; a partial rollout without one throws `RuleConfigurationException`.
+
+**Providers.** Pass the provider to `GatedBy(...)`, or store one on the context under `RuleFeatureFlags.ContextKey` (`RuleFeatureFlags.AsyncContextKey` for async providers): a provider on the context overrides the injected one for that evaluation, which lets a test or a canary pipeline force a rollout. Async gated rules try the async provider first, then the sync one. When no provider can be found anywhere the evaluation throws `RuleConfigurationException` naming the rule's `Code`. `InMemoryRuleFeatureFlagProvider` implements both interfaces, is thread-safe and can be flipped at any time; `RuleTestHelper.CreateFlagProvider(flag, mode, percent)` builds one for tests. An adapter for `Microsoft.FeatureManagement` is planned as the sibling package `Masterly.BusinessRules.FeatureManagement`.
+
+**Shadow results.** Both checkers collect what shadow-mode rules would have reported on `RuleEvaluationResult.ShadowResults` / `AsyncRuleEvaluationResult.ShadowResults` (`HasShadowResults`), whether the gated rule is a batch member or nested inside a group, a cache or an adapter. These results are not in `BrokenRules`, never make `CheckAll` throw and never affect `AllPassed`. The options-taking overloads additionally raise the observer hook `OnShadowViolation(rule, result)` / `OnShadowViolationAsync(rule, result, ct)` right after the rule's own callbacks; it is a default interface member, so existing observers keep compiling.
+
+**A gate needs a context.** The sync `IsBroken()` / `Check()` without a context, and therefore a context-less `BusinessRuleChecker` call or an `And`/`Or` composition evaluated without a context, evaluate the inner rule **un-gated** and never consult the provider, so composition can never throw for a missing provider. Pass a context (`CheckAll(context, rules)`) to gate. The async checkers always evaluate with a context.
+
+**Interaction with `CachedBusinessRule`.** Put the cache *inside* the gate, never outside: `rule.Cached(ttl).GatedBy(...)` caches the expensive inner verdict while the rollout is still decided on every call, whereas `rule.GatedBy(...).Cached(ttl)` caches the gate's pass/fail and freezes a flag flip (or a shadow pass) for the whole cache duration. Remember that `CachedBusinessRule` holds one verdict per instance, not per context, so a cached inner rule serves the same verdict to every cohort member.
+
+**Explain.** A closed gate is a `Skipped` `GATED` node whose `Reason` says why (`flag 'credit-score-v2' is off` or `flag 'credit-score-v2' excludes bucket 57 (10%)`) with the inner rule as a `NotEvaluated` child; an enforced evaluation is a `GATED` node; a shadow evaluation is a `SHADOW` node that reports `Passed` with the reason `shadow violation` and the broken inner rule as its child; an un-gated evaluation (no context) is a `GATED` node with the reason `no context: evaluated un-gated`.
+
+### Feature Gate Examples
+
+```csharp
+// Ship dark: the rule runs, violations are observed, nobody is blocked
+InMemoryRuleFeatureFlagProvider flags = new InMemoryRuleFeatureFlagProvider()
+    .Set("credit-score-v2", RuleRolloutMode.Shadow)
+    .Set("sanctions-check", RuleRolloutMode.Enforced, percent: 10);
+
+IBusinessRule gated = new NewCreditScoreRule(customer)
+    .GatedBy("credit-score-v2", flags, stableKey: ctx => ctx.Get<string>("customerId"));
+
+IAsyncBusinessRule ramped = new SanctionsCheckRule(api)
+    .GatedBy("sanctions-check", flags, stableKey: ctx => ctx.Get<string>("customerId"));
+
+BusinessRuleContext context = RuleTestHelper.CreateContext(("customerId", customer.Id));
+RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new[] { gated, existingRule }, context, new RuleEvaluationOptions
+{
+    Observer = new ShadowMetricsObserver()
+});
+
+foreach (BusinessRuleResult wouldHaveFailed in result.ShadowResults)
+    Console.WriteLine($"[SHADOW] {wouldHaveFailed.Code}: {wouldHaveFailed.Message}");
+
+// Ramp and enforce from the provider; the rule class is untouched
+flags.Set("credit-score-v2", RuleRolloutMode.Enforced, percent: 10);   // blocks 10% of customers
+flags.Set("credit-score-v2", RuleRolloutMode.Enforced);                // blocks everybody
+
+// Override per request through the context (tests, canary traffic)
+context.Set(RuleFeatureFlags.ContextKey, RuleTestHelper.CreateFlagProvider("credit-score-v2", RuleRolloutMode.Enforced));
+
+// The observer hook is a default interface member
+public sealed class ShadowMetricsObserver : IRuleExecutionObserver
+{
+    public void OnBeforeEvaluate(IBusinessRule rule) { }
+    public void OnAfterEvaluate(IBusinessRule rule, BusinessRuleResult? result) { }
+    public void OnRuleBroken(IBusinessRule rule, BusinessRuleResult result) { }
+
+    public void OnShadowViolation(IBusinessRule rule, BusinessRuleResult result)
+        => Console.WriteLine($"{rule.Code} would have failed: {result.Message}");
+}
+
+// Cache inside the gate, never outside
+IBusinessRule right = new ExpensiveRule().Cached(TimeSpan.FromMinutes(5)).GatedBy("expensive-v2", flags);
+IBusinessRule wrong = new ExpensiveRule().GatedBy("expensive-v2", flags).Cached(TimeSpan.FromMinutes(5)); // freezes the flag for 5 minutes
+
+// Explain shows the gate decision and its reason
+RuleExplanation explanation = gated.Explain(context);
+Console.WriteLine($"{explanation.Operator} {explanation.Outcome} {explanation.Reason}");   // GATED Skipped flag 'credit-score-v2' is off
+```
+
+---
+
 ## Rule Adapters
 
 Rule adapters convert between sync and async rule interfaces. This is useful when you need to:
@@ -870,9 +946,10 @@ Observers receive callbacks during rule evaluation, enabling:
     - `OnAfterEvaluate(IBusinessRule rule, bool isBroken, TimeSpan elapsed)`: Called after each rule with the time the checker measured
     - `OnRuleFaulted(IBusinessRule rule, Exception exception)`: Called when a rule throws, before the `FaultPolicy` is applied
     - `OnBatchCompleted(RuleEvaluationResult result)`: Called once with the result and its ledger, before `CheckAll` throws
+    - `OnShadowViolation(IBusinessRule rule, BusinessRuleResult result)`: Called when a shadow-mode gated rule observed a violation it did not report as broken (see [Shadow Rollout and Feature-Gated Rules](#shadow-rollout-and-feature-gated-rules))
 
 - `IAsyncRuleExecutionObserver`: For async rule evaluation
-  - Same methods with async signatures and CancellationToken (`OnBatchStartedAsync`, `OnAfterEvaluateAsync(rule, isBroken, elapsed, ct)`, `OnRuleFaultedAsync`, `OnBatchCompletedAsync`)
+  - Same methods with async signatures and CancellationToken (`OnBatchStartedAsync`, `OnAfterEvaluateAsync(rule, isBroken, elapsed, ct)`, `OnRuleFaultedAsync`, `OnBatchCompletedAsync`, `OnShadowViolationAsync`)
 
 Per rule the order is `OnBeforeEvaluate`, `OnAfterEvaluate(rule, result)`, `OnAfterEvaluate(rule, isBroken, elapsed)`, then `OnRuleBroken` when broken. A rule that throws gets `OnRuleFaulted` instead of the two `OnAfterEvaluate` calls (plus `OnRuleBroken` under `FaultPolicy.TreatAsBroken`). `OnBatchCompleted` is not raised when a fault propagates under `FaultPolicy.Throw`.
 
@@ -950,6 +1027,7 @@ Evaluation methods return detailed results without throwing exceptions. This is 
 - `AllPassed`: True if all rules passed
 - `Errors` / `Warnings` / `Infos` and `HasErrors` / `HasWarnings`: Broken rules by severity
 - `Entries`, `Faulted`, `HasFaults`, `TotalDuration`, `Slowest`: The evaluation ledger (see [Evaluation Ledger, Options and Fault Policy](#evaluation-ledger-options-and-fault-policy))
+- `ShadowResults`, `HasShadowResults`: What shadow-mode gated rules would have reported; not counted as broken (see [Shadow Rollout and Feature-Gated Rules](#shadow-rollout-and-feature-gated-rules))
 
 **Methods:**
 - `GetBySeverity(RuleSeverity)`: Filter broken rules by severity
@@ -1204,6 +1282,7 @@ BusinessRuleResult warning = softened.Evaluate();            // Severity = Warni
 - `CreatePassingRule(code, message)`: Create a rule that always passes
 - `CreateBrokenAsyncRule(code, message)`: Async rule that always fails
 - `CreatePassingAsyncRule(code, message)`: Async rule that always passes
+- `CreateFlagProvider(flag, mode, percent)`: An `InMemoryRuleFeatureFlagProvider` (sync and async) with one flag set; other flags are `Off`
 
 All assertion methods throw `RuleAssertionException` on failure.
 
@@ -1371,8 +1450,9 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `IBusinessRuleMetadata` | Base of all four rule interfaces: `Code`, `Message`, and defaulted `Severity`, `Name`, `Description`, `Category`, `Tags` |
 | `IComposedBusinessRule` / `IComposedAsyncBusinessRule` | A rule computed from operands: `Operator`, `Operands` (And/Or/Not nodes, groups, composites) |
 | `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached, conditional and severity-override decorators) |
-| `IRuleExecutionObserver` | Sync execution callbacks plus batch hooks `OnBatchStarted`, `OnAfterEvaluate(rule, isBroken, elapsed)`, `OnRuleFaulted`, `OnBatchCompleted` |
-| `IAsyncRuleExecutionObserver` | Async execution callbacks plus the async batch hooks |
+| `IRuleExecutionObserver` | Sync execution callbacks plus batch hooks `OnBatchStarted`, `OnAfterEvaluate(rule, isBroken, elapsed)`, `OnRuleFaulted`, `OnBatchCompleted`, `OnShadowViolation` |
+| `IAsyncRuleExecutionObserver` | Async execution callbacks plus the async batch hooks and `OnShadowViolationAsync` |
+| `IRuleFeatureFlagProvider` / `IAsyncRuleFeatureFlagProvider` | Supply a flag's `RuleRollout` to gated rules: `GetRollout(flag, context)` / `GetRolloutAsync(flag, context, ct)` |
 
 ### Classes
 
@@ -1405,6 +1485,13 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `ConditionalBusinessRule` | Conditional execution for sync rules |
 | `ConditionalAsyncBusinessRule` | Conditional execution for async rules |
 | `SeverityOverrideBusinessRule` / `SeverityOverrideAsyncBusinessRule` | Decorator reporting a different severity (`.WithSeverity()`) |
+| `FeatureGatedBusinessRule` / `FeatureGatedAsyncBusinessRule` | Decorator gating a rule behind a feature flag (`.GatedBy()`): `Flag`, `Provider` (async also `AsyncProvider`), `HasStableKey`; `Off`/`Shadow`/`Enforced` and percentage ramping read from the provider on every evaluation |
+| `RuleRollout` | Readonly struct returned by providers: `Mode`, `Percent`, `IsOff`, `IsComplete`, `Includes(bucket)`; factories `Off`, `Shadow(percent)`, `Enforced(percent)` |
+| `RuleRolloutMode` | `Off`, `Shadow`, `Enforced` |
+| `RuleRolloutBucket` | In-house FNV-1a bucketing: `Compute(flag, stableKey)` (0..99), `Hash(text)`, `BucketCount` |
+| `RuleFeatureFlags` | Reserved context keys overriding the injected provider: `ContextKey` (sync), `AsyncContextKey` (async) |
+| `InMemoryRuleFeatureFlagProvider` | Thread-safe provider implementing both provider interfaces: `Set(flag, rollout)`, `Set(flag, mode, percent)`, `Remove`, `TryGet`, `DefaultRollout` |
+| `RuleConfigurationException` | Thrown when a gated rule has no provider or a partial rollout has no stable key: `RuleCode` |
 | `SyncToAsyncRuleAdapter` | Adapts sync rules to async |
 | `AsyncToSyncRuleAdapter` | Adapts async rules to sync (blocking) |
 | `BusinessRuleChecker` | Batch sync validation; options-taking `CheckAll`/`EvaluateAll` overloads; subject-typed `CheckAll(subject, rules)`, `EvaluateAll(subject, rules)`, `CheckBySeverity/Category/Tags(subject, rules, ...)` and `EvaluateEach(subjects, rules)` |
@@ -1414,15 +1501,15 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `RuleEvaluationEntry` | Ledger line: `Order`, `Rule`/`AsyncRule`, `Code`, `Outcome`, `Result`, `Fault`, `Duration` |
 | `BusinessRuleResult` | Immutable result with `Code`, `Message`, `Severity`, `Name`, `Category`, `Tags`, rich `Detail`/`Actual`/`Expected`/`Remediation`/`Data`, and `Details` (broken members of a composed rule); `Flatten()`, `HasTag()`, `WithSeverity()` |
 | `RuleResultDetails` | Immutable fluent bag returned by `Describe`: `Detail($"...")`, `.Actual()`, `.Expected()`, `.Remediation()`, `.With(key, value)`, `Empty` |
-| `RuleEvaluationResult` | Batch sync evaluation result with ledger (`Entries`, `Faulted`, `HasFaults`, `TotalDuration`, `Slowest`, `ThrowIfAtLeast`) and `ByTag`/`ByCategory` filters |
-| `AsyncRuleEvaluationResult` | Batch async evaluation result with the same ledger surface and filters |
+| `RuleEvaluationResult` | Batch sync evaluation result with ledger (`Entries`, `Faulted`, `HasFaults`, `TotalDuration`, `Slowest`, `ThrowIfAtLeast`), `ShadowResults`/`HasShadowResults` and `ByTag`/`ByCategory` filters |
+| `AsyncRuleEvaluationResult` | Batch async evaluation result with the same ledger surface, shadow results and filters |
 | `BusinessRuleValidationException` | Exception when rules are broken; `CollectedRules` (below threshold), `Entries` (ledger), `Flatten()` yields the leaf results, `ByTag`/`ByCategory` filter them |
 | `BusinessRuleContext` / `BusinessRuleContext<T>` | Key-value bag passed to rules: `Get`/`TryGet`/`Set`/`ContainsKey`/`Remove` by string or `ContextKey<T>`, `Keys`, `Count`, `Clear`, `FormatProvider`; the generic form adds `Data` |
 | `ContextKey<T>` | Typed context key (`Name`, `ValueType`); equatable by ordinal name |
 | `ContextKeyNotFoundException` | `KeyNotFoundException` from `Get` naming the missing `Key` and the `AvailableKeys` |
 | `ContextValueTypeMismatchException` | `InvalidCastException` from `Get` naming the `Key`, `ActualType` and `RequestedType` |
 | `BusinessRuleContextException` | Thrown by the checkers when a rule fails to read the context: `RuleCode`, `Key`, original exception as `InnerException` |
-| `RuleTestHelper` | Testing assertions and factories, including `CreateContext` from typed key/value pairs |
+| `RuleTestHelper` | Testing assertions and factories, including `CreateContext` from typed key/value pairs and `CreateFlagProvider(flag, mode, percent)` |
 
 ### Extension Methods
 
@@ -1440,6 +1527,7 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `.WithCache(TimeSpan)` | Add caching |
 | `.WithCondition(Func)` | Add conditional execution |
 | `.WithSeverity(RuleSeverity)` | Wrap in a severity-override decorator (sync and async) |
+| `.GatedBy(flag, provider, stableKey?)` / `.GatedBy(flag, stableKey?)` | Wrap in a feature gate read from the provider on every evaluation (sync and async; the async form accepts a sync or an async provider, and the provider-less form resolves it from `RuleFeatureFlags.ContextKey`/`AsyncContextKey`) |
 | `.Check(throwOn)` / `.Check(context, throwOn)` | Check one sync rule, throwing only at or above the severity |
 | `.CheckAsync(context, throwOn, ct)` | Check one async rule, throwing only at or above the severity |
 

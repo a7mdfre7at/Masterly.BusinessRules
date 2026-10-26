@@ -65,12 +65,20 @@ namespace Masterly.BusinessRules
         /// </summary>
         public static RuleExplanation Evaluated(IAsyncBusinessRule rule, bool isBroken, string operatorName, TimeSpan duration, IEnumerable<RuleExplanation> children)
         {
+            return Evaluated(rule, isBroken, operatorName, RuleExplanationText.NoReason, duration, children);
+        }
+
+        /// <summary>
+        /// Builds the node for an evaluated composed or decorated rule with a reason (for example a shadow violation).
+        /// </summary>
+        public static RuleExplanation Evaluated(IAsyncBusinessRule rule, bool isBroken, string operatorName, string reason, TimeSpan duration, IEnumerable<RuleExplanation> children)
+        {
             return new RuleExplanation(
                 rule,
                 isBroken ? RuleOutcome.Broken : RuleOutcome.Passed,
                 isBroken,
                 operatorName,
-                RuleExplanationText.NoReason,
+                reason,
                 duration,
                 null,
                 children);

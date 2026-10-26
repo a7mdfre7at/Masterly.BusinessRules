@@ -15,6 +15,9 @@ namespace Masterly.BusinessRules
     /// A rule that fails to read the context (<see cref="ContextKeyNotFoundException"/> / <see cref="ContextValueTypeMismatchException"/>)
     /// is reported as a <see cref="BusinessRuleContextException"/> naming the rule's <c>Code</c>, with the original exception preserved
     /// as its inner exception; the fault policy then applies to the wrapped exception.
+    /// Violations observed by <see cref="RuleRolloutMode.Shadow"/> gated rules are collected on
+    /// <see cref="RuleEvaluationResult.ShadowResults"/> and reported through <see cref="IRuleExecutionObserver.OnShadowViolation"/>
+    /// when the batch is evaluated with a context.
     /// </summary>
     /// <example>
     /// <code>
@@ -273,31 +276,61 @@ namespace Masterly.BusinessRules
             IReadOnlyList<IBusinessRule> batch = rules as IReadOnlyList<IBusinessRule> ?? rules.ToList();
             IRuleExecutionObserver? observer = options.Observer;
             List<RuleEvaluationEntry> entries = new List<RuleEvaluationEntry>(batch.Count);
+            List<BusinessRuleResult> shadowResults = new List<BusinessRuleResult>();
+            ShadowViolationSink? sink = ShadowViolationSink.Attach(context, out bool attachedSink);
 
-            long batchStart = RuleTiming.Start();
-            observer?.OnBatchStarted(batch.Count);
-
-            int index = 0;
-            for (; index < batch.Count; index++)
+            try
             {
-                RuleEvaluationEntry entry = EvaluateEntry(index, batch[index], context, options);
-                entries.Add(entry);
+                long batchStart = RuleTiming.Start();
+                observer?.OnBatchStarted(batch.Count);
 
-                if (options.StopOnFirstFailure && entry.Result != null && RuleSeverityThreshold.IsAtLeast(entry.Result.Severity, stopThreshold))
+                int index = 0;
+                for (; index < batch.Count; index++)
                 {
-                    index++;
-                    break;
+                    RuleEvaluationEntry entry = EvaluateEntry(index, batch[index], context, options);
+                    entries.Add(entry);
+                    ReportShadowViolations(sink, observer, shadowResults);
+
+                    if (options.StopOnFirstFailure && entry.Result != null && RuleSeverityThreshold.IsAtLeast(entry.Result.Severity, stopThreshold))
+                    {
+                        index++;
+                        break;
+                    }
+                }
+
+                for (; index < batch.Count; index++)
+                {
+                    entries.Add(NotEvaluated(index, batch[index]));
+                }
+
+                RuleEvaluationResult result = new RuleEvaluationResult(entries, RuleTiming.ElapsedSince(batchStart), shadowResults);
+                observer?.OnBatchCompleted(result);
+                return result;
+            }
+            finally
+            {
+                if (attachedSink)
+                {
+                    ShadowViolationSink.Detach(context);
                 }
             }
+        }
 
-            for (; index < batch.Count; index++)
+        /// <summary>
+        /// Hands every shadow violation recorded since the last call to the observer and the batch's shadow results.
+        /// </summary>
+        private static void ReportShadowViolations(ShadowViolationSink? sink, IRuleExecutionObserver? observer, List<BusinessRuleResult> shadowResults)
+        {
+            if (sink == null)
             {
-                entries.Add(NotEvaluated(index, batch[index]));
+                return;
             }
 
-            RuleEvaluationResult result = new RuleEvaluationResult(entries, RuleTiming.ElapsedSince(batchStart));
-            observer?.OnBatchCompleted(result);
-            return result;
+            foreach (ShadowViolation violation in sink.Drain())
+            {
+                shadowResults.Add(violation.Result);
+                observer?.OnShadowViolation(violation.AsSyncRule(), violation.Result);
+            }
         }
 
         private static RuleEvaluationEntry EvaluateEntry(int order, IBusinessRule rule, BusinessRuleContext? context, RuleEvaluationOptions options)

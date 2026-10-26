@@ -20,11 +20,31 @@ namespace Masterly.BusinessRules
         public const string WhenOperator = "WHEN";
         public const string AdapterOperator = "ADAPTER";
         public const string SeverityOperator = "SEVERITY";
+        public const string GateOperator = "GATED";
+        public const string ShadowOperator = "SHADOW";
 
         public const string NoReason = "";
         public const string ShortCircuitReason = "short-circuit";
         public const string PreconditionNotMetReason = "precondition not met";
         public const string CacheHitReason = "cache hit";
+        public const string ShadowViolationReason = "shadow violation";
+        public const string UngatedReason = "no context: evaluated un-gated";
+
+        /// <summary>
+        /// Builds the reason recorded on a gate closed because the flag is off.
+        /// </summary>
+        public static string FlagOffReason(string flag)
+        {
+            return $"flag '{flag}' is off";
+        }
+
+        /// <summary>
+        /// Builds the reason recorded on a gate closed because the caller's bucket is outside the rollout cohort.
+        /// </summary>
+        public static string OutsideCohortReason(string flag, int bucket, int percent)
+        {
+            return $"flag '{flag}' excludes bucket {bucket.ToString(CultureInfo.InvariantCulture)} ({percent.ToString(CultureInfo.InvariantCulture)}%)";
+        }
 
         public const string PassedLabel = "PASSED";
         public const string BrokenLabel = "BROKEN";

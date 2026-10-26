@@ -18,6 +18,8 @@ namespace Masterly.BusinessRules
     /// <see cref="OnRuleFaulted"/> when the rule threw (followed by <see cref="OnRuleBroken"/> under
     /// <see cref="FaultPolicy.TreatAsBroken"/>). <see cref="OnBatchCompleted"/> is raised before a batch throws;
     /// it is not raised when a fault propagates under <see cref="FaultPolicy.Throw"/>.
+    /// A <see cref="RuleRolloutMode.Shadow"/> gated rule that would have failed is reported as passed by the callbacks
+    /// above and additionally through <see cref="OnShadowViolation"/>, raised after the rule's own callbacks.
     /// </remarks>
     public interface IRuleExecutionObserver
     {
@@ -74,6 +76,17 @@ namespace Masterly.BusinessRules
         /// </summary>
         /// <param name="result">The result of the batch, including its ledger.</param>
         void OnBatchCompleted(RuleEvaluationResult result)
+        {
+        }
+
+        /// <summary>
+        /// Called when a <see cref="FeatureGatedBusinessRule"/> in <see cref="RuleRolloutMode.Shadow"/> mode (anywhere
+        /// in the evaluated tree) observed a violation that it did not report as broken. The result is also collected on
+        /// <see cref="RuleEvaluationResult.ShadowResults"/>. Raised only by batches evaluated with a context.
+        /// </summary>
+        /// <param name="rule">The gated rule that would have failed; an async gated rule reached through an adapter is wrapped in an <see cref="AsyncToSyncRuleAdapter"/>.</param>
+        /// <param name="result">The result the inner rule produced.</param>
+        void OnShadowViolation(IBusinessRule rule, BusinessRuleResult result)
         {
         }
     }
@@ -161,6 +174,21 @@ namespace Masterly.BusinessRules
         /// <param name="cancellationToken">A token to cancel the operation.</param>
         /// <returns>A task representing the asynchronous operation.</returns>
         Task OnBatchCompletedAsync(AsyncRuleEvaluationResult result, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Called when a <see cref="FeatureGatedAsyncBusinessRule"/> in <see cref="RuleRolloutMode.Shadow"/> mode (anywhere
+        /// in the evaluated tree) observed a violation that it did not report as broken. The result is also collected on
+        /// <see cref="AsyncRuleEvaluationResult.ShadowResults"/>. In a sequential batch it is raised after the rule's own
+        /// callbacks; in a parallel batch after the rule whose evaluation completed next.
+        /// </summary>
+        /// <param name="rule">The gated rule that would have failed; a sync gated rule reached through an adapter is wrapped in a <see cref="SyncToAsyncRuleAdapter"/>.</param>
+        /// <param name="result">The result the inner rule produced.</param>
+        /// <param name="cancellationToken">A token to cancel the operation.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        Task OnShadowViolationAsync(IAsyncBusinessRule rule, BusinessRuleResult result, CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
         }

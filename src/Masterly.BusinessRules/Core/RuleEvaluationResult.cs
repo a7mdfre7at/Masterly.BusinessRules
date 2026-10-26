@@ -12,6 +12,7 @@ namespace Masterly.BusinessRules
     public sealed class RuleEvaluationResult
     {
         private static readonly IReadOnlyList<RuleEvaluationEntry> NoEntries = Array.Empty<RuleEvaluationEntry>();
+        private static readonly IReadOnlyList<BusinessRuleResult> NoResults = Array.Empty<BusinessRuleResult>();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="RuleEvaluationResult"/> class from explicit broken and passed
@@ -38,6 +39,7 @@ namespace Masterly.BusinessRules
             BrokenRules = brokenRules.ToList().AsReadOnly();
             PassedRules = passedRules.ToList().AsReadOnly();
             Entries = NoEntries;
+            ShadowResults = NoResults;
             TotalDuration = TimeSpan.Zero;
         }
 
@@ -51,10 +53,30 @@ namespace Masterly.BusinessRules
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="entries"/> is null.</exception>
         /// <exception cref="ArgumentException">Thrown when an entry does not carry a synchronous rule.</exception>
         public RuleEvaluationResult(IEnumerable<RuleEvaluationEntry> entries, TimeSpan totalDuration)
+            : this(entries, totalDuration, NoResults)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="RuleEvaluationResult"/> class from an evaluation ledger and the
+        /// violations observed by <see cref="RuleRolloutMode.Shadow"/> gated rules, which are not part of the ledger's
+        /// broken results.
+        /// </summary>
+        /// <param name="entries">The ledger entries, in submission order; every entry must carry a synchronous <see cref="RuleEvaluationEntry.Rule"/>.</param>
+        /// <param name="totalDuration">The wall-clock duration of the whole batch.</param>
+        /// <param name="shadowResults">The results shadow-mode gated rules would have reported, in reporting order.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="entries"/> or <paramref name="shadowResults"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when an entry does not carry a synchronous rule.</exception>
+        public RuleEvaluationResult(IEnumerable<RuleEvaluationEntry> entries, TimeSpan totalDuration, IEnumerable<BusinessRuleResult> shadowResults)
         {
             if (entries == null)
             {
                 throw new ArgumentNullException(nameof(entries));
+            }
+
+            if (shadowResults == null)
+            {
+                throw new ArgumentNullException(nameof(shadowResults));
             }
 
             List<RuleEvaluationEntry> ledger = entries.ToList();
@@ -81,6 +103,7 @@ namespace Masterly.BusinessRules
             Entries = ledger.AsReadOnly();
             BrokenRules = brokenRules.AsReadOnly();
             PassedRules = passedRules.AsReadOnly();
+            ShadowResults = shadowResults.ToList().AsReadOnly();
             TotalDuration = totalDuration;
         }
 
@@ -88,6 +111,19 @@ namespace Masterly.BusinessRules
         /// Gets all broken rule results.
         /// </summary>
         public IReadOnlyCollection<BusinessRuleResult> BrokenRules { get; }
+
+        /// <summary>
+        /// Gets the results that <see cref="RuleRolloutMode.Shadow"/> gated rules would have reported had they been
+        /// enforced: what would have failed. They are not in <see cref="BrokenRules"/>, do not affect <see cref="AllPassed"/>
+        /// and never make <see cref="ThrowIfBroken"/> throw. Empty for a result built without shadow results, and for
+        /// a sync batch evaluated without a context.
+        /// </summary>
+        public IReadOnlyCollection<BusinessRuleResult> ShadowResults { get; }
+
+        /// <summary>
+        /// Returns true if any shadow-mode gated rule observed a violation.
+        /// </summary>
+        public bool HasShadowResults => ShadowResults.Count > 0;
 
         /// <summary>
         /// Gets all rules that passed evaluation.

@@ -15,6 +15,13 @@ namespace Masterly.BusinessRules
         private readonly Dictionary<string, object> _items = new Dictionary<string, object>();
 
         /// <summary>
+        /// The sink collecting shadow violations while a checker batch evaluates against this context; null outside a
+        /// batch. It lives beside the key/value store, never in it, so it is invisible to <see cref="Keys"/>,
+        /// <see cref="Count"/>, <see cref="ContainsKey(string)"/> and the available-keys list of a <see cref="ContextKeyNotFoundException"/>.
+        /// </summary>
+        internal ShadowViolationSink? ShadowSink { get; set; }
+
+        /// <summary>
         /// Gets a value from the context by key.
         /// </summary>
         /// <typeparam name="T">The type to return the value as.</typeparam>
