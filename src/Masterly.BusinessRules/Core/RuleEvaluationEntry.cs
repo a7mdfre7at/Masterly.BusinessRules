@@ -25,7 +25,6 @@ namespace Masterly.BusinessRules
             : this(order, outcome, result, fault, duration)
         {
             Rule = rule ?? throw new ArgumentNullException(nameof(rule));
-            Code = rule.Code;
         }
 
         /// <summary>
@@ -43,7 +42,6 @@ namespace Masterly.BusinessRules
             : this(order, outcome, result, fault, duration)
         {
             AsyncRule = rule ?? throw new ArgumentNullException(nameof(rule));
-            Code = rule.Code;
         }
 
         private RuleEvaluationEntry(int order, RuleOutcome outcome, BusinessRuleResult? result, Exception? fault, TimeSpan duration)
@@ -58,7 +56,6 @@ namespace Masterly.BusinessRules
             Result = result;
             Fault = fault;
             Duration = duration;
-            Code = string.Empty;
         }
 
         /// <summary>
@@ -77,9 +74,22 @@ namespace Masterly.BusinessRules
         public IAsyncBusinessRule? AsyncRule { get; }
 
         /// <summary>
-        /// Gets the code of the evaluated rule.
+        /// Gets the code of the evaluated rule. It is read from the rule on demand, so recording a ledger entry never
+        /// touches the rule's metadata getters and a throwing <c>Code</c> getter cannot mask the fault that was recorded.
         /// </summary>
-        public string Code { get; }
+        public string Code
+        {
+            get
+            {
+                if (Rule != null)
+                {
+                    return Rule.Code;
+                }
+
+                // The public constructors guarantee that exactly one of Rule and AsyncRule is non-null.
+                return AsyncRule!.Code;
+            }
+        }
 
         /// <summary>
         /// Gets what happened to the rule: <see cref="RuleOutcome.Passed"/>, <see cref="RuleOutcome.Broken"/>,

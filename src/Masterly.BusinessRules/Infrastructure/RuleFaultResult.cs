@@ -4,7 +4,7 @@ namespace Masterly.BusinessRules
 {
     /// <summary>
     /// Builds the broken result that stands in for a faulted rule under <see cref="FaultPolicy.TreatAsBroken"/>.
-    /// The rule's metadata getters are read inside a secondary guard, so a <c>Message</c> getter that throws cannot
+    /// The rule's metadata getters are read inside a secondary guard, so a <c>Code</c> or <c>Message</c> getter that throws cannot
     /// escape the checker and mask the original fault.
     /// </summary>
     internal static class RuleFaultResult

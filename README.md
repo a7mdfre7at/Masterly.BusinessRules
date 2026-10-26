@@ -860,7 +860,7 @@ One options object per side (`RuleEvaluationOptions` for `BusinessRuleChecker`, 
 |---------------|-----------|
 | `Throw` | The exception propagates after `OnRuleFaulted`; no result or ledger is produced (pre-3.0 behaviour) |
 | `Record` | The entry is `Faulted` with the exception; the rule is neither broken nor passed and the batch continues. `CheckAll` does not throw for a recorded fault by itself, so use it with `EvaluateAll` or an observer |
-| `TreatAsBroken` | As `Record`, plus a broken result built from the rule's `Code`/`Message`/`Severity` is added, so the fault blocks like a violation. A `Message` getter that throws falls back to the rule's type name without masking the original fault |
+| `TreatAsBroken` | As `Record`, plus a broken result built from the rule's `Code`/`Message`/`Severity` is added, so the fault blocks like a violation. A `Code` or `Message` getter that throws falls back to the rule's type name without masking the original fault |
 
 There is deliberately no `TreatAsPassed`: a fault is never silently turned into a pass.
 

@@ -256,6 +256,32 @@ public class BusinessRuleCheckerLedgerTests
     }
 
     [Theory]
+    [InlineData(FaultPolicy.Record)]
+    [InlineData(FaultPolicy.TreatAsBroken)]
+    public void EvaluateAll_ThrowingCodeGetter_RecordsTheFaultWithoutMaskingIt(FaultPolicy policy)
+    {
+        ThrowingCodeRule rule = new ThrowingCodeRule();
+
+        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new IBusinessRule[] { rule }, new RuleEvaluationOptions { OnFault = policy });
+
+        RuleEvaluationEntry entry = Assert.Single(result.Entries);
+        Assert.Equal(RuleOutcome.Faulted, entry.Outcome);
+        Assert.IsType<InvalidOperationException>(entry.Fault);
+        Assert.Equal(Boom, entry.Fault!.Message);
+        Assert.Throws<NotSupportedException>(() => entry.Code);
+    }
+
+    [Fact]
+    public void EvaluateAll_FaultPolicyTreatAsBroken_ThrowingCodeGetter_FallsBackToTypeName()
+    {
+        ThrowingCodeRule rule = new ThrowingCodeRule();
+
+        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new IBusinessRule[] { rule }, new RuleEvaluationOptions { OnFault = FaultPolicy.TreatAsBroken });
+
+        Assert.Equal(nameof(ThrowingCodeRule), Assert.Single(result.BrokenRules).Code);
+    }
+
+    [Theory]
     [InlineData(FaultPolicy.Throw)]
     [InlineData(FaultPolicy.Record)]
     [InlineData(FaultPolicy.TreatAsBroken)]
@@ -636,6 +662,23 @@ public class BusinessRuleCheckerLedgerTests
         public string Code => "THROWING.MESSAGE";
 
         public string Message => throw new NotSupportedException("message getter throws");
+
+        public bool IsBroken() => throw new InvalidOperationException(Boom);
+
+        public bool IsBroken(BusinessRuleContext context) => IsBroken();
+
+        public void Check() => IsBroken();
+
+        public void Check(BusinessRuleContext context) => IsBroken();
+
+        public BusinessRuleResult Evaluate() => new BusinessRuleResult(Code, Message, RuleSeverity.Error);
+    }
+
+    private sealed class ThrowingCodeRule : IBusinessRule
+    {
+        public string Code => throw new NotSupportedException("code getter throws");
+
+        public string Message => "code getter throws";
 
         public bool IsBroken() => throw new InvalidOperationException(Boom);
 

@@ -69,6 +69,18 @@ public class AsyncBusinessRuleCheckerLedgerTests
     }
 
     [Fact]
+    public async Task EvaluateAllAsync_WithOptions_SlowestIsTheSlowRule()
+    {
+        IAsyncBusinessRule fast = CreateRule("FAST", broken: false);
+        IAsyncBusinessRule slow = CreateSlowRule("SLOW", TimeSpan.FromMilliseconds(10));
+
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new[] { fast, slow }, new AsyncRuleEvaluationOptions(), TestToken);
+
+        Assert.Equal("SLOW", result.Slowest!.Code);
+        Assert.True(result.Slowest.Duration >= TimeSpan.FromMilliseconds(5));
+    }
+
+    [Fact]
     public async Task EvaluateAllAsync_LegacyOverload_AlsoRecordsLedger()
     {
         AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(CreateRule("A", broken: false), CreateRule("B", broken: true));
@@ -280,6 +292,32 @@ public class AsyncBusinessRuleCheckerLedgerTests
         Assert.Equal(nameof(ThrowingMessageAsyncRule), entry.Result!.Code);
         Assert.Contains("Rule evaluation faulted", entry.Result.Message);
         Assert.Equal(RuleSeverity.Error, entry.Result.Severity);
+    }
+
+    [Theory]
+    [InlineData(FaultPolicy.Record)]
+    [InlineData(FaultPolicy.TreatAsBroken)]
+    public async Task EvaluateAllAsync_ThrowingCodeGetter_RecordsTheFaultWithoutMaskingIt(FaultPolicy policy)
+    {
+        ThrowingCodeAsyncRule rule = new ThrowingCodeAsyncRule();
+
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new IAsyncBusinessRule[] { rule }, new AsyncRuleEvaluationOptions { OnFault = policy }, TestToken);
+
+        RuleEvaluationEntry entry = Assert.Single(result.Entries);
+        Assert.Equal(RuleOutcome.Faulted, entry.Outcome);
+        Assert.IsType<InvalidOperationException>(entry.Fault);
+        Assert.Equal(Boom, entry.Fault!.Message);
+        Assert.Throws<NotSupportedException>(() => entry.Code);
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_FaultPolicyTreatAsBroken_ThrowingCodeGetter_FallsBackToTypeName()
+    {
+        ThrowingCodeAsyncRule rule = new ThrowingCodeAsyncRule();
+
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new IAsyncBusinessRule[] { rule }, new AsyncRuleEvaluationOptions { OnFault = FaultPolicy.TreatAsBroken }, TestToken);
+
+        Assert.Equal(nameof(ThrowingCodeAsyncRule), Assert.Single(result.BrokenRules).Code);
     }
 
     [Theory]
@@ -512,6 +550,26 @@ public class AsyncBusinessRuleCheckerLedgerTests
     }
 
     [Fact]
+    public async Task CheckAllAsync_FaultPolicyRecord_WithBrokenRule_ExceptionCarriesTheFaultInEntries()
+    {
+        IAsyncBusinessRule[] rules = { CreateThrowingRule(ThrowingCode), CreateRule(BrokenCode, broken: true) };
+
+        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
+            () => AsyncBusinessRuleChecker.CheckAllAsync(rules, new AsyncRuleEvaluationOptions { OnFault = FaultPolicy.Record }, TestToken));
+
+        Assert.Equal(BrokenCode, Assert.Single(exception.BrokenRules).Code);
+        Assert.Equal(RuleOutcome.Faulted, exception.Entries[0].Outcome);
+        Assert.IsType<InvalidOperationException>(exception.Entries[0].Fault);
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_FaultPolicyThrow_PropagatesOriginalException()
+    {
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => AsyncBusinessRuleChecker.CheckAllAsync(new[] { CreateThrowingRule(ThrowingCode) }, new AsyncRuleEvaluationOptions(), TestToken));
+    }
+
+    [Fact]
     public async Task CheckAllAsync_FaultPolicyTreatAsBroken_ThrowsWithSynthesisedResult()
     {
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
@@ -547,6 +605,22 @@ public class AsyncBusinessRuleCheckerLedgerTests
         BusinessRuleContext context = null!; // intentional: exercising the null guard
 
         await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.CheckAllAsync(context, Array.Empty<IAsyncBusinessRule>(), new AsyncRuleEvaluationOptions(), TestToken));
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_NullRules_ThrowsArgumentNullException()
+    {
+        IEnumerable<IAsyncBusinessRule> rules = null!; // intentional: exercising the null guard
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.EvaluateAllAsync(rules, new AsyncRuleEvaluationOptions(), TestToken));
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_NullContext_ThrowsArgumentNullException()
+    {
+        BusinessRuleContext context = null!; // intentional: exercising the null guard
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.EvaluateAllAsync(context, Array.Empty<IAsyncBusinessRule>(), new AsyncRuleEvaluationOptions(), TestToken));
     }
 
     [Fact]
@@ -612,6 +686,22 @@ public class AsyncBusinessRuleCheckerLedgerTests
         public string Code => "THROWING.MESSAGE";
 
         public string Message => throw new NotSupportedException("message getter throws");
+
+        public Task<bool> IsBrokenAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException(Boom);
+
+        public Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
+            => IsBrokenAsync(context, cancellationToken).ContinueWith(_ => (BusinessRuleResult?)null, cancellationToken);
+
+        public Task CheckAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
+            => IsBrokenAsync(context, cancellationToken);
+    }
+
+    private sealed class ThrowingCodeAsyncRule : IAsyncBusinessRule
+    {
+        public string Code => throw new NotSupportedException("code getter throws");
+
+        public string Message => "code getter throws";
 
         public Task<bool> IsBrokenAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
             => throw new InvalidOperationException(Boom);
