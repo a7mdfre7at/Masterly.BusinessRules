@@ -180,6 +180,43 @@ public class BusinessRuleContextTypedKeyTests
         Assert.False(context.Remove(OrderKey));
     }
 
+    [Fact]
+    public void TryGet_DefaultTypedKey_ThrowsArgumentNullException()
+    {
+        BusinessRuleContext context = new BusinessRuleContext();
+        ContextKey<Order> key = default;
+
+        Assert.Throws<ArgumentNullException>(() => context.TryGet(key, out Order _));
+    }
+
+    [Fact]
+    public void Set_DefaultTypedKey_ThrowsArgumentNullException()
+    {
+        BusinessRuleContext context = new BusinessRuleContext();
+        ContextKey<Order> key = default;
+
+        Assert.Throws<ArgumentNullException>(() => context.Set(key, new Order(1)));
+        Assert.Equal(0, context.Count);
+    }
+
+    [Fact]
+    public void ContainsKey_DefaultTypedKey_ThrowsArgumentNullException()
+    {
+        BusinessRuleContext context = new BusinessRuleContext();
+        ContextKey<Order> key = default;
+
+        Assert.Throws<ArgumentNullException>(() => context.ContainsKey(key));
+    }
+
+    [Fact]
+    public void Remove_DefaultTypedKey_ThrowsArgumentNullException()
+    {
+        BusinessRuleContext context = new BusinessRuleContext();
+        ContextKey<Order> key = default;
+
+        Assert.Throws<ArgumentNullException>(() => context.Remove(key));
+    }
+
     // ---------------------------------------------------------------------
     // Keys
     // ---------------------------------------------------------------------
@@ -190,7 +227,7 @@ public class BusinessRuleContextTypedKeyTests
         BusinessRuleContext context = new BusinessRuleContext();
 
         Assert.Empty(context.Keys);
-        Assert.Equal(0, context.Keys.Count);
+        Assert.Equal(0, context.Count);
     }
 
     [Fact]

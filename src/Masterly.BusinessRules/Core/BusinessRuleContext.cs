@@ -88,6 +88,7 @@ namespace Masterly.BusinessRules
         /// <param name="key">The typed key.</param>
         /// <param name="value">The stored value, or <c>default</c> when the method returns <c>false</c>.</param>
         /// <returns><c>true</c> when a value of type <typeparamref name="T"/> is stored under the key.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="key"/> is the default instance (no name).</exception>
         public bool TryGet<T>(ContextKey<T> key, out T value) => TryGet(key.Name, out value);
 
         /// <summary>
@@ -105,6 +106,7 @@ namespace Masterly.BusinessRules
         /// <typeparam name="T">The type of the value, inferred from the key.</typeparam>
         /// <param name="key">The typed key.</param>
         /// <param name="value">The value to store.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="key"/> is the default instance (no name).</exception>
         public void Set<T>(ContextKey<T> key, T value) => Set(key.Name, value);
 
         /// <summary>
@@ -121,6 +123,7 @@ namespace Masterly.BusinessRules
         /// <typeparam name="T">The type of the value, inferred from the key.</typeparam>
         /// <param name="key">The typed key.</param>
         /// <returns><c>true</c> when the key is present.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="key"/> is the default instance (no name).</exception>
         public bool ContainsKey<T>(ContextKey<T> key) => ContainsKey(key.Name);
 
         /// <summary>
@@ -137,6 +140,7 @@ namespace Masterly.BusinessRules
         /// <typeparam name="T">The type of the value, inferred from the key.</typeparam>
         /// <param name="key">The typed key.</param>
         /// <returns><c>true</c> when the key was present and has been removed.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="key"/> is the default instance (no name).</exception>
         public bool Remove<T>(ContextKey<T> key) => Remove(key.Name);
 
         /// <summary>
