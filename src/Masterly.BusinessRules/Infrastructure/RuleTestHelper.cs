@@ -280,6 +280,23 @@ namespace Masterly.BusinessRules
         {
             return new InMemoryRuleFeatureFlagProvider().Set(flag, mode, percent);
         }
+
+        /// <summary>
+        /// Creates an in-memory parameter provider (usable by sync and async built rules) with one value set.
+        /// Set further values with <see cref="InMemoryRuleParameterProvider.Set{T}(string, T, RuleScope)"/>;
+        /// parameters that were never set resolve to the rule's declared fallback.
+        /// </summary>
+        /// <typeparam name="T">The value type.</typeparam>
+        /// <param name="name">The parameter name.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="scope">The scope the value applies to; null means <see cref="RuleScope.Global"/>.</param>
+        /// <returns>The provider.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="name"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="name"/> is empty or white space.</exception>
+        public static InMemoryRuleParameterProvider CreateParameterProvider<T>(string name, T value, RuleScope? scope = null)
+        {
+            return new InMemoryRuleParameterProvider().Set(name, value, scope ?? RuleScope.Global);
+        }
     }
 
     /// <summary>

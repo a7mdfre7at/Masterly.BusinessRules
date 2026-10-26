@@ -31,6 +31,7 @@ If you like or are using this project please give it a star. Thanks!
 - [Caching](#caching)
 - [Conditional Execution](#conditional-execution)
 - [Shadow Rollout and Feature-Gated Rules](#shadow-rollout-and-feature-gated-rules)
+- [Rule Scopes and Externalized Parameters](#rule-scopes-and-externalized-parameters)
 - [Rule Adapters](#rule-adapters)
 - [Observers](#observers)
 - [Evaluation Results](#evaluation-results)
@@ -53,9 +54,10 @@ If you like or are using this project please give it a star. Thanks!
 - **Rule Groups** - Unambiguous N-ary quantifiers `RuleGroup.All/Any/AtLeast/Exactly` with opt-in short-circuit and (async) parallel evaluation; member failures travel through `BusinessRuleResult.Details`
 - **Explain Trees** - `rule.Explain(context)` / `await rule.ExplainAsync(context)` return a navigable, printable tree (Passed/Broken/Skipped/CacheHit/NotEvaluated/Faulted per node, with timing) produced by a single evaluation
 - **Rule Metadata** - Name, description, category, tags, and severity
-- **Caching** - Time-based caching for expensive rule evaluations
+- **Caching** - Time-based caching for expensive rule evaluations, per instance or per cache key (`.Cached(ttl, ctx => tenant)`) so scoped rules cache per tenant
 - **Conditional Execution** - Execute rules only when preconditions are met
 - **Shadow Rollout and Feature Gates** - `rule.GatedBy(flag, provider, stableKey)` ships a rule dark: `Off`, `Shadow` (evaluated but never blocking; what would have failed lands on `result.ShadowResults` and the `OnShadowViolation` observer hook) or `Enforced`, ramped to a percentage of callers by a stable in-house FNV-1a bucket, all read from an `IRuleFeatureFlagProvider` on every evaluation so the rule class never changes
+- **Rule Scopes and Externalized Parameters** - Stop hard-coding `10_000m`: declare `.WithParameter<decimal>("maxOrderAmount", fallback: 10_000m)` and read it in `.When((ctx, p) => ...)`; an `IRuleParameterProvider` supplies the value per `RuleScope` (`RuleScope.Tenant("acme").With("region", "EU")`), so the same checkout rules run with different limits for ACME without an `if` in rule code. `IRuleConditionCompiler` / `IAsyncRuleConditionCompiler` are the seams the Expressions package plugs textual conditions into
 - **Rule Adapters** - Convert between sync and async rules
 - **Observers** - Monitor rule execution with per-rule and batch lifecycle callbacks (`OnBatchStarted`, `OnAfterEvaluate` with elapsed time, `OnRuleFaulted`, `OnBatchCompleted`) from both `CheckAll` and `EvaluateAll`
 - **Batch Validation** - Check multiple rules with fail-fast and parallel execution, or pass a `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` object
@@ -805,12 +807,15 @@ Caching wraps a rule and stores its result for a specified duration. Subsequent 
 - `CachedBusinessRule`: Wraps sync rules with thread-safe caching
 - `CachedAsyncBusinessRule`: Wraps async rules with async-safe caching (uses SemaphoreSlim)
 
+**Per instance or per key.** By default a cached rule holds **one verdict per instance**, whatever the context, so it must never wrap a rule whose verdict depends on the context (scoped parameters, a tenant id, a feature cohort). Pass a `cacheKeySelector` (`Func<BusinessRuleContext, string>`) to cache **one verdict per key** instead: `rule.Cached(ttl, ctx => ctx.Get(RuleParameters.ScopeKey).ToString())` keeps ACME's verdict apart from Globex's. `CachesPerKey` reports which mode an instance is in. The parameterless `IsBroken()` / `Check()` have no context to select a key from and always use a dedicated shared entry. Expired entries are purged whenever a new key is stored, so the cache holds at most one live entry per key seen within the duration; keep the key space bounded (tenants, regions), never per request. A selector that returns null throws `RuleConfigurationException` naming the rule's `Code`.
+
 **Cache Invalidation:**
-- `InvalidateCache()`: Clears the sync cache
-- `InvalidateCacheAsync()`: Clears the async cache
+- `InvalidateCache()` / `InvalidateCacheAsync()`: Clears every entry (the shared one and all keys)
+- `InvalidateCache(key)` / `InvalidateCacheAsync(key)`: Clears one key; other keys and the shared entry are untouched
 
 **Extension Methods:**
-- `.WithCache(TimeSpan)`: Fluent syntax for adding caching
+- `.Cached(TimeSpan)`: Fluent syntax for adding per-instance caching
+- `.Cached(TimeSpan, cacheKeySelector)`: Fluent syntax for adding per-key caching
 
 ### Caching Examples
 
@@ -836,8 +841,15 @@ bool result = await cachedAsyncRule.IsBrokenAsync(context);
 await cachedAsyncRule.InvalidateCacheAsync();
 
 // Extension method syntax
-IBusinessRule cachedExtRule = new ExpensiveRule().WithCache(TimeSpan.FromMinutes(5));
-IAsyncBusinessRule cachedExtAsync = new DatabaseRule().WithCache(TimeSpan.FromSeconds(30));
+IBusinessRule cachedExtRule = new ExpensiveRule().Cached(TimeSpan.FromMinutes(5));
+IAsyncBusinessRule cachedExtAsync = new DatabaseRule().Cached(TimeSpan.FromSeconds(30));
+
+// Per-key caching: a rule reading scoped parameters is cached per tenant
+CachedBusinessRule perTenant = orderLimitRule.Cached(TimeSpan.FromMinutes(5), ctx => ctx.Get(RuleParameters.ScopeKey).ToString());
+perTenant.IsBroken(acmeContext);     // evaluates for ACME
+perTenant.IsBroken(globexContext);   // evaluates for Globex, separate entry
+perTenant.IsBroken(acmeContext);     // ACME cache hit
+perTenant.InvalidateCache("tenant=acme");   // drop one key only
 ```
 
 ---
@@ -913,7 +925,7 @@ Ship a new rule dark and ramp it from your flag provider without touching the ru
 
 **A gate needs a context.** The sync `IsBroken()` / `Check()` without a context, and therefore a context-less `BusinessRuleChecker` call or an `And`/`Or` composition evaluated without a context, evaluate the inner rule **un-gated** and never consult the provider, so composition can never throw for a missing provider. Pass a context (`CheckAll(context, rules)`) to gate. The async checkers always evaluate with a context.
 
-**Interaction with `CachedBusinessRule`.** Put the cache *inside* the gate, never outside: `rule.Cached(ttl).GatedBy(...)` caches the expensive inner verdict while the rollout is still decided on every call, whereas `rule.GatedBy(...).Cached(ttl)` caches the gate's pass/fail and freezes a flag flip (or a shadow pass) for the whole cache duration. Remember that `CachedBusinessRule` holds one verdict per instance, not per context, so a cached inner rule serves the same verdict to every cohort member.
+**Interaction with `CachedBusinessRule`.** Put the cache *inside* the gate, never outside: `rule.Cached(ttl).GatedBy(...)` caches the expensive inner verdict while the rollout is still decided on every call, whereas `rule.GatedBy(...).Cached(ttl)` caches the gate's pass/fail and freezes a flag flip (or a shadow pass) for the whole cache duration. Remember that `CachedBusinessRule` holds one verdict per instance by default, so a cached inner rule serves the same verdict to every cohort member; pass a `cacheKeySelector` (`rule.Cached(ttl, ctx => tenant)`) when the inner verdict depends on the caller.
 
 **Explain.** A closed gate is a `Skipped` `GATED` node whose `Reason` says why (`flag 'credit-score-v2' is off` or `flag 'credit-score-v2' excludes bucket 57 (10%)`) with the inner rule as a `NotEvaluated` child; an enforced evaluation is a `GATED` node; a shadow evaluation is a `SHADOW` node that reports `Passed` with the reason `shadow violation` and the broken inner rule as its child; an un-gated evaluation (no context) is a `GATED` node with the reason `no context: evaluated un-gated`.
 
@@ -968,6 +980,105 @@ Console.WriteLine($"{explanation.Operator} {explanation.Outcome} {explanation.Re
 // Enforced and broken:  GATED Broken
 // Shadow and broken:    SHADOW Passed shadow violation
 // Flag off:             GATED Skipped flag 'credit-score-v2' is off
+```
+
+---
+
+## Rule Scopes and Externalized Parameters
+
+Multi-tenant SaaS wants "the same checkout rules, different limits for ACME" with no `if (tenant == "acme")` in rule code. Declare the limit as a **named parameter with a mandatory fallback**, read it from the `RuleParameters` handed to the `(ctx, p) => ...` condition, and let an `IRuleParameterProvider` supply the value for the **scope** of the evaluation. The provider is consulted on every evaluation, so changing a limit never rebuilds a rule; without any provider every parameter resolves to its fallback, so a parameterless `Check()` or an `And`/`Or` composition can never throw for a missing value.
+
+**`RuleScope`** is an immutable set of key/value pairs (`RuleScope.Global`, `RuleScope.Tenant("acme")`, `.With("region", "EU")`) with value equality (pair order does not matter), `Specificity` (the pair count) and `AppliesTo(requested)`: a scope applies to a request when every one of its pairs is in the request, so `Tenant("acme")` applies to `Tenant("acme").With("region", "EU")` and `Global` applies to everything. A provider or a registry picks the most specific applying layer. `TenantId`, `TryGet(key)`, `ContainsKey(key)` and `ToString()` (`region=EU;tenant=acme`, keys sorted) complete the type.
+
+**Providers.** `IRuleParameterProvider.TryGet<T>(name, scope, out value)` and the async twin `IAsyncRuleParameterProvider.TryGetAsync<T>(name, scope, ct)` returning `RuleParameterLookup<T>` (`Found`, `Value`, `Missing`, `Of(value)`, `GetValueOrFallback`). `InMemoryRuleParameterProvider` implements both, is thread-safe, layers values per scope (`Set(name, value)` for everybody, `Set(name, value, scope)` for a layer) and returns the most specific applying value; among equally specific layers the most recently set one wins. A value stored with another type than the one requested throws `InvalidCastException` naming the parameter, the scope and both types: a configuration error, never a silent fallback. `RuleTestHelper.CreateParameterProvider(name, value, scope?)` builds one for tests. The sibling DependencyInjection package will bind a provider to `IConfiguration` / `IOptionsMonitor` and host the scoped `RuleRegistry` (named rule sets with per-tenant overrides); the Expressions package resolves `@maxOrderAmount` nodes through the same provider.
+
+**Wiring.** All four builders take `.WithParameters(provider)` and `.WithParameter<T>(name, fallback)` (a name may be declared once per builder). The sync builders add `When((ctx, p) => ...)` / `When((subject, ctx, p) => ...)`; the async builders add `WhenAsync((ctx, p, ct) => ...)` / `WhenAsync((subject, ctx, p, ct) => ...)` (the token is part of the signature because a two-parameter `(ctx, p)` lambda would be ambiguous with `(ctx, ct)`) and also accept an `IAsyncRuleParameterProvider`, which they prefer over a sync one. The scope of an evaluation is read from the context under `RuleParameters.ScopeKey`; absent means the global scope. A provider stored on the context under `RuleParameters.ContextKey` (`RuleParameters.AsyncContextKey` for async providers) **overrides** the injected one for that evaluation; it is an optional override for tests and request pipelines, not the primary wiring, so the context never becomes a service locator. `RuleParameters` exposes `Get<T>(name)` (throws `KeyNotFoundException` listing the declared names, or `InvalidCastException`), `TryGet<T>`, `Contains`, `Names`, `Count` and the resolved `Scope`.
+
+**Class-based rules** take the provider through their constructor and call `TryGet` in `IsBroken(context)`; the scoped value belongs in `Describe` (`Expected`), since `Message` stays a finished string.
+
+**Caching.** A cached rule holds one verdict per instance by default, which is wrong for a scoped rule; cache it per key with `rule.Cached(ttl, ctx => ctx.Get(RuleParameters.ScopeKey).ToString())` (see [Caching](#caching)).
+
+**Condition compiler seam.** `IRuleConditionCompiler.Compile(expression)` returns the `Func<BusinessRuleContext, bool>` a built rule evaluates, and `IAsyncRuleConditionCompiler.Compile(expression)` the async `Func<BusinessRuleContext, CancellationToken, Task<bool>>`; `BusinessRuleBuilder.When(compiler, "amount > 10000")` and `AsyncBusinessRuleBuilder.WhenAsync(compiler, "...")` compile at builder time so a malformed expression fails before the first evaluation. Core never parses text; the `Masterly.BusinessRules.Expressions` package implements the seam.
+
+### Scoped Parameter Examples
+
+```csharp
+// One provider, layered values: 10 000 for everybody, 50 000 for ACME, 70 000 for ACME in the EU
+InMemoryRuleParameterProvider parameters = new InMemoryRuleParameterProvider()
+    .Set("maxOrderAmount", 10_000m)
+    .Set("maxOrderAmount", 50_000m, RuleScope.Tenant("acme"))
+    .Set("maxOrderAmount", 70_000m, RuleScope.Tenant("acme").With("region", "EU"));
+
+// The rule declares the parameter with a fallback and reads it from p; no tenant logic inside
+IBusinessRule orderLimit = BusinessRuleBuilder.Create("ORDER.TOO_LARGE")
+    .WithMessage("Order amount exceeds the limit.")
+    .WithParameters(parameters)
+    .WithParameter<decimal>("maxOrderAmount", fallback: 10_000m)
+    .When((ctx, p) => ctx.Get<decimal>("amount") > p.Get<decimal>("maxOrderAmount"))
+    .Build();
+
+// The scope travels on the context
+BusinessRuleContext acmeEu = RuleTestHelper.CreateContext(("amount", 60_000m));
+acmeEu.Set(RuleParameters.ScopeKey, RuleScope.Tenant("acme").With("region", "EU"));
+orderLimit.IsBroken(acmeEu);                                   // false: 60 000 <= 70 000
+
+BusinessRuleContext globex = RuleTestHelper.CreateContext(("amount", 60_000m));
+globex.Set(RuleParameters.ScopeKey, RuleScope.Tenant("globex"));
+orderLimit.IsBroken(globex);                                   // true: falls back to the global 10 000
+
+orderLimit.IsBroken();                                         // parameterless: injected provider, global scope, never throws
+
+// Subject-typed and async forms
+IBusinessRule<Order> typed = BusinessRuleBuilder<Order>.Create("ORDER.TOO_LARGE")
+    .WithParameters(parameters)
+    .WithParameter<decimal>("maxOrderAmount", 10_000m)
+    .When((order, ctx, p) => order.Total > p.Get<decimal>("maxOrderAmount"))
+    .Build();
+
+IAsyncBusinessRule asyncRule = AsyncBusinessRuleBuilder.Create("ORDER.TOO_LARGE")
+    .WithParameters(parameters)                                // sync or async provider; async is preferred
+    .WithParameter<decimal>("maxOrderAmount", 10_000m)
+    .WhenAsync((ctx, p, ct) => Task.FromResult(ctx.Get<decimal>("amount") > p.Get<decimal>("maxOrderAmount")))
+    .Build();
+
+// Override the provider per request (tests, canary traffic)
+acmeEu.Set(RuleParameters.ContextKey, RuleTestHelper.CreateParameterProvider("maxOrderAmount", 1m));
+
+// Class-based rule: inject the provider, show the scoped limit in the details
+public sealed class OrderLimitRule : BaseBusinessRule
+{
+    private const string LimitName = "maxOrderAmount";
+    private const decimal DefaultLimit = 10_000m;
+    private readonly Order _order;
+    private readonly IRuleParameterProvider _parameters;
+
+    public OrderLimitRule(Order order, IRuleParameterProvider parameters) { _order = order; _parameters = parameters; }
+
+    public override string Code => "ORDER.TOO_LARGE";
+    public override string Message => "Order amount exceeds the limit.";
+
+    public override bool IsBroken() => _order.Total > Limit(null);
+    public override bool IsBroken(BusinessRuleContext context) => _order.Total > Limit(context);
+
+    protected override RuleResultDetails Describe(BusinessRuleContext? context)
+        => RuleResultDetails.Detail($"Order total {_order.Total} exceeds {Limit(context)}").Actual(_order.Total).Expected(Limit(context));
+
+    private decimal Limit(BusinessRuleContext? context)
+    {
+        RuleScope? scope = context != null && context.TryGet(RuleParameters.ScopeKey, out RuleScope s) ? s : null;
+        return _parameters.TryGet(LimitName, scope, out decimal limit) ? limit : DefaultLimit;
+    }
+}
+
+// A custom provider bound to configuration
+public sealed class ConfigurationParameterProvider : IRuleParameterProvider
+{
+    public bool TryGet<T>(string name, RuleScope? scope, out T value)
+        => _settings.TryResolve(name, scope?.TenantId, out value);   // your lookup; return false for unknown names
+}
+
+// Condition compiler seam (implemented by Masterly.BusinessRules.Expressions)
+IBusinessRule fromText = BusinessRuleBuilder.Create("ORDER.TOO_LARGE").When(compiler, "amount > @maxOrderAmount").Build();
 ```
 
 ---
@@ -1369,6 +1480,7 @@ BusinessRuleResult warning = softened.Evaluate();            // Severity = Warni
 - `CreateBrokenAsyncRule(code, message)`: Async rule that always fails
 - `CreatePassingAsyncRule(code, message)`: Async rule that always passes
 - `CreateFlagProvider(flag, mode, percent)`: An `InMemoryRuleFeatureFlagProvider` (sync and async) with one flag set; other flags are `Off`
+- `CreateParameterProvider(name, value, scope?)`: An `InMemoryRuleParameterProvider` (sync and async) with one value set, globally or for a `RuleScope`; other parameters resolve to the rule's fallback
 
 All assertion methods throw `RuleAssertionException` on failure.
 
@@ -1540,6 +1652,8 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `IRuleExecutionObserver` | Sync execution callbacks plus batch hooks `OnBatchStarted`, `OnAfterEvaluate(rule, isBroken, elapsed)`, `OnRuleFaulted`, `OnBatchCompleted`, `OnShadowViolation` |
 | `IAsyncRuleExecutionObserver` | Async execution callbacks plus the async batch hooks and `OnShadowViolationAsync` |
 | `IRuleFeatureFlagProvider` / `IAsyncRuleFeatureFlagProvider` | Supply a flag's `RuleRollout` to gated rules: `GetRollout(flag, context)` / `GetRolloutAsync(flag, context, ct)` |
+| `IRuleParameterProvider` / `IAsyncRuleParameterProvider` | Supply named, scope-layered parameter values to built rules: `TryGet<T>(name, scope, out value)` / `TryGetAsync<T>(name, scope, ct)` returning `RuleParameterLookup<T>` |
+| `IRuleConditionCompiler` / `IAsyncRuleConditionCompiler` | The Expressions seam: `Compile(expression)` returns the sync / async broken-condition delegate a built rule evaluates (`When(compiler, text)` / `WhenAsync(compiler, text)`) |
 
 ### Classes
 
@@ -1547,11 +1661,15 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 |-------|-------------|
 | `BaseBusinessRule` | Abstract base for sync rules; virtual `Evaluate()`/`Evaluate(context)` and the `protected virtual Describe(context)` hook |
 | `BaseAsyncBusinessRule` | Abstract base for async rules; the `protected virtual Describe(context)` hook |
-| `BusinessRuleBuilder` | Fluent builder for sync rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation` |
-| `AsyncBusinessRuleBuilder` | Fluent builder for async rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation` |
+| `BusinessRuleBuilder` | Fluent builder for sync rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation`; `When((ctx, p) => ...)` with parameters and `When(compiler, expression)` |
+| `AsyncBusinessRuleBuilder` | Fluent builder for async rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation`; `WhenAsync((ctx, p, ct) => ...)` with parameters, `WithParameters(asyncProvider)` and `WhenAsync(compiler, expression)` |
 | `BaseBusinessRule<TSubject>` / `BaseAsyncBusinessRule<TSubject>` | Abstract bases for subject-typed rules; `protected virtual Describe(subject, context)` hook |
-| `BusinessRuleBuilder<TSubject>` / `AsyncBusinessRuleBuilder<TSubject>` | Fluent builders for subject-typed rules; `When(subject[, context])` / `WhenAsync(subject[, context[, ct]])` and subject-aware `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation` |
-| `BusinessRuleMetadataBuilder<TBuilder>` | Shared base of the four builders: `WithMessage`, `WithSeverity`, `WithName`, `WithDescription`, `WithCategory`, `WithTags` and the context-only detail methods |
+| `BusinessRuleBuilder<TSubject>` / `AsyncBusinessRuleBuilder<TSubject>` | Fluent builders for subject-typed rules; `When(subject[, context[, p]])` / `WhenAsync(subject[, context[, ct]])` and `WhenAsync((subject, ctx, p, ct) => ...)`, subject-aware `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation` |
+| `BusinessRuleMetadataBuilder<TBuilder>` | Shared base of the four builders: `WithMessage`, `WithSeverity`, `WithName`, `WithDescription`, `WithCategory`, `WithTags`, the context-only detail methods, `WithParameters(provider)` and `WithParameter<T>(name, fallback)` |
+| `RuleScope` | Immutable key/value scope with value equality: `Global`, `Tenant(id)`, `With(key, value)`, `Specificity`, `IsGlobal`, `TenantId`, `TryGet`, `ContainsKey`, `AppliesTo(requested)`, `Pairs` |
+| `RuleParameters` | The resolved parameters handed to a `(ctx, p)` condition: `Get<T>`, `TryGet<T>`, `Contains`, `Names`, `Count`, `Scope`, `Empty`; reserved context keys `ContextKey`, `AsyncContextKey`, `ScopeKey` |
+| `RuleParameterLookup<T>` | Readonly struct returned by async providers: `Found`, `Value`, `Missing`, `Of(value)`, `GetValueOrFallback(fallback)` |
+| `InMemoryRuleParameterProvider` | Thread-safe provider implementing both parameter interfaces with scope layering: `Set(name, value[, scope])`, `Remove(name[, scope])`, `Count`; most specific applying scope wins |
 | `BoundBusinessRule<TSubject>` / `BoundAsyncBusinessRule<TSubject>` | A typed rule bound to one subject (`Rule`, `Subject`); returned by `.For(subject)`, forwards all metadata |
 | `AndBusinessRule<TSubject>` / `OrBusinessRule<TSubject>` / `NotBusinessRule<TSubject>` (+ async twins) | Typed structural nodes returned by the typed `.And()`/`.Or()`/`.Not()`; forward subject and context to their `Operands` |
 | `SpecificationBusinessRule<TSubject>` | Abstract base for expression rules: override `BrokenWhen`; `BrokenExpression`/`SatisfiedExpression` cached, `IsBroken` sealed and lazily compiled; `Describe(subject, context)` hook inherited |
@@ -1571,8 +1689,8 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `RuleExplanation` | Explanation tree node: `Outcome`, `IsBroken`, `Operator`, `Reason`, `Duration`, `Children`, `BrokenLeaves()`, `ToText()` |
 | `CompositeBusinessRule` | Container for multiple sync rules (operator `All`) |
 | `CompositeAsyncBusinessRule` | Container for multiple async rules (operator `All`) |
-| `CachedBusinessRule` | Time-based caching for sync rules |
-| `CachedAsyncBusinessRule` | Time-based caching for async rules |
+| `CachedBusinessRule` | Time-based caching for sync rules, per instance or per key (`cacheKeySelector`): `CachesPerKey`, `InvalidateCache()`, `InvalidateCache(key)` |
+| `CachedAsyncBusinessRule` | Time-based caching for async rules, per instance or per key (`cacheKeySelector`): `CachesPerKey`, `InvalidateCacheAsync()`, `InvalidateCacheAsync(key)` |
 | `ConditionalBusinessRule` | Conditional execution for sync rules |
 | `ConditionalAsyncBusinessRule` | Conditional execution for async rules |
 | `SeverityOverrideBusinessRule` / `SeverityOverrideAsyncBusinessRule` | Decorator reporting a different severity (`.WithSeverity()`) |
@@ -1582,7 +1700,7 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `RuleRolloutBucket` | In-house FNV-1a bucketing: `Compute(flag, stableKey)` (0..99), `Hash(text)`, `BucketCount` |
 | `RuleFeatureFlags` | Reserved context keys overriding the injected provider: `ContextKey` (sync), `AsyncContextKey` (async) |
 | `InMemoryRuleFeatureFlagProvider` | Thread-safe provider implementing both provider interfaces: `Set(flag, rollout)`, `Set(flag, mode, percent)`, `Remove`, `TryGet`, `DefaultRollout` |
-| `RuleConfigurationException` | Thrown when a gated rule has no provider or a partial rollout has no stable key: `RuleCode` |
+| `RuleConfigurationException` | Thrown when a gated rule has no provider, a partial rollout has no stable key, or a cache key selector returns null: `RuleCode` |
 | `SyncToAsyncRuleAdapter` | Adapts sync rules to async |
 | `AsyncToSyncRuleAdapter` | Adapts async rules to sync (blocking) |
 | `BusinessRuleChecker` | Batch sync validation; options-taking `CheckAll`/`EvaluateAll` overloads; subject-typed `CheckAll(subject, rules)`, `EvaluateAll(subject, rules)`, `CheckBySeverity/Category/Tags(subject, rules, ...)` and `EvaluateEach(subjects, rules)` |
@@ -1600,7 +1718,7 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `ContextKeyNotFoundException` | `KeyNotFoundException` from `Get` naming the missing `Key` and the `AvailableKeys` |
 | `ContextValueTypeMismatchException` | `InvalidCastException` from `Get` naming the `Key`, `ActualType` and `RequestedType` |
 | `BusinessRuleContextException` | Thrown by the checkers when a rule fails to read the context: `RuleCode`, `Key`, original exception as `InnerException` |
-| `RuleTestHelper` | Testing assertions and factories, including `CreateContext` from typed key/value pairs and `CreateFlagProvider(flag, mode, percent)` |
+| `RuleTestHelper` | Testing assertions and factories, including `CreateContext` from typed key/value pairs, `CreateFlagProvider(flag, mode, percent)` and `CreateParameterProvider(name, value, scope?)` |
 
 ### Extension Methods
 
@@ -1618,7 +1736,8 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `.ExplainAsync(context, [captureExceptions], ct)` | Evaluate once and return the `RuleExplanation` tree (async) |
 | `.ToAsync()` | Convert sync to async |
 | `.ToSyncRule()` | Convert async to sync (blocking) |
-| `.WithCache(TimeSpan)` | Add caching |
+| `.Cached(TimeSpan)` | Add per-instance caching |
+| `.Cached(TimeSpan, cacheKeySelector)` | Add per-key caching (one verdict per tenant, region, ...) |
 | `.WithCondition(Func)` | Add conditional execution |
 | `.WithSeverity(RuleSeverity)` | Wrap in a severity-override decorator (sync and async) |
 | `.GatedBy(flag, provider, stableKey?)` / `.GatedBy(flag, stableKey?)` | Wrap in a feature gate read from the provider on every evaluation (sync and async; the async form accepts a sync or an async provider, and the provider-less form resolves it from `RuleFeatureFlags.ContextKey`/`AsyncContextKey`) |

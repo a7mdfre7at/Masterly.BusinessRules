@@ -27,6 +27,8 @@ namespace Masterly.BusinessRules
         private const string MissingConditionMessage = "Must specify a condition using WhenAsync()";
 
         private Func<BusinessRuleContext, CancellationToken, Task<bool>>? _isBrokenFunc;
+        private Func<BusinessRuleContext, RuleParameters, CancellationToken, Task<bool>>? _isBrokenWithParametersFunc;
+        private IAsyncRuleParameterProvider? _asyncParameterProvider;
 
         private AsyncBusinessRuleBuilder(string code) : base(code, DefaultMessage)
         {
@@ -50,6 +52,7 @@ namespace Masterly.BusinessRules
         public AsyncBusinessRuleBuilder WhenAsync(Func<BusinessRuleContext, CancellationToken, Task<bool>> isBrokenCondition)
         {
             _isBrokenFunc = isBrokenCondition;
+            _isBrokenWithParametersFunc = null;
             return this;
         }
 
@@ -61,6 +64,66 @@ namespace Masterly.BusinessRules
         public AsyncBusinessRuleBuilder WhenAsync(Func<BusinessRuleContext, Task<bool>> isBrokenCondition)
         {
             _isBrokenFunc = (ctx, _) => isBrokenCondition(ctx);
+            _isBrokenWithParametersFunc = null;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the async condition with context, resolved parameters and cancellation token that determines if the
+        /// rule is broken. The <see cref="RuleParameters"/> hold every parameter declared with
+        /// <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameter{T}"/>, resolved on every evaluation through the
+        /// provider from <see cref="WithParameters(IAsyncRuleParameterProvider)"/> or
+        /// <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameters"/> (a provider under
+        /// <see cref="RuleParameters.AsyncContextKey"/> / <see cref="RuleParameters.ContextKey"/> overrides them) for the
+        /// scope under <see cref="RuleParameters.ScopeKey"/>. The token is part of the signature because a two-parameter
+        /// <c>(ctx, p)</c> lambda would be ambiguous with <c>(ctx, ct)</c>.
+        /// </summary>
+        /// <param name="isBrokenCondition">An async function that receives the context, the parameters and the cancellation token and returns true when broken.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="isBrokenCondition"/> is null.</exception>
+        public AsyncBusinessRuleBuilder WhenAsync(Func<BusinessRuleContext, RuleParameters, CancellationToken, Task<bool>> isBrokenCondition)
+        {
+            _isBrokenWithParametersFunc = isBrokenCondition ?? throw new ArgumentNullException(nameof(isBrokenCondition));
+            _isBrokenFunc = null;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the async condition from a textual expression compiled by <paramref name="compiler"/> (the seam an
+        /// expression package implements). The expression is compiled now, so a malformed expression fails here rather than at evaluation time.
+        /// </summary>
+        /// <param name="compiler">The compiler that turns the expression into an async broken-condition delegate.</param>
+        /// <param name="expression">The condition text.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="compiler"/> or <paramref name="expression"/> is null, or the compiler returned null.</exception>
+        public AsyncBusinessRuleBuilder WhenAsync(IAsyncRuleConditionCompiler compiler, string expression)
+        {
+            if (compiler == null)
+            {
+                throw new ArgumentNullException(nameof(compiler));
+            }
+
+            if (expression == null)
+            {
+                throw new ArgumentNullException(nameof(expression));
+            }
+
+            _isBrokenFunc = compiler.Compile(expression) ?? throw new ArgumentNullException(nameof(compiler), "The condition compiler returned a null delegate.");
+            _isBrokenWithParametersFunc = null;
+            return this;
+        }
+
+        /// <summary>
+        /// Injects an asynchronous provider for the parameters declared with <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameter{T}"/>.
+        /// It is preferred over a sync provider injected with <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameters"/>;
+        /// a provider implementing both interfaces is used through its async side.
+        /// </summary>
+        /// <param name="provider">The async parameter provider.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="provider"/> is null.</exception>
+        public AsyncBusinessRuleBuilder WithParameters(IAsyncRuleParameterProvider provider)
+        {
+            _asyncParameterProvider = provider ?? throw new ArgumentNullException(nameof(provider));
             return this;
         }
 
@@ -68,30 +131,36 @@ namespace Masterly.BusinessRules
         /// Builds and returns the configured async business rule.
         /// </summary>
         /// <returns>A new async business rule instance with the configured settings.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when no condition has been specified via <see cref="WhenAsync(Func{BusinessRuleContext, CancellationToken, Task{bool}})"/>.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when no condition has been specified via <c>WhenAsync</c>.</exception>
         public IAsyncBusinessRule Build()
         {
-            if (_isBrokenFunc == null)
+            if (_isBrokenFunc == null && _isBrokenWithParametersFunc == null)
             {
                 throw new InvalidOperationException(MissingConditionMessage);
             }
 
-            return new BuiltAsyncBusinessRule(BuildMetadata(), _isBrokenFunc, BuildDescriptor());
+            return new BuiltAsyncBusinessRule(BuildMetadata(), _isBrokenFunc, _isBrokenWithParametersFunc, BuildParameterBinding(_asyncParameterProvider), BuildDescriptor());
         }
 
         private sealed class BuiltAsyncBusinessRule : IAsyncBusinessRule
         {
             private readonly BuiltRuleMetadata _metadata;
-            private readonly Func<BusinessRuleContext, CancellationToken, Task<bool>> _isBrokenFunc;
+            private readonly Func<BusinessRuleContext, CancellationToken, Task<bool>>? _isBrokenFunc;
+            private readonly Func<BusinessRuleContext, RuleParameters, CancellationToken, Task<bool>>? _isBrokenWithParametersFunc;
+            private readonly RuleParameterBinding _parameters;
             private readonly BuiltRuleDescriptor _descriptor;
 
             public BuiltAsyncBusinessRule(
                 BuiltRuleMetadata metadata,
-                Func<BusinessRuleContext, CancellationToken, Task<bool>> isBrokenFunc,
+                Func<BusinessRuleContext, CancellationToken, Task<bool>>? isBrokenFunc,
+                Func<BusinessRuleContext, RuleParameters, CancellationToken, Task<bool>>? isBrokenWithParametersFunc,
+                RuleParameterBinding parameters,
                 BuiltRuleDescriptor descriptor)
             {
                 _metadata = metadata;
                 _isBrokenFunc = isBrokenFunc;
+                _isBrokenWithParametersFunc = isBrokenWithParametersFunc;
+                _parameters = parameters;
                 _descriptor = descriptor;
             }
 
@@ -105,7 +174,18 @@ namespace Masterly.BusinessRules
 
             public Task<bool> IsBrokenAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
             {
-                return _isBrokenFunc(context, cancellationToken);
+                if (_isBrokenWithParametersFunc != null)
+                {
+                    return IsBrokenWithParametersAsync(context, cancellationToken);
+                }
+
+                return _isBrokenFunc!(context, cancellationToken); // Build() guarantees one of the two conditions is set
+            }
+
+            private async Task<bool> IsBrokenWithParametersAsync(BusinessRuleContext context, CancellationToken cancellationToken)
+            {
+                RuleParameters parameters = await _parameters.ResolveAsync(context, cancellationToken);
+                return await _isBrokenWithParametersFunc!(context, parameters, cancellationToken); // only called when the parameters condition is set
             }
 
             public async Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)

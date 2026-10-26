@@ -70,5 +70,24 @@ namespace Masterly.BusinessRules
         {
             return new CachedAsyncBusinessRule(rule, duration);
         }
+
+        /// <summary>
+        /// Creates a cached async rule that remembers one evaluation result per cache key for the specified duration,
+        /// so a rule reading scoped parameters or other per-context values can be cached per tenant or region.
+        /// </summary>
+        /// <param name="rule">The async rule to cache.</param>
+        /// <param name="duration">The duration to cache each result.</param>
+        /// <param name="cacheKeySelector">Selects the cache key from the evaluation context (for example <c>ctx => ctx.Get(RuleParameters.ScopeKey).ToString()</c>).</param>
+        /// <returns>A cached async rule that wraps the original rule.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rule"/> or <paramref name="cacheKeySelector"/> is null.</exception>
+        public static CachedAsyncBusinessRule Cached(this IAsyncBusinessRule rule, TimeSpan duration, Func<BusinessRuleContext, string> cacheKeySelector)
+        {
+            if (cacheKeySelector == null)
+            {
+                throw new ArgumentNullException(nameof(cacheKeySelector));
+            }
+
+            return new CachedAsyncBusinessRule(rule, duration, cacheKeySelector);
+        }
     }
 }

@@ -8,7 +8,8 @@ namespace Masterly.BusinessRules
     /// The shared fluent surface of every rule builder: the seven metadata members (<c>WithMessage</c>,
     /// <c>WithSeverity</c>, <c>WithName</c>, <c>WithDescription</c>, <c>WithCategory</c>, <c>WithTags</c>) and the
     /// context-aware violation details (<c>WithDetail</c>, <c>WithActual</c>, <c>WithExpected</c>, <c>WithRemediation</c>)
-    /// produced only on the broken path. <see cref="BusinessRuleBuilder"/>, <see cref="AsyncBusinessRuleBuilder"/>,
+    /// produced only on the broken path, plus the externalized parameters (<c>WithParameters</c>, <c>WithParameter&lt;T&gt;</c>)
+    /// handed to the <c>(ctx, p) =&gt; ...</c> condition overloads. <see cref="BusinessRuleBuilder"/>, <see cref="AsyncBusinessRuleBuilder"/>,
     /// <see cref="BusinessRuleBuilder{TSubject}"/> and <see cref="AsyncBusinessRuleBuilder{TSubject}"/> derive from it
     /// and add only their condition (<c>When</c>/<c>WhenAsync</c>) and <c>Build</c>. Each method returns the concrete
     /// builder so chains keep their type. This class cannot be derived from outside the library.
@@ -18,6 +19,7 @@ namespace Masterly.BusinessRules
     {
         private readonly string _code;
         private readonly List<string> _tags = new List<string>();
+        private readonly List<RuleParameterDeclaration> _parameters = new List<RuleParameterDeclaration>();
         private string _message;
         private RuleSeverity _severity = RuleSeverity.Error;
         private string _name = string.Empty;
@@ -27,6 +29,7 @@ namespace Masterly.BusinessRules
         private Func<BusinessRuleContext, object?>? _actual;
         private Func<BusinessRuleContext, object?>? _expected;
         private Func<BusinessRuleContext, string>? _remediation;
+        private IRuleParameterProvider? _parameterProvider;
 
         /// <summary>
         /// Initializes the builder with the rule code and the message used when <see cref="WithMessage"/> is never called.
@@ -192,12 +195,82 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Injects the provider that supplies the values of the parameters declared with <see cref="WithParameter{T}"/>.
+        /// The provider is consulted on every evaluation for the <see cref="RuleScope"/> stored under
+        /// <see cref="RuleParameters.ScopeKey"/> (the global scope when absent); a provider stored under
+        /// <see cref="RuleParameters.ContextKey"/> overrides it for that evaluation. Without any provider every
+        /// parameter resolves to its fallback.
+        /// </summary>
+        /// <param name="provider">The parameter provider.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="provider"/> is null.</exception>
+        public TBuilder WithParameters(IRuleParameterProvider provider)
+        {
+            _parameterProvider = provider ?? throw new ArgumentNullException(nameof(provider));
+            return Self;
+        }
+
+        /// <summary>
+        /// Declares a named parameter the condition reads through <see cref="RuleParameters.Get{T}"/>. The fallback is
+        /// mandatory: it is the value used when no provider is wired or the provider has no value for the evaluation's
+        /// scope, so a parameterless <c>Check()</c> or an <c>And</c>/<c>Or</c> composition can never throw for a missing parameter.
+        /// </summary>
+        /// <typeparam name="T">The type of the parameter value.</typeparam>
+        /// <param name="name">The parameter name, compared ordinally; each name may be declared once per builder.</param>
+        /// <param name="fallback">The value used when the provider supplies none.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="name"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when <paramref name="name"/> is empty or white space, or was already declared on this builder.</exception>
+        public TBuilder WithParameter<T>(string name, T fallback)
+        {
+            if (name == null)
+            {
+                throw new ArgumentNullException(nameof(name));
+            }
+
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                throw new ArgumentException("The parameter name cannot be empty or white space.", nameof(name));
+            }
+
+            if (_parameters.Exists(declaration => string.Equals(declaration.Name, name, StringComparison.Ordinal)))
+            {
+                throw new ArgumentException($"Parameter '{name}' is already declared on this builder.", nameof(name));
+            }
+
+            _parameters.Add(new RuleParameterDeclaration<T>(name, fallback));
+            return Self;
+        }
+
+        /// <summary>
         /// Snapshots the configured metadata for the rule being built. The tags are copied, so a rule built here is
         /// unaffected by later <see cref="WithTags"/> calls on the same builder.
         /// </summary>
         internal BuiltRuleMetadata BuildMetadata()
         {
             return new BuiltRuleMetadata(_code, _message, _severity, _name, _description, _category, _tags.ToArray());
+        }
+
+        /// <summary>
+        /// Snapshots the declared parameters and the injected sync provider for the rule being built.
+        /// </summary>
+        internal RuleParameterBinding BuildParameterBinding()
+        {
+            return BuildParameterBinding(null);
+        }
+
+        /// <summary>
+        /// Snapshots the declared parameters and the injected providers for the rule being built; the async builders
+        /// pass the async provider they accepted.
+        /// </summary>
+        internal RuleParameterBinding BuildParameterBinding(IAsyncRuleParameterProvider? asyncProvider)
+        {
+            if (_parameters.Count == 0 && _parameterProvider == null && asyncProvider == null)
+            {
+                return RuleParameterBinding.Empty;
+            }
+
+            return new RuleParameterBinding(_parameters.ToArray(), _parameterProvider, asyncProvider);
         }
 
         /// <summary>

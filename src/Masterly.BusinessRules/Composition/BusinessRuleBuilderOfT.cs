@@ -31,6 +31,7 @@ namespace Masterly.BusinessRules
 
         private Func<TSubject, bool>? _isBrokenFunc;
         private Func<TSubject, BusinessRuleContext, bool>? _isBrokenWithContextFunc;
+        private Func<TSubject, BusinessRuleContext, RuleParameters, bool>? _isBrokenWithParametersFunc;
         private Func<TSubject, BusinessRuleContext, FormattableString>? _detail;
         private Func<TSubject, BusinessRuleContext, object?>? _actual;
         private Func<TSubject, BusinessRuleContext, object?>? _expected;
@@ -125,19 +126,35 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Sets the condition on the subject, the context and the resolved parameters that determines if the rule is
+        /// broken. The <see cref="RuleParameters"/> hold every parameter declared with
+        /// <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameter{T}"/>, resolved on every evaluation through the
+        /// provider from <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameters"/> (or <see cref="RuleParameters.ContextKey"/>)
+        /// for the scope under <see cref="RuleParameters.ScopeKey"/>.
+        /// </summary>
+        /// <param name="isBrokenCondition">A function that receives the subject, the context and the parameters and returns true when the rule is broken.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="isBrokenCondition"/> is null.</exception>
+        public BusinessRuleBuilder<TSubject> When(Func<TSubject, BusinessRuleContext, RuleParameters, bool> isBrokenCondition)
+        {
+            _isBrokenWithParametersFunc = isBrokenCondition ?? throw new ArgumentNullException(nameof(isBrokenCondition));
+            return this;
+        }
+
+        /// <summary>
         /// Builds and returns the configured subject-typed business rule.
         /// </summary>
         /// <returns>A new typed rule instance with the configured settings.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when no condition has been specified via <see cref="When(Func{TSubject, bool})"/> or <see cref="When(Func{TSubject, BusinessRuleContext, bool})"/>.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when no condition has been specified via <see cref="When(Func{TSubject, bool})"/>, <see cref="When(Func{TSubject, BusinessRuleContext, bool})"/> or <see cref="When(Func{TSubject, BusinessRuleContext, RuleParameters, bool})"/>.</exception>
         public IBusinessRule<TSubject> Build()
         {
-            if (_isBrokenFunc == null && _isBrokenWithContextFunc == null)
+            if (_isBrokenFunc == null && _isBrokenWithContextFunc == null && _isBrokenWithParametersFunc == null)
             {
                 throw new InvalidOperationException(MissingConditionMessage);
             }
 
             SubjectRuleDescriptor<TSubject> descriptor = new SubjectRuleDescriptor<TSubject>(BuildDescriptor(), _detail, _actual, _expected, _remediation);
-            return new BuiltBusinessRule(BuildMetadata(), _isBrokenFunc, _isBrokenWithContextFunc, descriptor);
+            return new BuiltBusinessRule(BuildMetadata(), _isBrokenFunc, _isBrokenWithContextFunc, _isBrokenWithParametersFunc, BuildParameterBinding(), descriptor);
         }
 
         private sealed class BuiltBusinessRule : IBusinessRule<TSubject>
@@ -145,17 +162,23 @@ namespace Masterly.BusinessRules
             private readonly BuiltRuleMetadata _metadata;
             private readonly Func<TSubject, bool>? _isBrokenFunc;
             private readonly Func<TSubject, BusinessRuleContext, bool>? _isBrokenWithContextFunc;
+            private readonly Func<TSubject, BusinessRuleContext, RuleParameters, bool>? _isBrokenWithParametersFunc;
+            private readonly RuleParameterBinding _parameters;
             private readonly SubjectRuleDescriptor<TSubject> _descriptor;
 
             public BuiltBusinessRule(
                 BuiltRuleMetadata metadata,
                 Func<TSubject, bool>? isBrokenFunc,
                 Func<TSubject, BusinessRuleContext, bool>? isBrokenWithContextFunc,
+                Func<TSubject, BusinessRuleContext, RuleParameters, bool>? isBrokenWithParametersFunc,
+                RuleParameterBinding parameters,
                 SubjectRuleDescriptor<TSubject> descriptor)
             {
                 _metadata = metadata;
                 _isBrokenFunc = isBrokenFunc;
                 _isBrokenWithContextFunc = isBrokenWithContextFunc;
+                _isBrokenWithParametersFunc = isBrokenWithParametersFunc;
+                _parameters = parameters;
                 _descriptor = descriptor;
             }
 
@@ -179,11 +202,22 @@ namespace Masterly.BusinessRules
                     return _isBrokenWithContextFunc(subject, new BusinessRuleContext());
                 }
 
+                if (_isBrokenWithParametersFunc != null)
+                {
+                    BusinessRuleContext context = new BusinessRuleContext();
+                    return _isBrokenWithParametersFunc(subject, context, _parameters.Resolve(context));
+                }
+
                 return false;
             }
 
             public bool IsBroken(TSubject subject, BusinessRuleContext context)
             {
+                if (_isBrokenWithParametersFunc != null)
+                {
+                    return _isBrokenWithParametersFunc(subject, context, _parameters.Resolve(context));
+                }
+
                 if (_isBrokenWithContextFunc != null)
                 {
                     return _isBrokenWithContextFunc(subject, context);
