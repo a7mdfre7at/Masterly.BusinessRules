@@ -5,9 +5,10 @@ namespace Masterly.BusinessRules
 {
     /// <summary>
     /// Translates specification rules into <see cref="IQueryable{T}"/> filters. Both methods accept <b>only</b> an
-    /// <see cref="ISpecificationRule{TSubject}"/>: a specification wrapped in <c>.Cached()</c>, <c>.When()</c>,
-    /// <c>.WithSeverity()</c>, the typed <c>.And()</c>/<c>.Or()</c>/<c>.Not()</c> or <c>.For(subject)</c> is an ordinary
-    /// rule and does not compile here, so a composition cannot silently lose its translatability. Each method appends a
+    /// <see cref="ISpecificationRule{TSubject}"/>: a specification combined with the typed
+    /// <c>.And()</c>/<c>.Or()</c>/<c>.Not()</c>, or bound with <c>.For(subject)</c> (and any <c>.Cached()</c>,
+    /// <c>.When()</c>, <c>.WithSeverity()</c> or <c>.GatedBy()</c> applied to the bound rule), is an ordinary rule and
+    /// does not compile here, so a composition cannot silently lose its translatability. Each method appends a
     /// single <c>Where</c> call whose predicate is the rule's own lambda, so the provider sees exactly the expression the
     /// rule evaluates in memory.
     /// </summary>

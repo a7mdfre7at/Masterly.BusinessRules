@@ -17,9 +17,9 @@ namespace Masterly.BusinessRules
     /// consulted. Anything inside the expression that a provider evaluates server-side (for example
     /// <see cref="DateTime.UtcNow"/>) is evaluated by that provider when translated and on the local clock in memory.
     /// Only a specification rule, or a combination of specification rules through <c>AllOf</c>/<c>AnyOf</c>/<c>Not</c>,
-    /// is translatable: wrapping it in <c>.Cached()</c>, <c>.When()</c>, <c>.WithSeverity()</c>, the typed
-    /// <c>.And()</c>/<c>.Or()</c>/<c>.Not()</c> or <c>.For(subject)</c> yields an ordinary rule that
-    /// <c>WhereBroken</c>/<c>WhereSatisfies</c> do not accept.
+    /// is translatable: combining it with the typed <c>.And()</c>/<c>.Or()</c>/<c>.Not()</c>, or binding it with
+    /// <c>.For(subject)</c> (after which <c>.Cached()</c>, <c>.When()</c>, <c>.WithSeverity()</c> and <c>.GatedBy()</c>
+    /// apply to the bound rule), yields an ordinary rule that <c>WhereBroken</c>/<c>WhereSatisfies</c> do not accept.
     /// </remarks>
     /// <typeparam name="TSubject">The type of the subject the rule validates.</typeparam>
     /// <example>

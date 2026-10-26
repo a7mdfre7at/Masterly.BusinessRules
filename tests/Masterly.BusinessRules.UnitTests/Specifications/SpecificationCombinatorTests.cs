@@ -228,6 +228,17 @@ public class SpecificationCombinatorTests
     }
 
     [Fact]
+    public void BrokenExpression_OfANode_ConcurrentFirstAccess_BuildsOneInstance()
+    {
+        ISpecificationRule<Order> node = new OrderIsOverdueRule().AllOf(new OrderIsBigRule(), new OrderIsFlaggedRule());
+        Expression<Func<Order, bool>>[] observed = new Expression<Func<Order, bool>>[32];
+
+        Parallel.For(0, observed.Length, index => observed[index] = node.BrokenExpression);
+
+        Assert.All(observed, expression => Assert.Same(observed[0], expression));
+    }
+
+    [Fact]
     public void CompiledSatisfiedExpression_IsTheComplementOfIsBrokenForEveryNode()
     {
         OrderIsOverdueRule overdue = new OrderIsOverdueRule();
@@ -382,6 +393,25 @@ public class SpecificationCombinatorTests
         ArgumentNullException exception = Assert.Throws<ArgumentNullException>(() => new OrderIsBigRule().AllOf(others));
 
         Assert.Equal("others", exception.ParamName);
+    }
+
+    [Fact]
+    public void AnyOf_NullOthersArray_ThrowsArgumentNullException()
+    {
+        ISpecificationRule<Order>[] others = null!;
+
+        ArgumentNullException exception = Assert.Throws<ArgumentNullException>(() => new OrderIsBigRule().AnyOf(others));
+
+        Assert.Equal("others", exception.ParamName);
+    }
+
+    [Fact]
+    public void AllOf_NullOperandInOthers_ThrowsArgumentExceptionNamingThePosition()
+    {
+        ArgumentException exception = Assert.Throws<ArgumentException>(() => new OrderIsBigRule().AllOf(null!, new OrderIsOverdueRule()));
+
+        Assert.Equal("operands", exception.ParamName);
+        Assert.Contains("position 1", exception.Message);
     }
 
     [Fact]

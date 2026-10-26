@@ -127,6 +127,18 @@ public class SpecificationBusinessRuleTests
     }
 
     [Fact]
+    public void IsBroken_ConcurrentFirstUse_ReadsBrokenWhenOnceAndAgreesOnEveryThread()
+    {
+        CountingSpecificationRule rule = new CountingSpecificationRule();
+        bool[] verdicts = new bool[64];
+
+        Parallel.For(0, verdicts.Length, index => verdicts[index] = rule.IsBroken(-1));
+
+        Assert.Equal(1, rule.BrokenWhenReads);
+        Assert.DoesNotContain(false, verdicts);
+    }
+
+    [Fact]
     public void BrokenExpression_ReturnsTheSameInstanceOnEveryCall()
     {
         OrderIsOverdueRule rule = new OrderIsOverdueRule();

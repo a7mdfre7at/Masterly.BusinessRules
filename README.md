@@ -340,13 +340,13 @@ A *specification rule* is a subject-typed rule whose verdict is written once as 
 
 Each combinator splices the operands' bodies onto a single parameter with an internal `ParameterReplacer` visitor, so the result is always **one lambda over one parameter with no `Invoke` nodes**, which every LINQ provider can translate. `Not().Not()` returns the original expressions rather than piling up negations.
 
-**Only specifications translate.** `WhereBroken` and `WhereSatisfies` accept `ISpecificationRule<T>` and nothing else, so wrapping a specification in `.Cached()`, `.When()`, `.WithSeverity()`, `.GatedBy()`, the typed `.And()`/`.Or()`/`.Not()` or `.For(subject)` yields an ordinary rule that still evaluates in memory but is a **compile-time error** to pass to a query. A composition can therefore never silently lose its translatability. The spec `Not()` takes precedence over the typed `Not()` when the receiver is typed as a specification.
+**Only specifications translate.** `WhereBroken` and `WhereSatisfies` accept `ISpecificationRule<T>` and nothing else, so combining a specification with the typed `.And()`/`.Or()`/`.Not()`, or binding it with `.For(subject)` (the only way to reach `.Cached()`, `.When()`, `.WithSeverity()` and `.GatedBy()`, which exist on the non-generic hierarchies), yields an ordinary rule that still evaluates in memory but is a **compile-time error** to pass to a query. A composition can therefore never silently lose its translatability. The spec `Not()` takes precedence over the typed `Not()` when the receiver is typed as a specification.
 
 **Clocks.** Anything inside `BrokenWhen` that a provider evaluates server-side, such as `DateTime.UtcNow`, runs on the database clock when translated and on the local clock in memory; keep that in mind for rules that straddle midnight.
 
 **Async.** Specifications are the one deliberate exception to the library's "everything exists on both sides" rule: an expression has no asynchronous form, so there is no `IAsyncSpecificationRule`. `rule.ToAsync()` returns an `AsyncSpecificationRuleAdapter<T>` (an `IAsyncBusinessRule<T>` forwarding all metadata and both expressions) that joins async batches, groups and `AsyncBusinessRuleChecker` calls.
 
-**Existence checks** such as "the email must not already exist" are an `AsyncBusinessRuleBuilder<T>` with a repository call, not a specification; a specification describes the row itself.
+**Existence checks** such as "the customer must exist" or "the email must not already exist" are an `AsyncBusinessRuleBuilder<T>` with a repository call, not a specification; a specification describes the row itself. The recipe is three builder calls (see the end of the examples below).
 
 ### Specification Examples
 
@@ -394,6 +394,13 @@ await AsyncBusinessRuleChecker.CheckAllAsync(context, order, new[] { asyncOverdu
 IBusinessRule bound = overdue.For(order).Cached(TimeSpan.FromMinutes(1));
 IBusinessRule<Order> notTranslatable = overdue.And(big);
 // db.Orders.WhereBroken(notTranslatable);   // does not compile: WhereBroken accepts ISpecificationRule<T> only
+
+// Existence-check recipe: a repository call is not an expression over the row, so it is an async builder rule
+IAsyncBusinessRule<Order> customerMustExist = AsyncBusinessRuleBuilder<Order>.Create("ORDER.CUSTOMER_MISSING")
+    .WithMessage("Order references a customer that does not exist.")
+    .WhenAsync(async (o, ctx, ct) => !await customers.ExistsAsync(o.CustomerId, ct))
+    .Build();
+await AsyncBusinessRuleChecker.CheckAllAsync(context, order, new[] { asyncOverdue, customerMustExist }, cancellationToken);
 ```
 
 ---
