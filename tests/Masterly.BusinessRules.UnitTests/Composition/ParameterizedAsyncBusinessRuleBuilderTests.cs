@@ -169,6 +169,82 @@ public class ParameterizedAsyncBusinessRuleBuilderTests
     }
 
     [Fact]
+    public async Task IsBrokenAsync_ScopeKeyHoldsAnotherType_ThrowsContextValueTypeMismatchException()
+    {
+        IAsyncBusinessRule rule = CreateRule(syncProvider: CreateLayeredProvider(), asyncProvider: null);
+        BusinessRuleContext context = CreateContext(GlobalLimit + 1);
+        context.Set(RuleParameters.ScopeKeyName, "acme");
+
+        ContextValueTypeMismatchException exception = await Assert.ThrowsAsync<ContextValueTypeMismatchException>(() => rule.IsBrokenAsync(context, TestToken));
+
+        Assert.Equal(RuleParameters.ScopeKeyName, exception.Key);
+        Assert.Equal(typeof(string), exception.ActualType);
+        Assert.Equal(typeof(RuleScope), exception.RequestedType);
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_AsyncProviderKeyHoldsAnotherType_ThrowsContextValueTypeMismatchException()
+    {
+        IAsyncBusinessRule rule = CreateRule(syncProvider: CreateLayeredProvider(), asyncProvider: null);
+        BusinessRuleContext context = CreateContext(GlobalLimit + 1);
+        context.Set(RuleParameters.AsyncProviderKeyName, new SyncOnlyProvider(AcmeLimit));
+
+        ContextValueTypeMismatchException exception = await Assert.ThrowsAsync<ContextValueTypeMismatchException>(() => rule.IsBrokenAsync(context, TestToken));
+
+        Assert.Equal(RuleParameters.AsyncProviderKeyName, exception.Key);
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_SyncProviderKeyHoldsAnotherType_ThrowsContextValueTypeMismatchException()
+    {
+        IAsyncBusinessRule rule = CreateRule(syncProvider: CreateLayeredProvider(), asyncProvider: null);
+        BusinessRuleContext context = CreateContext(GlobalLimit + 1);
+        context.Set(RuleParameters.ProviderKeyName, new AsyncOnlyProvider(AcmeLimit));
+
+        ContextValueTypeMismatchException exception = await Assert.ThrowsAsync<ContextValueTypeMismatchException>(() => rule.IsBrokenAsync(context, TestToken));
+
+        Assert.Equal(RuleParameters.ProviderKeyName, exception.Key);
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_ScopeKeyHoldsNull_RequestsTheGlobalScope()
+    {
+        IAsyncBusinessRule rule = CreateRule(syncProvider: CreateLayeredProvider(), asyncProvider: null);
+        BusinessRuleContext context = CreateContext(GlobalLimit + 1);
+        context.Set(RuleParameters.ScopeKeyName, (RuleScope?)null);
+
+        Assert.True(await rule.IsBrokenAsync(context, TestToken));
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_NullContext_UsesInjectedProviderAndGlobalScope()
+    {
+        RuleScope? observed = Acme;
+        IAsyncBusinessRule rule = AsyncBusinessRuleBuilder.Create(Code)
+            .WithParameters(CreateLayeredProvider())
+            .WithParameter(LimitName, Fallback)
+            .WhenAsync((ctx, p, ct) => { observed = p.Scope; return Task.FromResult(p.Get<decimal>(LimitName) != GlobalLimit); })
+            .Build();
+
+        Assert.False(await rule.IsBrokenAsync(null!, TestToken));
+        Assert.Null(observed);
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_ScopeKeyHoldsAnotherType_WrapsIntoBusinessRuleContextException()
+    {
+        IAsyncBusinessRule rule = CreateRule(syncProvider: CreateLayeredProvider(), asyncProvider: null);
+        BusinessRuleContext context = CreateContext(GlobalLimit + 1);
+        context.Set(RuleParameters.ScopeKeyName, "acme");
+
+        BusinessRuleContextException exception = await Assert.ThrowsAsync<BusinessRuleContextException>(() => AsyncBusinessRuleChecker.CheckAllAsync(context, new[] { rule }, cancellationToken: TestToken));
+
+        Assert.Equal(Code, exception.RuleCode);
+        Assert.Equal(RuleParameters.ScopeKeyName, exception.Key);
+        Assert.IsType<ContextValueTypeMismatchException>(exception.InnerException);
+    }
+
+    [Fact]
     public async Task IsBrokenAsync_ForwardsTheCancellationTokenToProviderAndCondition()
     {
         CancellationToken? providerToken = null;

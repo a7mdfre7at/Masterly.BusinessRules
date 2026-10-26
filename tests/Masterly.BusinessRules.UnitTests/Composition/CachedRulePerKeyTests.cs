@@ -320,6 +320,14 @@ public class CachedAsyncRulePerKeyTests
     }
 
     [Fact]
+    public void Constructor_NullSelector_BehavesLikeTheTwoArgumentConstructor()
+    {
+        CachedAsyncBusinessRule cached = new CachedAsyncBusinessRule(RuleTestHelper.CreateBrokenAsyncRule(), Duration, null);
+
+        Assert.False(cached.CachesPerKey);
+    }
+
+    [Fact]
     public void Constructor_NullInnerRule_ThrowsArgumentNullException()
     {
         Assert.Throws<ArgumentNullException>(() => new CachedAsyncBusinessRule(null!, Duration, SelectTenant));

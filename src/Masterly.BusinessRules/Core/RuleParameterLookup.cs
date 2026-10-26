@@ -21,6 +21,7 @@ namespace Masterly.BusinessRules
     {
         private const string FoundText = "found";
         private const string MissingText = "missing";
+        private const int HashMultiplier = 397;
 
         private RuleParameterLookup(bool found, T value)
         {
@@ -80,7 +81,7 @@ namespace Masterly.BusinessRules
         {
             unchecked
             {
-                return (Found ? 1 : 0) * 397 ^ (Value == null ? 0 : EqualityComparer<T>.Default.GetHashCode(Value));
+                return (Found ? 1 : 0) * HashMultiplier ^ (Value == null ? 0 : EqualityComparer<T>.Default.GetHashCode(Value));
             }
         }
 

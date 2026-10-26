@@ -15,6 +15,9 @@ namespace Masterly.BusinessRules
     /// that evaluation only; it is an optional override, not the primary wiring, so the context never becomes a service
     /// locator. The <see cref="RuleScope"/> of the evaluation is read from <see cref="ScopeKey"/>; when absent the global
     /// scope is requested.</para>
+    /// <para>A reserved key that is present but holds a value of another type (for example a tenant name stored as a
+    /// string under <see cref="ScopeKeyName"/>) throws <see cref="ContextValueTypeMismatchException"/> at evaluation,
+    /// wrapped by the checkers into <see cref="BusinessRuleContextException"/>; it is never silently treated as absent.</para>
     /// </remarks>
     /// <example>
     /// <code>

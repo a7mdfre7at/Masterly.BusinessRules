@@ -13,6 +13,12 @@ namespace Masterly.BusinessRules
     /// injected async provider, then the injected sync provider. Without any provider every parameter resolves to its
     /// fallback, so a parameterless evaluation can never throw for a missing provider.
     /// </summary>
+    /// <remarks>
+    /// A reserved key that is present but holds a value of another type (for example a tenant name stored as a string
+    /// under <see cref="RuleParameters.ScopeKeyName"/>) is a configuration error, not an absent key: it throws
+    /// <see cref="ContextValueTypeMismatchException"/> (wrapped by the checkers into <see cref="BusinessRuleContextException"/>)
+    /// instead of silently resolving the global scope or ignoring the override. A stored null is treated as absent.
+    /// </remarks>
     internal sealed class RuleParameterBinding
     {
         private static readonly RuleParameterBinding EmptyBinding = new RuleParameterBinding(Array.Empty<RuleParameterDeclaration>(), null, null);
@@ -40,6 +46,7 @@ namespace Masterly.BusinessRules
         /// Resolves the parameters for a synchronous evaluation. A null context (the parameterless path) resolves the
         /// global scope through the injected provider.
         /// </summary>
+        /// <exception cref="ContextValueTypeMismatchException">Thrown when a reserved key holds a value of another type.</exception>
         public RuleParameters Resolve(BusinessRuleContext? context)
         {
             RuleScope? scope = ResolveScope(context);
@@ -49,19 +56,15 @@ namespace Masterly.BusinessRules
             }
 
             IRuleParameterProvider? provider = ResolveSyncProvider(context);
-            Dictionary<string, object?> values = new Dictionary<string, object?>(_declarations.Length, StringComparer.Ordinal);
-            foreach (RuleParameterDeclaration declaration in _declarations)
-            {
-                values[declaration.Name] = declaration.Resolve(provider, scope);
-            }
-
-            return new RuleParameters(scope, values);
+            return ResolveThrough(provider, scope);
         }
 
         /// <summary>
-        /// Resolves the parameters for an asynchronous evaluation, preferring an async provider over a sync one.
+        /// Resolves the parameters for an asynchronous evaluation, preferring an async provider over a sync one. A null
+        /// context resolves the global scope through the injected providers, mirroring <see cref="Resolve"/>.
         /// </summary>
-        public async Task<RuleParameters> ResolveAsync(BusinessRuleContext context, CancellationToken cancellationToken)
+        /// <exception cref="ContextValueTypeMismatchException">Thrown when a reserved key holds a value of another type.</exception>
+        public async Task<RuleParameters> ResolveAsync(BusinessRuleContext? context, CancellationToken cancellationToken)
         {
             RuleScope? scope = ResolveScope(context);
             if (_declarations.Length == 0 && scope == null)
@@ -69,12 +72,12 @@ namespace Masterly.BusinessRules
                 return RuleParameters.Empty;
             }
 
-            if (context.TryGet(RuleParameters.AsyncContextKey, out IAsyncRuleParameterProvider asyncFromContext))
+            if (TryReadReserved(context, RuleParameters.AsyncContextKey, out IAsyncRuleParameterProvider asyncFromContext))
             {
                 return await ResolveThroughAsync(asyncFromContext, scope, cancellationToken);
             }
 
-            if (context.TryGet(RuleParameters.ContextKey, out IRuleParameterProvider fromContext))
+            if (TryReadReserved(context, RuleParameters.ContextKey, out IRuleParameterProvider fromContext))
             {
                 return ResolveThrough(fromContext, scope);
             }
@@ -111,22 +114,29 @@ namespace Masterly.BusinessRules
 
         private IRuleParameterProvider? ResolveSyncProvider(BusinessRuleContext? context)
         {
-            if (context != null && context.TryGet(RuleParameters.ContextKey, out IRuleParameterProvider fromContext))
-            {
-                return fromContext;
-            }
-
-            return _provider;
+            return TryReadReserved(context, RuleParameters.ContextKey, out IRuleParameterProvider fromContext) ? fromContext : _provider;
         }
 
         private static RuleScope? ResolveScope(BusinessRuleContext? context)
         {
-            if (context != null && context.TryGet(RuleParameters.ScopeKey, out RuleScope scope))
+            return TryReadReserved(context, RuleParameters.ScopeKey, out RuleScope scope) ? scope : null;
+        }
+
+        /// <summary>
+        /// Reads a reserved key: false when the context is null, the key is absent or holds null; true with the value
+        /// when it holds a <typeparamref name="T"/>. A present key holding another type throws through
+        /// <see cref="BusinessRuleContext.Get{T}(ContextKey{T})"/>, so a misconfigured context never degrades silently.
+        /// </summary>
+        private static bool TryReadReserved<T>(BusinessRuleContext? context, ContextKey<T> key, out T value) where T : class
+        {
+            if (context == null || !context.ContainsKey(key))
             {
-                return scope;
+                value = null!; // the contract of the Try pattern: the out value is unspecified when the method returns false
+                return false;
             }
 
-            return null;
+            value = context.Get(key);
+            return value != null;
         }
     }
 }

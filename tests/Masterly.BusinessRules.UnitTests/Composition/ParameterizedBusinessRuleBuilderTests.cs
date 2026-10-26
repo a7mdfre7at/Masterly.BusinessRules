@@ -155,6 +155,56 @@ public class ParameterizedBusinessRuleBuilderTests
     }
 
     [Fact]
+    public void IsBroken_ScopeKeyHoldsAnotherType_ThrowsContextValueTypeMismatchException()
+    {
+        IBusinessRule rule = CreateRule(CreateLayeredProvider());
+        BusinessRuleContext context = CreateContext(GlobalLimit + 1);
+        context.Set(RuleParameters.ScopeKeyName, "acme");
+
+        ContextValueTypeMismatchException exception = Assert.Throws<ContextValueTypeMismatchException>(() => rule.IsBroken(context));
+
+        Assert.Equal(RuleParameters.ScopeKeyName, exception.Key);
+        Assert.Equal(typeof(string), exception.ActualType);
+        Assert.Equal(typeof(RuleScope), exception.RequestedType);
+    }
+
+    [Fact]
+    public void IsBroken_ProviderKeyHoldsAnotherType_ThrowsContextValueTypeMismatchException()
+    {
+        IBusinessRule rule = CreateRule(CreateLayeredProvider());
+        BusinessRuleContext context = CreateContext(GlobalLimit + 1);
+        context.Set(RuleParameters.ProviderKeyName, new object());
+
+        ContextValueTypeMismatchException exception = Assert.Throws<ContextValueTypeMismatchException>(() => rule.IsBroken(context));
+
+        Assert.Equal(RuleParameters.ProviderKeyName, exception.Key);
+    }
+
+    [Fact]
+    public void IsBroken_ScopeKeyHoldsNull_RequestsTheGlobalScope()
+    {
+        IBusinessRule rule = CreateRule(CreateLayeredProvider());
+        BusinessRuleContext context = CreateContext(GlobalLimit + 1);
+        context.Set(RuleParameters.ScopeKeyName, (RuleScope?)null);
+
+        Assert.True(rule.IsBroken(context));
+    }
+
+    [Fact]
+    public void Checker_ScopeKeyHoldsAnotherType_WrapsIntoBusinessRuleContextException()
+    {
+        IBusinessRule rule = CreateRule(CreateLayeredProvider());
+        BusinessRuleContext context = CreateContext(GlobalLimit + 1);
+        context.Set(RuleParameters.ScopeKeyName, "acme");
+
+        BusinessRuleContextException exception = Assert.Throws<BusinessRuleContextException>(() => BusinessRuleChecker.CheckAll(context, rule));
+
+        Assert.Equal(Code, exception.RuleCode);
+        Assert.Equal(RuleParameters.ScopeKeyName, exception.Key);
+        Assert.IsType<ContextValueTypeMismatchException>(exception.InnerException);
+    }
+
+    [Fact]
     public void IsBroken_ReadsTheProviderOnEveryEvaluation()
     {
         InMemoryRuleParameterProvider provider = RuleTestHelper.CreateParameterProvider(LimitName, GlobalLimit);
