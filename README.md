@@ -21,6 +21,7 @@ If you like or are using this project please give it a star. Thanks!
 - [Creating Rules](#creating-rules)
 - [Fluent Builders](#fluent-builders)
 - [Subject-Typed Rules](#subject-typed-rules)
+- [Specification Rules and IQueryable Translation](#specification-rules-and-iqueryable-translation)
 - [Rule Metadata](#rule-metadata)
 - [Rule Composition](#rule-composition)
 - [Structural Composition and Explain Trees](#structural-composition-and-explain-trees)
@@ -47,6 +48,7 @@ If you like or are using this project please give it a star. Thanks!
 - **Sync & Async Rules** - Full support for both synchronous and asynchronous business rules
 - **Fluent Builders** - Create rules inline without subclassing
 - **Subject-Typed Rules** - `IBusinessRule<T>` / `IAsyncBusinessRule<T>` receive their subject at evaluation time, so one stateless, DI-friendly instance validates any number of subjects; `.For(subject)` binds back to the non-generic world, the checkers take a subject directly (`CheckAll(order, rules)`), `EvaluateEach(orders, rules)` runs a rule set over many subjects, and typed `And`/`Or`/`Not` and `BusinessRuleBuilder<T>` complete the picture
+- **Specification Rules** - Write a rule once as an expression (`SpecificationBusinessRule<T>.BrokenWhen`), check it in memory with the typed checkers and ask the database for every violating row with `db.Orders.WhereBroken(rule)` / `WhereSatisfies(rule)`; `AllOf`/`AnyOf`/`Not` combine specifications into one translatable lambda (no `Invoke` nodes) and `.ToAsync()` is the async mirror
 - **Logical Composition** - Combine rules with `And()`, `Or()`, `Not()` (operators combine the *broken* state of their operands; see the pinned truth table). The operators are real tree nodes that keep their operands and forward the context
 - **Rule Groups** - Unambiguous N-ary quantifiers `RuleGroup.All/Any/AtLeast/Exactly` with opt-in short-circuit and (async) parallel evaluation; member failures travel through `BusinessRuleResult.Details`
 - **Explain Trees** - `rule.Explain(context)` / `await rule.ExplainAsync(context)` return a navigable, printable tree (Passed/Broken/Skipped/CacheHit/NotEvaluated/Faulted per node, with timing) produced by a single evaluation
@@ -318,6 +320,80 @@ IBusinessRule<Order> big = BusinessRuleBuilder<Order>.Create("ORDER.TOO_LARGE")
 // Typed And/Or/Not forward the subject and the context to their operands
 IBusinessRule<Order> combined = big.And(new OrderMustHaveItemsRule());
 bool isBroken = combined.IsBroken(order, context);
+```
+
+---
+
+## Specification Rules and IQueryable Translation
+
+A *specification rule* is a subject-typed rule whose verdict is written once as an expression tree and used twice: compiled for in-memory evaluation and handed to a LINQ provider to find every row that violates it. Derive from `SpecificationBusinessRule<T>` and override `BrokenWhen` instead of `IsBroken`; the expression is read once, compiled lazily on first use, and the same `Code`, `Message` and `Severity` feed both the exception from `CheckAll` and the query from `WhereBroken`. Both `IsBroken` overloads are sealed, so the in-memory verdict and the translated predicate can never disagree (the context is therefore ignored).
+
+`ISpecificationRule<T>` makes the polarity explicit: `BrokenExpression` selects the violators, `SatisfiedExpression` selects the compliant rows (`NOT(brokenExpression)` over the same parameter). There is no ambiguous `ToExpression()`.
+
+**Combinators are stated in terms of satisfaction**, matching the Specification-pattern vocabulary rather than the broken-state algebra of `And`/`Or`:
+
+| Combinator | Satisfied when | Broken when | Broken expression | Code |
+|------------|----------------|-------------|-------------------|------|
+| `a.AllOf(b, c)` | every operand is satisfied | **any** operand is broken | `a \|\| b \|\| c` | `ALL(A,B,C)` |
+| `a.AnyOf(b, c)` | any operand is satisfied | **every** operand is broken | `a && b && c` | `ANY(A,B,C)` |
+| `a.Not()` | `a` is broken | `a` is satisfied | `a.SatisfiedExpression` | `!A` |
+
+Each combinator splices the operands' bodies onto a single parameter with an internal `ParameterReplacer` visitor, so the result is always **one lambda over one parameter with no `Invoke` nodes**, which every LINQ provider can translate. `Not().Not()` returns the original expressions rather than piling up negations.
+
+**Only specifications translate.** `WhereBroken` and `WhereSatisfies` accept `ISpecificationRule<T>` and nothing else, so wrapping a specification in `.Cached()`, `.When()`, `.WithSeverity()`, `.GatedBy()`, the typed `.And()`/`.Or()`/`.Not()` or `.For(subject)` yields an ordinary rule that still evaluates in memory but is a **compile-time error** to pass to a query. A composition can therefore never silently lose its translatability. The spec `Not()` takes precedence over the typed `Not()` when the receiver is typed as a specification.
+
+**Clocks.** Anything inside `BrokenWhen` that a provider evaluates server-side, such as `DateTime.UtcNow`, runs on the database clock when translated and on the local clock in memory; keep that in mind for rules that straddle midnight.
+
+**Async.** Specifications are the one deliberate exception to the library's "everything exists on both sides" rule: an expression has no asynchronous form, so there is no `IAsyncSpecificationRule`. `rule.ToAsync()` returns an `AsyncSpecificationRuleAdapter<T>` (an `IAsyncBusinessRule<T>` forwarding all metadata and both expressions) that joins async batches, groups and `AsyncBusinessRuleChecker` calls.
+
+**Existence checks** such as "the email must not already exist" are an `AsyncBusinessRuleBuilder<T>` with a repository call, not a specification; a specification describes the row itself.
+
+### Specification Examples
+
+```csharp
+// Written once: the expression is the rule
+public sealed class OrderIsOverdueRule : SpecificationBusinessRule<Order>
+{
+    public override string Code => "ORDER.OVERDUE";
+    public override string Message => "Order is past its due date.";
+    public override Expression<Func<Order, bool>> BrokenWhen => o => o.DueDate < DateTime.UtcNow && !o.IsPaid;
+}
+
+public sealed class OrderIsBigRule : SpecificationBusinessRule<Order>
+{
+    public override string Code => "ORDER.BIG";
+    public override string Message => "Order total exceeds the approval limit.";
+    public override Expression<Func<Order, bool>> BrokenWhen => o => o.Total > 10_000m;
+}
+
+OrderIsOverdueRule overdue = new OrderIsOverdueRule();
+OrderIsBigRule big = new OrderIsBigRule();
+
+// In memory: the typed checker, with the same Code/Message/Severity as everywhere else
+BusinessRuleChecker.CheckAll(order, new ISpecificationRule<Order>[] { overdue, big });
+bool isOverdue = overdue.IsBroken(order);                     // compiled once, reused
+
+// In the database: the same expression becomes the WHERE clause
+IQueryable<Order> violators = db.Orders.WhereBroken(overdue);   // WHERE DueDate < now AND NOT IsPaid
+IQueryable<Order> valid     = db.Orders.WhereSatisfies(overdue); // WHERE NOT (DueDate < now AND NOT IsPaid)
+
+// Combinators stay translatable: one lambda, no Invoke nodes
+ISpecificationRule<Order> combo = overdue.AllOf(big).AnyOf(new OrderIsFlaggedRule());
+IQueryable<Order> needsAttention = db.Orders.WhereBroken(combo);  // WHERE (overdue OR big) AND flagged
+List<Order> toReview = await needsAttention.OrderBy(o => o.DueDate).Take(50).ToListAsync();
+
+// Explicit polarity on the expressions themselves
+Expression<Func<Order, bool>> brokenPredicate = combo.BrokenExpression;
+Expression<Func<Order, bool>> satisfiedPredicate = combo.SatisfiedExpression;  // NOT(brokenPredicate)
+
+// Minimal async mirror: an adapter, not a second hierarchy
+IAsyncBusinessRule<Order> asyncOverdue = overdue.ToAsync();
+await AsyncBusinessRuleChecker.CheckAllAsync(context, order, new[] { asyncOverdue }, cancellationToken);
+
+// Still an ordinary typed rule: binds, decorates and composes, but the result is no longer translatable
+IBusinessRule bound = overdue.For(order).Cached(TimeSpan.FromMinutes(1));
+IBusinessRule<Order> notTranslatable = overdue.And(big);
+// db.Orders.WhereBroken(notTranslatable);   // does not compile: WhereBroken accepts ISpecificationRule<T> only
 ```
 
 ---
@@ -1450,6 +1526,7 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `IAsyncBusinessRule` | Async rule: `IsBrokenAsync()`, `CheckAsync()`, `EvaluateAsync()` |
 | `IBusinessRule<TSubject>` | Subject-typed sync rule: `IsBroken(subject)`, `IsBroken(subject, context)`, `Evaluate(subject[, context])`; bind with `.For(subject)` |
 | `IAsyncBusinessRule<TSubject>` | Subject-typed async rule: `IsBrokenAsync(subject, context, ct)`, `EvaluateAsync(subject, context, ct)`; bind with `.For(subject)` |
+| `ISpecificationRule<TSubject>` | Subject-typed rule with an explicit-polarity expression pair: `BrokenExpression`, `SatisfiedExpression`; the only input `WhereBroken`/`WhereSatisfies` accept |
 | `IBusinessRuleMetadata` | Base of all four rule interfaces: `Code`, `Message`, and defaulted `Severity`, `Name`, `Description`, `Category`, `Tags` |
 | `IComposedBusinessRule` / `IComposedAsyncBusinessRule` | A rule computed from operands: `Operator`, `Operands` (And/Or/Not nodes, groups, composites) |
 | `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached, conditional, severity-override and feature-gated decorators) |
@@ -1470,6 +1547,10 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `BusinessRuleMetadataBuilder<TBuilder>` | Shared base of the four builders: `WithMessage`, `WithSeverity`, `WithName`, `WithDescription`, `WithCategory`, `WithTags` and the context-only detail methods |
 | `BoundBusinessRule<TSubject>` / `BoundAsyncBusinessRule<TSubject>` | A typed rule bound to one subject (`Rule`, `Subject`); returned by `.For(subject)`, forwards all metadata |
 | `AndBusinessRule<TSubject>` / `OrBusinessRule<TSubject>` / `NotBusinessRule<TSubject>` (+ async twins) | Typed structural nodes returned by the typed `.And()`/`.Or()`/`.Not()`; forward subject and context to their `Operands` |
+| `SpecificationBusinessRule<TSubject>` | Abstract base for expression rules: override `BrokenWhen`; `BrokenExpression`/`SatisfiedExpression` cached, `IsBroken` sealed and lazily compiled; `Describe(subject, context)` hook inherited |
+| `AllOfSpecificationRule<TSubject>` / `AnyOfSpecificationRule<TSubject>` / `NotSpecificationRule<TSubject>` | Specification nodes returned by `.AllOf()`/`.AnyOf()`/`.Not()` (`Operator`, `Operands`); one spliced lambda, codes `ALL(A,B)`, `ANY(A,B)`, `!A` |
+| `ComposedSpecificationRule<TSubject>` | Shared base of the three specification nodes (cannot be derived from outside the library) |
+| `AsyncSpecificationRuleAdapter<TSubject>` | `IAsyncBusinessRule<TSubject>` over a specification (`InnerRule`, `BrokenExpression`, `SatisfiedExpression`); returned by `.ToAsync()` |
 | `SubjectEvaluation<TSubject>` / `AsyncSubjectEvaluation<TSubject>` | One subject of an `EvaluateEach` batch: `Index`, `Subject`, `Result`, `AllPassed`, `HasBrokenRules`, `BrokenRules` |
 | `SubjectEvaluationCollection<TSubject>` / `AsyncSubjectEvaluationCollection<TSubject>` | Positional `IReadOnlyList` returned by `EvaluateEach`: `AllPassed`, `HasBrokenRules`, `Broken`, `Passed`, `BrokenRules`, `TotalDuration` |
 | `AndBusinessRule` / `AndAsyncBusinessRule` | Structural node returned by `.And()` (operator `And`) |
@@ -1523,6 +1604,9 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `.Not()` | Inverts the rule's broken state (code `!A`) |
 | `.For(subject)` | Bind a subject-typed rule to one subject, returning an ordinary `IBusinessRule` / `IAsyncBusinessRule` |
 | `.And(rule)` / `.Or(rule)` / `.Not()` on `IBusinessRule<T>` / `IAsyncBusinessRule<T>` | Typed composition with the same truth tables and codes; subject and context are forwarded to the operands |
+| `.AllOf(others)` / `.AnyOf(others)` / `.Not()` on `ISpecificationRule<T>` | Satisfaction-stated specification combinators producing one translatable lambda (codes `ALL(A,B)`, `ANY(A,B)`, `!A`) |
+| `.ToAsync()` on `ISpecificationRule<T>` | Adapt a specification to `IAsyncBusinessRule<T>` (the whole async side of specifications) |
+| `queryable.WhereBroken(spec)` / `queryable.WhereSatisfies(spec)` | Append one `Where` with the specification's `BrokenExpression` / `SatisfiedExpression`; accept `ISpecificationRule<T>` only |
 | `.Explain(context?, captureExceptions?)` | Evaluate once and return the `RuleExplanation` tree (sync) |
 | `.ExplainAsync(context, [captureExceptions], ct)` | Evaluate once and return the `RuleExplanation` tree (async) |
 | `.ToAsync()` | Convert sync to async |
