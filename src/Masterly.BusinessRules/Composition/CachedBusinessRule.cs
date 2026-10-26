@@ -10,6 +10,8 @@ namespace Masterly.BusinessRules
     /// <remarks>
     /// <para>The cache is thread-safe and uses a lock for synchronization.</para>
     /// <para>Use <see cref="InvalidateCache"/> to clear the cache before the duration expires.</para>
+    /// <para>In an explanation tree a served cache entry is reported as <see cref="RuleOutcome.CacheHit"/> with the
+    /// inner rule as a <see cref="RuleOutcome.NotEvaluated"/> child.</para>
     /// </remarks>
     /// <example>
     /// <code>
@@ -19,7 +21,7 @@ namespace Masterly.BusinessRules
     /// );
     /// </code>
     /// </example>
-    public sealed class CachedBusinessRule : IBusinessRule
+    public sealed class CachedBusinessRule : IDecoratedBusinessRule, IExplainableBusinessRule
     {
         private readonly IBusinessRule _innerRule;
         private readonly TimeSpan _cacheDuration;
@@ -39,6 +41,9 @@ namespace Masterly.BusinessRules
             _cacheDuration = cacheDuration;
             _cacheExpiry = DateTime.MinValue;
         }
+
+        /// <inheritdoc />
+        public IBusinessRule InnerRule => _innerRule;
 
         /// <inheritdoc />
         public string Code => _innerRule.Code;
@@ -65,30 +70,14 @@ namespace Masterly.BusinessRules
         /// <remarks>Returns cached result if available and not expired; otherwise evaluates and caches.</remarks>
         public bool IsBroken()
         {
-            lock (_lock)
-            {
-                if (_cachedResult.HasValue && DateTime.UtcNow < _cacheExpiry)
-                    return _cachedResult.Value;
-
-                _cachedResult = _innerRule.IsBroken();
-                _cacheExpiry = DateTime.UtcNow.Add(_cacheDuration);
-                return _cachedResult.Value;
-            }
+            return EvaluateCore(null, null) != null;
         }
 
         /// <inheritdoc />
         /// <remarks>Returns cached result if available and not expired; otherwise evaluates and caches.</remarks>
         public bool IsBroken(BusinessRuleContext context)
         {
-            lock (_lock)
-            {
-                if (_cachedResult.HasValue && DateTime.UtcNow < _cacheExpiry)
-                    return _cachedResult.Value;
-
-                _cachedResult = _innerRule.IsBroken(context);
-                _cacheExpiry = DateTime.UtcNow.Add(_cacheDuration);
-                return _cachedResult.Value;
-            }
+            return EvaluateCore(context, null) != null;
         }
 
         /// <inheritdoc />
@@ -119,6 +108,36 @@ namespace Masterly.BusinessRules
             {
                 _cachedResult = null;
                 _cacheExpiry = DateTime.MinValue;
+            }
+        }
+
+        BusinessRuleResult? IExplainableBusinessRule.EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
+            => EvaluateCore(context, trace);
+
+        private BusinessRuleResult? EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
+        {
+            lock (_lock)
+            {
+                if (_cachedResult.HasValue && DateTime.UtcNow < _cacheExpiry)
+                {
+                    bool cachedIsBroken = _cachedResult.Value;
+                    trace?.Add(BusinessRuleWalker.CacheHit(this, _innerRule, cachedIsBroken));
+                    return cachedIsBroken ? Evaluate() : null;
+                }
+
+                RuleExplanationTrace? children = trace?.Branch();
+                long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
+
+                BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(_innerRule, context, children);
+                _cachedResult = result != null;
+                _cacheExpiry = DateTime.UtcNow.Add(_cacheDuration);
+
+                if (trace != null && children != null)
+                {
+                    trace.Add(BusinessRuleWalker.Evaluated(this, result != null, RuleExplanationText.CachedOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
+                }
+
+                return result;
             }
         }
     }

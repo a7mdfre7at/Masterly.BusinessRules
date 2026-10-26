@@ -9,6 +9,9 @@ namespace Masterly.BusinessRules
     /// <summary>
     /// A composite async business rule that can either contain multiple child rules
     /// or use a delegate function for evaluation.
+    /// With child rules it is the <see cref="RuleOperator.All"/> node of the composition model and evaluates every
+    /// child (no short-circuit) so that every broken child is reported; in delegate mode it has no operands and
+    /// behaves as a leaf.
     /// </summary>
     /// <example>
     /// <code>
@@ -27,9 +30,13 @@ namespace Masterly.BusinessRules
     /// );
     /// </code>
     /// </example>
-    public class CompositeAsyncBusinessRule : IAsyncBusinessRule
+    public class CompositeAsyncBusinessRule : IComposedAsyncBusinessRule, IExplainableAsyncBusinessRule
     {
+        private const string CompositeCode = "CompositeAsyncRule";
+        private const string CompositeMessage = "One or more async business rules failed.";
         private static readonly IReadOnlyList<string> EmptyTags = Array.Empty<string>();
+        private static readonly IReadOnlyList<IAsyncBusinessRule> NoOperands = Array.Empty<IAsyncBusinessRule>();
+        private static readonly IReadOnlyList<BusinessRuleResult> NoResults = Array.Empty<BusinessRuleResult>();
         private readonly Func<BusinessRuleContext, CancellationToken, Task<bool>>? _isBrokenFunc;
         private readonly List<IAsyncBusinessRule>? _rules;
 
@@ -60,8 +67,8 @@ namespace Masterly.BusinessRules
         public CompositeAsyncBusinessRule(IEnumerable<IAsyncBusinessRule> rules)
         {
             _rules = rules.ToList();
-            Code = "CompositeAsyncRule";
-            Message = "One or more async business rules failed.";
+            Code = CompositeCode;
+            Message = CompositeMessage;
             Severity = RuleSeverity.Error;
         }
 
@@ -93,32 +100,23 @@ namespace Masterly.BusinessRules
         public IReadOnlyList<IAsyncBusinessRule>? Rules => _rules?.AsReadOnly();
 
         /// <inheritdoc />
+        public RuleOperator Operator => RuleOperator.All;
+
+        /// <inheritdoc />
+        /// <remarks>Empty when the composite was created from a delegate function.</remarks>
+        public IReadOnlyList<IAsyncBusinessRule> Operands => Rules ?? NoOperands;
+
+        /// <inheritdoc />
         public async Task<bool> IsBrokenAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
         {
-            if (_isBrokenFunc != null)
-            {
-                return await _isBrokenFunc(context, cancellationToken);
-            }
-
-            if (_rules != null)
-            {
-                foreach (IAsyncBusinessRule rule in _rules)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (await rule.IsBrokenAsync(context, cancellationToken))
-                        return true;
-                }
-            }
-
-            return false;
+            return await EvaluateCoreAsync(context, null, cancellationToken) != null;
         }
 
         /// <inheritdoc />
-        public async Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
+        /// <remarks>With child rules the returned result carries each broken child in <see cref="BusinessRuleResult.Details"/>.</remarks>
+        public Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
         {
-            return await IsBrokenAsync(context, cancellationToken)
-                ? new BusinessRuleResult(Code, Message, Severity)
-                : null;
+            return EvaluateCoreAsync(context, null, cancellationToken);
         }
 
         /// <inheritdoc />
@@ -141,24 +139,67 @@ namespace Masterly.BusinessRules
             BusinessRuleContext context,
             CancellationToken cancellationToken = default)
         {
+            BusinessRuleResult? result = await EvaluateCoreAsync(context, null, cancellationToken);
+            if (result == null)
+            {
+                return NoResults;
+            }
+
+            return _rules == null ? new[] { result } : result.Details;
+        }
+
+        Task<BusinessRuleResult?> IExplainableAsyncBusinessRule.EvaluateCoreAsync(BusinessRuleContext context, RuleExplanationTrace? trace, CancellationToken cancellationToken)
+            => EvaluateCoreAsync(context, trace, cancellationToken);
+
+        private Task<BusinessRuleResult?> EvaluateCoreAsync(BusinessRuleContext context, RuleExplanationTrace? trace, CancellationToken cancellationToken)
+        {
             if (_rules == null)
             {
-                BusinessRuleResult? singleResult = await EvaluateAsync(context, cancellationToken);
-                return singleResult != null
-                    ? new[] { singleResult }
-                    : Array.Empty<BusinessRuleResult>();
+                return AsyncBusinessRuleWalker.EvaluateLeafAsync(this, () => EvaluateDelegateAsync(context, cancellationToken), trace);
             }
 
-            List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
-            foreach (IAsyncBusinessRule rule in _rules)
+            return EvaluateRulesAsync(_rules, context, trace, cancellationToken);
+        }
+
+        private async Task<BusinessRuleResult?> EvaluateDelegateAsync(BusinessRuleContext context, CancellationToken cancellationToken)
+        {
+            if (_isBrokenFunc != null && await _isBrokenFunc(context, cancellationToken))
+            {
+                return new BusinessRuleResult(Code, Message, Severity);
+            }
+
+            return null;
+        }
+
+        private async Task<BusinessRuleResult?> EvaluateRulesAsync(
+            List<IAsyncBusinessRule> rules,
+            BusinessRuleContext context,
+            RuleExplanationTrace? trace,
+            CancellationToken cancellationToken)
+        {
+            RuleExplanationTrace? children = trace?.Branch();
+            long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
+
+            List<BusinessRuleResult>? details = null;
+            foreach (IAsyncBusinessRule rule in rules)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                BusinessRuleResult? result = await rule.EvaluateAsync(context, cancellationToken);
+                BusinessRuleResult? result = await AsyncBusinessRuleWalker.EvaluateNodeAsync(rule, context, children, cancellationToken);
                 if (result != null)
-                    brokenRules.Add(result);
+                {
+                    details = details ?? new List<BusinessRuleResult>();
+                    details.Add(result);
+                }
             }
 
-            return brokenRules.AsReadOnly();
+            bool isBroken = details != null;
+
+            if (trace != null && children != null)
+            {
+                trace.Add(AsyncBusinessRuleWalker.Evaluated(this, isBroken, RuleExplanationText.AllOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
+            }
+
+            return isBroken ? new BusinessRuleResult(Code, Message, Severity, details ?? NoResults) : null;
         }
     }
 }

@@ -1,12 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace Masterly.BusinessRules
 {
     /// <summary>
     /// A composite business rule that contains and evaluates multiple child rules.
-    /// The composite is considered broken if any of its child rules are broken.
+    /// The composite is considered broken if any of its child rules are broken; it is the
+    /// <see cref="RuleOperator.All"/> node of the composition model and evaluates every child
+    /// (no short-circuit) so that every broken child is reported.
     /// </summary>
     /// <example>
     /// <code>
@@ -22,9 +23,12 @@ namespace Masterly.BusinessRules
     /// }
     /// </code>
     /// </example>
-    public class CompositeBusinessRule : IBusinessRule
+    public class CompositeBusinessRule : IComposedBusinessRule, IExplainableBusinessRule
     {
+        private const string CompositeCode = "CompositeRule";
+        private const string CompositeMessage = "One or more business rules failed.";
         private static readonly IReadOnlyList<string> EmptyTags = Array.Empty<string>();
+        private static readonly IReadOnlyList<BusinessRuleResult> NoResults = Array.Empty<BusinessRuleResult>();
         private readonly List<IBusinessRule> _rules = new List<IBusinessRule>();
 
         /// <summary>
@@ -34,10 +38,10 @@ namespace Masterly.BusinessRules
         public CompositeBusinessRule(IEnumerable<IBusinessRule> rules) => _rules.AddRange(rules);
 
         /// <inheritdoc />
-        public string Code => "CompositeRule";
+        public string Code => CompositeCode;
 
         /// <inheritdoc />
-        public string Message => "One or more business rules failed.";
+        public string Message => CompositeMessage;
 
         /// <inheritdoc />
         public RuleSeverity Severity => RuleSeverity.Error;
@@ -60,29 +64,29 @@ namespace Masterly.BusinessRules
         public IReadOnlyList<IBusinessRule> Rules => _rules.AsReadOnly();
 
         /// <inheritdoc />
-        public bool IsBroken() => _rules.Any(r => r.IsBroken());
+        public RuleOperator Operator => RuleOperator.All;
 
         /// <inheritdoc />
-        public bool IsBroken(BusinessRuleContext context) => _rules.Any(r => r.IsBroken(context));
+        public IReadOnlyList<IBusinessRule> Operands => Rules;
 
         /// <inheritdoc />
-        /// <exception cref="BusinessRuleValidationException">Thrown when any child rules are broken.</exception>
+        public bool IsBroken() => EvaluateCore(null, null) != null;
+
+        /// <inheritdoc />
+        public bool IsBroken(BusinessRuleContext context) => EvaluateCore(context, null) != null;
+
+        /// <inheritdoc />
+        /// <exception cref="BusinessRuleValidationException">Thrown when any child rules are broken; carries each broken child result individually.</exception>
         public void Check()
         {
-            List<BusinessRuleResult> broken = _rules.Where(r => r.IsBroken()).Select(r => r.Evaluate()).ToList();
-
-            if (broken.Any())
-                throw new BusinessRuleValidationException(broken);
+            ThrowIfBroken(EvaluateCore(null, null));
         }
 
         /// <inheritdoc />
-        /// <exception cref="BusinessRuleValidationException">Thrown when any child rules are broken.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any child rules are broken; carries each broken child result individually.</exception>
         public void Check(BusinessRuleContext context)
         {
-            List<BusinessRuleResult> broken = _rules.Where(r => r.IsBroken(context)).Select(r => r.Evaluate()).ToList();
-
-            if (broken.Any())
-                throw new BusinessRuleValidationException(broken);
+            ThrowIfBroken(EvaluateCore(context, null));
         }
 
         /// <inheritdoc />
@@ -93,7 +97,7 @@ namespace Masterly.BusinessRules
         /// </summary>
         /// <returns>A collection of results for all broken child rules.</returns>
         public IReadOnlyCollection<BusinessRuleResult> EvaluateAll()
-            => _rules.Where(r => r.IsBroken()).Select(r => r.Evaluate()).ToList().AsReadOnly();
+            => EvaluateCore(null, null)?.Details ?? NoResults;
 
         /// <summary>
         /// Evaluates all child rules using context data and returns results for all broken rules.
@@ -101,6 +105,43 @@ namespace Masterly.BusinessRules
         /// <param name="context">The context containing data for rule evaluation.</param>
         /// <returns>A collection of results for all broken child rules.</returns>
         public IReadOnlyCollection<BusinessRuleResult> EvaluateAll(BusinessRuleContext context)
-            => _rules.Where(r => r.IsBroken(context)).Select(r => r.Evaluate()).ToList().AsReadOnly();
+            => EvaluateCore(context, null)?.Details ?? NoResults;
+
+        BusinessRuleResult? IExplainableBusinessRule.EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
+            => EvaluateCore(context, trace);
+
+        private BusinessRuleResult? EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
+        {
+            RuleExplanationTrace? children = trace?.Branch();
+            long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
+
+            List<BusinessRuleResult>? details = null;
+            foreach (IBusinessRule rule in _rules)
+            {
+                BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(rule, context, children);
+                if (result != null)
+                {
+                    details = details ?? new List<BusinessRuleResult>();
+                    details.Add(result);
+                }
+            }
+
+            bool isBroken = details != null;
+
+            if (trace != null && children != null)
+            {
+                trace.Add(BusinessRuleWalker.Evaluated(this, isBroken, RuleExplanationText.AllOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
+            }
+
+            return isBroken ? new BusinessRuleResult(Code, Message, Severity, details ?? NoResults) : null;
+        }
+
+        private static void ThrowIfBroken(BusinessRuleResult? result)
+        {
+            if (result != null)
+            {
+                throw new BusinessRuleValidationException(result.Details);
+            }
+        }
     }
 }

@@ -14,8 +14,12 @@ namespace Masterly.BusinessRules
     /// <para>
     /// Prefer using async rules natively with <see cref="AsyncBusinessRuleChecker"/> when possible.
     /// </para>
+    /// <para>
+    /// In an explanation tree the adapter is a node with operator <c>ADAPTER</c> whose single child is the explanation
+    /// of the wrapped async rule.
+    /// </para>
     /// </remarks>
-    public sealed class AsyncToSyncRuleAdapter : IBusinessRule
+    public sealed class AsyncToSyncRuleAdapter : IBusinessRule, IExplainableBusinessRule
     {
         private readonly IAsyncBusinessRule _asyncRule;
         private readonly BusinessRuleContext _context;
@@ -31,6 +35,11 @@ namespace Masterly.BusinessRules
             _asyncRule = asyncRule ?? throw new ArgumentNullException(nameof(asyncRule));
             _context = context ?? new BusinessRuleContext();
         }
+
+        /// <summary>
+        /// Gets the wrapped asynchronous rule.
+        /// </summary>
+        public IAsyncBusinessRule InnerRule => _asyncRule;
 
         /// <inheritdoc />
         public string Code => _asyncRule.Code;
@@ -57,14 +66,14 @@ namespace Masterly.BusinessRules
         /// <remarks>This method blocks the calling thread.</remarks>
         public bool IsBroken()
         {
-            return _asyncRule.IsBrokenAsync(_context).GetAwaiter().GetResult();
+            return EvaluateCore(null, null) != null;
         }
 
         /// <inheritdoc />
         /// <remarks>This method blocks the calling thread.</remarks>
         public bool IsBroken(BusinessRuleContext context)
         {
-            return _asyncRule.IsBrokenAsync(context).GetAwaiter().GetResult();
+            return EvaluateCore(context, null) != null;
         }
 
         /// <inheritdoc />
@@ -87,6 +96,25 @@ namespace Masterly.BusinessRules
         public void Check(BusinessRuleContext context)
         {
             _asyncRule.CheckAsync(context).GetAwaiter().GetResult();
+        }
+
+        BusinessRuleResult? IExplainableBusinessRule.EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
+            => EvaluateCore(context, trace);
+
+        private BusinessRuleResult? EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
+        {
+            BusinessRuleContext effectiveContext = context ?? _context;
+
+            if (trace == null)
+            {
+                return AsyncBusinessRuleWalker.EvaluateNodeAsync(_asyncRule, effectiveContext, null, default).GetAwaiter().GetResult();
+            }
+
+            RuleExplanationTrace children = trace.Branch();
+            long start = RuleExplanationTrace.StartTiming();
+            BusinessRuleResult? result = AsyncBusinessRuleWalker.EvaluateNodeAsync(_asyncRule, effectiveContext, children, default).GetAwaiter().GetResult();
+            trace.Add(BusinessRuleWalker.Evaluated(this, result != null, RuleExplanationText.AdapterOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
+            return result;
         }
     }
 }

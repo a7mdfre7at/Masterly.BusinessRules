@@ -8,6 +8,8 @@ namespace Masterly.BusinessRules
     /// <summary>
     /// A wrapper that conditionally executes an async rule based on a predicate.
     /// When the condition returns false, the rule is considered not broken (passes).
+    /// In an explanation tree an unmet condition is reported as <see cref="RuleOutcome.Skipped"/> with the inner rule
+    /// as a <see cref="RuleOutcome.NotEvaluated"/> child.
     /// </summary>
     /// <remarks>
     /// The condition predicate receives the <see cref="BusinessRuleContext"/> allowing
@@ -22,7 +24,7 @@ namespace Masterly.BusinessRules
     /// );
     /// </code>
     /// </example>
-    public sealed class ConditionalAsyncBusinessRule : IAsyncBusinessRule
+    public sealed class ConditionalAsyncBusinessRule : IDecoratedAsyncBusinessRule, IExplainableAsyncBusinessRule
     {
         private readonly IAsyncBusinessRule _innerRule;
         private readonly Func<BusinessRuleContext, bool> _condition;
@@ -38,6 +40,9 @@ namespace Masterly.BusinessRules
             _innerRule = innerRule ?? throw new ArgumentNullException(nameof(innerRule));
             _condition = condition ?? throw new ArgumentNullException(nameof(condition));
         }
+
+        /// <inheritdoc />
+        public IAsyncBusinessRule InnerRule => _innerRule;
 
         /// <inheritdoc />
         public string Code => _innerRule.Code;
@@ -64,20 +69,14 @@ namespace Masterly.BusinessRules
         /// <remarks>Returns false (not broken) if the condition is false.</remarks>
         public async Task<bool> IsBrokenAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
         {
-            if (!_condition(context))
-                return false;
-
-            return await _innerRule.IsBrokenAsync(context, cancellationToken);
+            return await EvaluateCoreAsync(context, null, cancellationToken) != null;
         }
 
         /// <inheritdoc />
         /// <remarks>Returns null if the condition is false.</remarks>
-        public async Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
+        public Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
         {
-            if (!_condition(context))
-                return null;
-
-            return await _innerRule.EvaluateAsync(context, cancellationToken);
+            return EvaluateCoreAsync(context, null, cancellationToken);
         }
 
         /// <inheritdoc />
@@ -87,6 +86,30 @@ namespace Masterly.BusinessRules
         {
             if (_condition(context))
                 await _innerRule.CheckAsync(context, cancellationToken);
+        }
+
+        Task<BusinessRuleResult?> IExplainableAsyncBusinessRule.EvaluateCoreAsync(BusinessRuleContext context, RuleExplanationTrace? trace, CancellationToken cancellationToken)
+            => EvaluateCoreAsync(context, trace, cancellationToken);
+
+        private async Task<BusinessRuleResult?> EvaluateCoreAsync(BusinessRuleContext context, RuleExplanationTrace? trace, CancellationToken cancellationToken)
+        {
+            if (!_condition(context))
+            {
+                trace?.Add(AsyncBusinessRuleWalker.Skipped(this, _innerRule, RuleExplanationText.WhenOperator, RuleExplanationText.PreconditionNotMetReason));
+                return null;
+            }
+
+            RuleExplanationTrace? children = trace?.Branch();
+            long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
+
+            BusinessRuleResult? result = await AsyncBusinessRuleWalker.EvaluateNodeAsync(_innerRule, context, children, cancellationToken);
+
+            if (trace != null && children != null)
+            {
+                trace.Add(AsyncBusinessRuleWalker.Evaluated(this, result != null, RuleExplanationText.WhenOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
+            }
+
+            return result;
         }
     }
 }

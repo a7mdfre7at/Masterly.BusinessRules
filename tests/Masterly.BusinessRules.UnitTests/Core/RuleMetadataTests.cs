@@ -1,4 +1,4 @@
-﻿using System.Threading;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Masterly.BusinessRules.UnitTests;
@@ -77,6 +77,48 @@ public class RuleMetadataTests
 
         Assert.Equal("SimpleBusinessRule", rule.Name);
         Assert.Equal(string.Empty, rule.Description);
+    }
+
+    [Fact]
+    public void AndOrNot_Name_IsStructuralNodeTypeName()
+    {
+        IBusinessRule and = new RuleA(false).And(new RuleA(false));
+        IBusinessRule or = new RuleA(false).Or(new RuleA(false));
+        IBusinessRule not = new RuleA(false).Not();
+
+        Assert.Equal("AndBusinessRule", and.Name);
+        Assert.Equal("OrBusinessRule", or.Name);
+        Assert.Equal("NotBusinessRule", not.Name);
+        Assert.Equal(RuleSeverity.Error, and.Severity);
+        Assert.Empty(and.Category);
+        Assert.Empty(and.Tags);
+    }
+
+    [Fact]
+    public void AsyncAndOrNot_Name_IsStructuralNodeTypeName()
+    {
+        IAsyncBusinessRule and = new AsyncRuleA(false).And(new AsyncRuleA(false));
+        IAsyncBusinessRule or = new AsyncRuleA(false).Or(new AsyncRuleA(false));
+        IAsyncBusinessRule not = new AsyncRuleA(false).Not();
+
+        Assert.Equal("AndAsyncBusinessRule", and.Name);
+        Assert.Equal("OrAsyncBusinessRule", or.Name);
+        Assert.Equal("NotAsyncBusinessRule", not.Name);
+        Assert.Equal(RuleSeverity.Error, and.Severity);
+        Assert.Empty(and.Category);
+        Assert.Empty(and.Tags);
+    }
+
+    [Fact]
+    public void GroupBusinessRule_Name_IsTypeName()
+    {
+        GroupBusinessRule group = RuleGroup.All("GROUP", "Group", new RuleA(false));
+        GroupAsyncBusinessRule asyncGroup = AsyncRuleGroup.All("GROUP", "Group", new AsyncRuleA(false));
+
+        Assert.Equal("GroupBusinessRule", group.Name);
+        Assert.Equal("GroupAsyncBusinessRule", asyncGroup.Name);
+        Assert.NotEmpty(group.Description);
+        Assert.NotEmpty(asyncGroup.Description);
     }
 
     [Fact]

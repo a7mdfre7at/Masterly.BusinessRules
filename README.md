@@ -22,6 +22,7 @@ If you like or are using this project please give it a star. Thanks!
 - [Fluent Builders](#fluent-builders)
 - [Rule Metadata](#rule-metadata)
 - [Rule Composition](#rule-composition)
+- [Structural Composition and Explain Trees](#structural-composition-and-explain-trees)
 - [Batch Validation](#batch-validation)
 - [Context and Data Passing](#context-and-data-passing)
 - [Caching](#caching)
@@ -40,7 +41,9 @@ If you like or are using this project please give it a star. Thanks!
 
 - **Sync & Async Rules** - Full support for both synchronous and asynchronous business rules
 - **Fluent Builders** - Create rules inline without subclassing
-- **Logical Composition** - Combine rules with `And()`, `Or()`, `Not()` (operators combine the *broken* state of their operands; see the pinned truth table)
+- **Logical Composition** - Combine rules with `And()`, `Or()`, `Not()` (operators combine the *broken* state of their operands; see the pinned truth table). The operators are real tree nodes that keep their operands and forward the context
+- **Rule Groups** - Unambiguous N-ary quantifiers `RuleGroup.All/Any/AtLeast/Exactly` with opt-in short-circuit and (async) parallel evaluation; member failures travel through `BusinessRuleResult.Details`
+- **Explain Trees** - `rule.Explain(context)` / `await rule.ExplainAsync(context)` return a navigable, printable tree (Passed/Broken/Skipped/CacheHit/NotEvaluated/Faulted per node, with timing) produced by a single evaluation
 - **Rule Metadata** - Name, description, category, tags, and severity
 - **Caching** - Time-based caching for expensive rule evaluations
 - **Conditional Execution** - Execute rules only when preconditions are met
@@ -300,11 +303,11 @@ The synthesised code of a composed rule is `A+B` for `And`, `A|B` for `Or` and `
 | passes  | **broken**   |
 | broken  | passes       |
 
-In practice this means: use `Or()` when **every** operand must hold ("broken if any check fails"), and `And()` when it is enough that **one** operand holds ("broken only if all checks fail"). These semantics are pinned by `CompositionTruthTableTests` in the test suite and are kept unchanged for backwards compatibility; the unambiguous quantifier-style groups (`All`, `Any`) planned for a later 3.x release will be documented here when they ship.
+In practice this means: use `Or()` when **every** operand must hold ("broken if any check fails"), and `And()` when it is enough that **one** operand holds ("broken only if all checks fail"). These semantics are pinned by `CompositionTruthTableTests` in the test suite and are kept unchanged for backwards compatibility. If you find them confusing, prefer the unambiguous quantifier-style groups described in [Structural Composition and Explain Trees](#structural-composition-and-explain-trees): `RuleGroup.All` is broken when any member is broken, `RuleGroup.Any` only when every member is broken.
 
-Composition works with both sync and async rules. You can chain operators to create complex expressions like `rule1.And(rule2.Or(rule3.Not()))`. The sync operators evaluate their operands with the parameterless `IsBroken()` and do not forward a context; the async operators forward both the context and the cancellation token, and short-circuit on the first operand when its result already decides the outcome.
+Composition works with both sync and async rules. You can chain operators to create complex expressions like `rule1.And(rule2.Or(rule3.Not()))`. Since 3.0 the operators return real tree nodes (`AndBusinessRule`, `OrBusinessRule`, `NotBusinessRule` and their async twins) that keep their operands, forward the evaluation context (and, on the async side, the cancellation token) to them and short-circuit on the first operand when its result already decides the outcome.
 
-**CompositeBusinessRule** and **CompositeAsyncBusinessRule** provide containers for grouping multiple rules that are evaluated together; a composite is broken when **any** of its inner rules is broken.
+**CompositeBusinessRule** and **CompositeAsyncBusinessRule** provide containers for grouping multiple rules that are evaluated together; a composite is broken when **any** of its inner rules is broken and evaluates every inner rule so that each broken one is reported.
 
 ### Composition Examples
 
@@ -335,6 +338,77 @@ CompositeBusinessRule composite = new CompositeBusinessRule(
     new Rule1(), new Rule2(), new Rule3()
 );
 composite.Check();
+```
+
+---
+
+## Structural Composition and Explain Trees
+
+Every composed rule keeps its shape. The `And()`, `Or()` and `Not()` operators, the composites and the new rule groups all implement `IComposedBusinessRule` (`Operator`, `Operands`), while `CachedBusinessRule` and `ConditionalBusinessRule` implement `IDecoratedBusinessRule` (`InnerRule`); the async side mirrors this with `IComposedAsyncBusinessRule` and `IDecoratedAsyncBusinessRule`, and both adapters expose their wrapped rule as `InnerRule`. Tooling can therefore walk any rule tree without knowing the concrete node types.
+
+**Rule groups** are unambiguous N-ary quantifiers stated in terms of how many members must **pass**:
+
+| Group | Broken when |
+|-------|-------------|
+| `RuleGroup.All(code, message, members...)` | any member is broken (every member must pass) |
+| `RuleGroup.Any(code, message, members...)` | every member is broken (at least one member must pass) |
+| `RuleGroup.AtLeast(n, code, message, members...)` | fewer than `n` members pass |
+| `RuleGroup.Exactly(n, code, message, members...)` | the number of passing members is not `n` |
+
+Groups are immutable: `WithShortCircuit()`, `WithSeverity()` and (async only) `WithParallelEvaluation()` return a new instance. By default a group evaluates every member so that the group's `BusinessRuleResult.Details` lists every broken member; a short-circuiting group stops as soon as the verdict is decided and reports the remaining members as `NotEvaluated`. `WithParallelEvaluation()` starts every member at once and awaits all of them (so faults are always observed); it cannot be combined with `WithShortCircuit()`, and a member that observes cancellation throws before it populates a `CachedAsyncBusinessRule` or reaches an observer. Factories reject empty member lists, null members and thresholds outside `0..members.Count`.
+
+**Member results survive the batch path.** A group or composite reports one result whose `Details` holds the broken members (nested groups nest their details). `BusinessRuleChecker.CheckAll`/`EvaluateAll` and their async twins evaluate composed rules exactly once and surface those details; `exception.Flatten()` (or `result.Flatten()`) yields only the leaf results.
+
+**Explain trees.** `rule.Explain(context)` and `await asyncRule.ExplainAsync(context, ct)` evaluate the rule **exactly once** and return a `RuleExplanation` tree produced by that evaluation: no rule is evaluated a second time to build it. Every node carries the rule, its `RuleOutcome` (`Passed`, `Broken`, `Skipped`, `CacheHit`, `NotEvaluated`, `Faulted`), `IsBroken`, the `Operator` label (`ALL`, `AND`, `AT LEAST 2`, `CACHED`, `WHEN`, `ADAPTER`, ...), a `Reason` (`short-circuit`, `precondition not met`, `cache hit`, the captured exception), the `Duration` spent in that node and its `Children`. Third-party rules appear as a single leaf. `Explain(context, captureExceptions: true)` turns a throwing node into a `Faulted` node (treated as broken) instead of propagating; cancellation is never captured. Timing exists only inside the explain walk, so the plain `IsBroken`/`Check` path stays allocation-free.
+
+### Structural Composition Examples
+
+```csharp
+IBusinessRule payment = RuleGroup.Any("PAYMENT.NONE_VALID", "At least one payment method must be valid", card, bank, credit);
+IBusinessRule kyc     = RuleGroup.All("KYC.INCOMPLETE", "All KYC checks must pass", idRule, addressRule, sanctionsRule).WithShortCircuit();
+IBusinessRule tier    = RuleGroup.AtLeast(2, "TIER.INSUFFICIENT", "Need two of three signals", r1, r2, r3);
+IAsyncBusinessRule any = AsyncRuleGroup.Any("PAYMENT.NONE_VALID", "...", a1, a2).WithParallelEvaluation();
+
+// Walk any rule tree
+if (kyc is IComposedBusinessRule composed)
+{
+    Console.WriteLine($"{composed.Operator} over {composed.Operands.Count} operands");
+}
+
+// Member results survive the batch path
+try
+{
+    BusinessRuleChecker.CheckAll(context, kyc, payment);
+}
+catch (BusinessRuleValidationException ex)
+{
+    foreach (BusinessRuleResult group in ex.BrokenRules)
+    {
+        Console.WriteLine($"{group.Code}: {group.Details.Count} member(s) broken");
+    }
+
+    IEnumerable<BusinessRuleResult> leaves = ex.Flatten();   // KYC.ADDRESS, CARD, BANK, ...
+}
+
+// Build a result with details yourself
+BusinessRuleResult result = new BusinessRuleResult(code, message, severity, details: memberResults);
+
+// Single evaluation, trace as by-product
+RuleExplanation why = kyc.Explain(context);
+RuleExplanation whyAsync = await any.ExplainAsync(context, cancellationToken);
+Console.WriteLine(why.ToText());
+// [BROKEN] ALL  KYC.INCOMPLETE  "All KYC checks must pass"  (0.9 ms)
+//  ├─ [PASSED]  KYC.ID  (0.1 ms)
+//  ├─ [BROKEN]  KYC.ADDRESS  "Address must be verified"  (0.2 ms)
+//  └─ [NOT EVALUATED]  KYC.SANCTIONS  reason: short-circuit
+
+foreach (RuleExplanation leaf in why.BrokenLeaves())
+{
+    Console.WriteLine($"{leaf.Code}: {leaf.Message}");
+}
+
+// Capture faults instead of propagating them
+RuleExplanation tolerant = kyc.Explain(context, captureExceptions: true);
 ```
 
 ---
@@ -916,6 +990,8 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `IBusinessRule` | Sync rule: `IsBroken()`, `Check()`, `Evaluate()` |
 | `IAsyncBusinessRule` | Async rule: `IsBrokenAsync()`, `CheckAsync()`, `EvaluateAsync()` |
 | `IBusinessRuleMetadata` | Metadata: Name, Description, Category, Tags, Severity |
+| `IComposedBusinessRule` / `IComposedAsyncBusinessRule` | A rule computed from operands: `Operator`, `Operands` (And/Or/Not nodes, groups, composites) |
+| `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached and conditional decorators) |
 | `IRuleExecutionObserver` | Sync execution callbacks |
 | `IAsyncRuleExecutionObserver` | Async execution callbacks |
 
@@ -927,8 +1003,17 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `BaseAsyncBusinessRule` | Abstract base for async rules |
 | `BusinessRuleBuilder` | Fluent builder for sync rules |
 | `AsyncBusinessRuleBuilder` | Fluent builder for async rules |
-| `CompositeBusinessRule` | Container for multiple sync rules |
-| `CompositeAsyncBusinessRule` | Container for multiple async rules |
+| `AndBusinessRule` / `AndAsyncBusinessRule` | Structural node returned by `.And()` (operator `And`) |
+| `OrBusinessRule` / `OrAsyncBusinessRule` | Structural node returned by `.Or()` (operator `Or`) |
+| `NotBusinessRule` / `NotAsyncBusinessRule` | Structural node returned by `.Not()` (operator `Not`) |
+| `RuleGroup` / `AsyncRuleGroup` | Factories: `All`, `Any`, `AtLeast(n)`, `Exactly(n)` |
+| `GroupBusinessRule` / `GroupAsyncBusinessRule` | Immutable N-ary quantifier; `WithShortCircuit()`, `WithSeverity()`, async `WithParallelEvaluation()` |
+| `RuleGroupQuantifier` | `All`, `Any`, `AtLeast`, `Exactly` |
+| `RuleOperator` | `And`, `Or`, `Not`, `All`, `Any`, `AtLeast`, `Exactly` |
+| `RuleOutcome` | `Passed`, `Broken`, `Skipped`, `CacheHit`, `NotEvaluated`, `Faulted` |
+| `RuleExplanation` | Explanation tree node: `Outcome`, `IsBroken`, `Operator`, `Reason`, `Duration`, `Children`, `BrokenLeaves()`, `ToText()` |
+| `CompositeBusinessRule` | Container for multiple sync rules (operator `All`) |
+| `CompositeAsyncBusinessRule` | Container for multiple async rules (operator `All`) |
 | `CachedBusinessRule` | Time-based caching for sync rules |
 | `CachedAsyncBusinessRule` | Time-based caching for async rules |
 | `ConditionalBusinessRule` | Conditional execution for sync rules |
@@ -937,10 +1022,10 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `AsyncToSyncRuleAdapter` | Adapts async rules to sync (blocking) |
 | `BusinessRuleChecker` | Batch sync validation |
 | `AsyncBusinessRuleChecker` | Batch async validation |
-| `BusinessRuleResult` | Immutable result with Code, Message, Severity |
+| `BusinessRuleResult` | Immutable result with Code, Message, Severity and `Details` (broken members of a composed rule); `Flatten()` |
 | `RuleEvaluationResult` | Batch sync evaluation result |
 | `AsyncRuleEvaluationResult` | Batch async evaluation result |
-| `BusinessRuleValidationException` | Exception when rules are broken |
+| `BusinessRuleValidationException` | Exception when rules are broken; `Flatten()` yields the leaf results |
 | `RuleTestHelper` | Testing assertions and factories |
 
 ### Extension Methods
@@ -950,6 +1035,8 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `.And(rule)` | Broken only when **both** rules are broken (code `A+B`) |
 | `.Or(rule)` | Broken when **either** rule is broken (code `A\|B`) |
 | `.Not()` | Inverts the rule's broken state (code `!A`) |
+| `.Explain(context?, captureExceptions?)` | Evaluate once and return the `RuleExplanation` tree (sync) |
+| `.ExplainAsync(context, [captureExceptions], ct)` | Evaluate once and return the `RuleExplanation` tree (async) |
 | `.ToAsyncRule()` | Convert sync to async |
 | `.ToSyncRule()` | Convert async to sync (blocking) |
 | `.WithCache(TimeSpan)` | Add caching |

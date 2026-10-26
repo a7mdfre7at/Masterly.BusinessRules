@@ -8,49 +8,43 @@ namespace Masterly.BusinessRules
     public static class AsyncBusinessRuleExtensions
     {
         /// <summary>
-        /// Creates a new async rule that is broken only when both rules are broken (logical AND).
+        /// Creates a new async rule that is broken only when both rules are broken (logical AND over the broken state).
+        /// The returned <see cref="AndAsyncBusinessRule"/> keeps both operands, forwards the context and cancellation
+        /// token to them and reports the synthesised code <c>A+B</c>.
         /// </summary>
         /// <param name="first">The first async rule.</param>
         /// <param name="second">The second async rule.</param>
         /// <returns>A new async rule that is broken when both input rules are broken.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when either rule is null.</exception>
         public static IAsyncBusinessRule And(this IAsyncBusinessRule first, IAsyncBusinessRule second)
         {
-            return new CompositeAsyncBusinessRule(
-                async (ctx, ct) =>
-                    await first.IsBrokenAsync(ctx, ct) && await second.IsBrokenAsync(ctx, ct),
-                $"{first.Message} AND {second.Message}",
-                $"{first.Code}+{second.Code}"
-            );
+            return new AndAsyncBusinessRule(first, second);
         }
 
         /// <summary>
-        /// Creates a new async rule that is broken when either rule is broken (logical OR).
+        /// Creates a new async rule that is broken when either rule is broken (logical OR over the broken state).
+        /// The returned <see cref="OrAsyncBusinessRule"/> keeps both operands, forwards the context and cancellation
+        /// token to them and reports the synthesised code <c>A|B</c>.
         /// </summary>
         /// <param name="first">The first async rule.</param>
         /// <param name="second">The second async rule.</param>
         /// <returns>A new async rule that is broken when either input rule is broken.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when either rule is null.</exception>
         public static IAsyncBusinessRule Or(this IAsyncBusinessRule first, IAsyncBusinessRule second)
         {
-            return new CompositeAsyncBusinessRule(
-                async (ctx, ct) =>
-                    await first.IsBrokenAsync(ctx, ct) || await second.IsBrokenAsync(ctx, ct),
-                $"{first.Message} OR {second.Message}",
-                $"{first.Code}|{second.Code}"
-            );
+            return new OrAsyncBusinessRule(first, second);
         }
 
         /// <summary>
         /// Creates a new async rule that inverts the result of the original rule (logical NOT).
+        /// The returned <see cref="NotAsyncBusinessRule"/> keeps its operand and reports the synthesised code <c>!A</c>.
         /// </summary>
         /// <param name="rule">The async rule to invert.</param>
         /// <returns>A new async rule that is broken when the original passes, and passes when the original is broken.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rule"/> is null.</exception>
         public static IAsyncBusinessRule Not(this IAsyncBusinessRule rule)
         {
-            return new CompositeAsyncBusinessRule(
-                async (ctx, ct) => !await rule.IsBrokenAsync(ctx, ct),
-                $"NOT: {rule.Message}",
-                $"!{rule.Code}"
-            );
+            return new NotAsyncBusinessRule(rule);
         }
 
         /// <summary>

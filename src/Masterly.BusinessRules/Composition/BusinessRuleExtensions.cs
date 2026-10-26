@@ -8,47 +8,44 @@ namespace Masterly.BusinessRules
     public static class BusinessRuleExtensions
     {
         /// <summary>
-        /// Creates a new rule that is broken only when both rules are broken (logical AND).
+        /// Creates a new rule that is broken only when both rules are broken (logical AND over the broken state).
+        /// The returned <see cref="AndBusinessRule"/> keeps both operands, forwards the evaluation context to them
+        /// and reports the synthesised code <c>A+B</c>.
         /// </summary>
         /// <param name="first">The first rule.</param>
         /// <param name="second">The second rule.</param>
         /// <returns>A new rule that is broken when both input rules are broken.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when either rule is null.</exception>
         public static IBusinessRule And(this IBusinessRule first, IBusinessRule second)
         {
-            return new SimpleBusinessRule(
-                () => first.IsBroken() && second.IsBroken(),
-                $"Both rules must be satisfied: {first.Message} AND {second.Message}",
-                $"{first.Code}+{second.Code}"
-            );
+            return new AndBusinessRule(first, second);
         }
 
         /// <summary>
-        /// Creates a new rule that is broken when either rule is broken (logical OR).
+        /// Creates a new rule that is broken when either rule is broken (logical OR over the broken state).
+        /// The returned <see cref="OrBusinessRule"/> keeps both operands, forwards the evaluation context to them
+        /// and reports the synthesised code <c>A|B</c>.
         /// </summary>
         /// <param name="first">The first rule.</param>
         /// <param name="second">The second rule.</param>
         /// <returns>A new rule that is broken when either input rule is broken.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when either rule is null.</exception>
         public static IBusinessRule Or(this IBusinessRule first, IBusinessRule second)
         {
-            return new SimpleBusinessRule(
-                () => first.IsBroken() || second.IsBroken(),
-                $"At least one rule must be satisfied: {first.Message} OR {second.Message}",
-                $"{first.Code}|{second.Code}"
-            );
+            return new OrBusinessRule(first, second);
         }
 
         /// <summary>
         /// Creates a new rule that inverts the result of the original rule (logical NOT).
+        /// The returned <see cref="NotBusinessRule"/> keeps its operand, forwards the evaluation context to it
+        /// and reports the synthesised code <c>!A</c>.
         /// </summary>
         /// <param name="rule">The rule to invert.</param>
         /// <returns>A new rule that is broken when the original rule passes, and passes when the original is broken.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rule"/> is null.</exception>
         public static IBusinessRule Not(this IBusinessRule rule)
         {
-            return new SimpleBusinessRule(
-                () => !rule.IsBroken(),
-                $"NOT: {rule.Message}",
-                $"!{rule.Code}"
-            );
+            return new NotBusinessRule(rule);
         }
 
         /// <summary>

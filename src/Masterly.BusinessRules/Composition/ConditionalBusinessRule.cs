@@ -6,6 +6,8 @@ namespace Masterly.BusinessRules
     /// <summary>
     /// A wrapper that conditionally executes a rule based on a predicate.
     /// When the condition returns false, the rule is considered not broken (passes).
+    /// In an explanation tree an unmet condition is reported as <see cref="RuleOutcome.Skipped"/> with the inner rule
+    /// as a <see cref="RuleOutcome.NotEvaluated"/> child.
     /// </summary>
     /// <example>
     /// <code>
@@ -16,7 +18,7 @@ namespace Masterly.BusinessRules
     /// );
     /// </code>
     /// </example>
-    public sealed class ConditionalBusinessRule : IBusinessRule
+    public sealed class ConditionalBusinessRule : IDecoratedBusinessRule, IExplainableBusinessRule
     {
         private readonly IBusinessRule _innerRule;
         private readonly Func<bool> _condition;
@@ -32,6 +34,9 @@ namespace Masterly.BusinessRules
             _innerRule = innerRule ?? throw new ArgumentNullException(nameof(innerRule));
             _condition = condition ?? throw new ArgumentNullException(nameof(condition));
         }
+
+        /// <inheritdoc />
+        public IBusinessRule InnerRule => _innerRule;
 
         /// <inheritdoc />
         public string Code => _innerRule.Code;
@@ -58,20 +63,14 @@ namespace Masterly.BusinessRules
         /// <remarks>Returns false (not broken) if the condition is false.</remarks>
         public bool IsBroken()
         {
-            if (!_condition())
-                return false;
-
-            return _innerRule.IsBroken();
+            return EvaluateCore(null, null) != null;
         }
 
         /// <inheritdoc />
         /// <remarks>Returns false (not broken) if the condition is false.</remarks>
         public bool IsBroken(BusinessRuleContext context)
         {
-            if (!_condition())
-                return false;
-
-            return _innerRule.IsBroken(context);
+            return EvaluateCore(context, null) != null;
         }
 
         /// <inheritdoc />
@@ -96,6 +95,30 @@ namespace Masterly.BusinessRules
         public BusinessRuleResult Evaluate()
         {
             return _innerRule.Evaluate();
+        }
+
+        BusinessRuleResult? IExplainableBusinessRule.EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
+            => EvaluateCore(context, trace);
+
+        private BusinessRuleResult? EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
+        {
+            if (!_condition())
+            {
+                trace?.Add(BusinessRuleWalker.Skipped(this, _innerRule, RuleExplanationText.WhenOperator, RuleExplanationText.PreconditionNotMetReason));
+                return null;
+            }
+
+            RuleExplanationTrace? children = trace?.Branch();
+            long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
+
+            BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(_innerRule, context, children);
+
+            if (trace != null && children != null)
+            {
+                trace.Add(BusinessRuleWalker.Evaluated(this, result != null, RuleExplanationText.WhenOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
+            }
+
+            return result;
         }
     }
 }

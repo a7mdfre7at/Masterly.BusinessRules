@@ -12,6 +12,8 @@ namespace Masterly.BusinessRules
     /// <remarks>
     /// <para>The cache is thread-safe and uses a semaphore for async synchronization.</para>
     /// <para>Use <see cref="InvalidateCacheAsync"/> to clear the cache before the duration expires.</para>
+    /// <para>A cancelled evaluation never populates the cache. In an explanation tree a served cache entry is reported as
+    /// <see cref="RuleOutcome.CacheHit"/> with the inner rule as a <see cref="RuleOutcome.NotEvaluated"/> child.</para>
     /// </remarks>
     /// <example>
     /// <code>
@@ -21,7 +23,7 @@ namespace Masterly.BusinessRules
     /// );
     /// </code>
     /// </example>
-    public sealed class CachedAsyncBusinessRule : IAsyncBusinessRule
+    public sealed class CachedAsyncBusinessRule : IDecoratedAsyncBusinessRule, IExplainableAsyncBusinessRule
     {
         private readonly IAsyncBusinessRule _innerRule;
         private readonly TimeSpan _cacheDuration;
@@ -41,6 +43,9 @@ namespace Masterly.BusinessRules
             _cacheDuration = cacheDuration;
             _cacheExpiry = DateTime.MinValue;
         }
+
+        /// <inheritdoc />
+        public IAsyncBusinessRule InnerRule => _innerRule;
 
         /// <inheritdoc />
         public string Code => _innerRule.Code;
@@ -67,20 +72,7 @@ namespace Masterly.BusinessRules
         /// <remarks>Returns cached result if available and not expired; otherwise evaluates and caches.</remarks>
         public async Task<bool> IsBrokenAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
         {
-            await _semaphore.WaitAsync(cancellationToken);
-            try
-            {
-                if (_cachedResult.HasValue && DateTime.UtcNow < _cacheExpiry)
-                    return _cachedResult.Value;
-
-                _cachedResult = await _innerRule.IsBrokenAsync(context, cancellationToken);
-                _cacheExpiry = DateTime.UtcNow.Add(_cacheDuration);
-                return _cachedResult.Value;
-            }
-            finally
-            {
-                _semaphore.Release();
-            }
+            return await EvaluateCoreAsync(context, null, cancellationToken) != null;
         }
 
         /// <inheritdoc />
@@ -111,6 +103,41 @@ namespace Masterly.BusinessRules
             {
                 _cachedResult = null;
                 _cacheExpiry = DateTime.MinValue;
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
+        }
+
+        Task<BusinessRuleResult?> IExplainableAsyncBusinessRule.EvaluateCoreAsync(BusinessRuleContext context, RuleExplanationTrace? trace, CancellationToken cancellationToken)
+            => EvaluateCoreAsync(context, trace, cancellationToken);
+
+        private async Task<BusinessRuleResult?> EvaluateCoreAsync(BusinessRuleContext context, RuleExplanationTrace? trace, CancellationToken cancellationToken)
+        {
+            await _semaphore.WaitAsync(cancellationToken);
+            try
+            {
+                if (_cachedResult.HasValue && DateTime.UtcNow < _cacheExpiry)
+                {
+                    bool cachedIsBroken = _cachedResult.Value;
+                    trace?.Add(AsyncBusinessRuleWalker.CacheHit(this, _innerRule, cachedIsBroken));
+                    return cachedIsBroken ? new BusinessRuleResult(Code, Message, Severity) : null;
+                }
+
+                RuleExplanationTrace? children = trace?.Branch();
+                long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
+
+                BusinessRuleResult? result = await AsyncBusinessRuleWalker.EvaluateNodeAsync(_innerRule, context, children, cancellationToken);
+                _cachedResult = result != null;
+                _cacheExpiry = DateTime.UtcNow.Add(_cacheDuration);
+
+                if (trace != null && children != null)
+                {
+                    trace.Add(AsyncBusinessRuleWalker.Evaluated(this, result != null, RuleExplanationText.CachedOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
+                }
+
+                return result;
             }
             finally
             {

@@ -10,8 +10,11 @@ namespace Masterly.BusinessRules
     /// </summary>
     public sealed class BusinessRuleValidationException : Exception
     {
+        private const string DefaultMessage = "One or more business rules were violated.";
+
         /// <summary>
-        /// Gets the collection of broken rule results.
+        /// Gets the collection of broken rule results. A result produced by a composed rule carries its broken
+        /// members in <see cref="BusinessRuleResult.Details"/>; use <see cref="Flatten"/> to reach the leaves.
         /// </summary>
         public IReadOnlyCollection<BusinessRuleResult> BrokenRules { get; }
 
@@ -20,9 +23,19 @@ namespace Masterly.BusinessRules
         /// </summary>
         /// <param name="brokenRules">The collection of broken rule results.</param>
         public BusinessRuleValidationException(IEnumerable<BusinessRuleResult> brokenRules)
-            : base("One or more business rules were violated.")
+            : base(DefaultMessage)
         {
             BrokenRules = brokenRules.ToList().AsReadOnly();
+        }
+
+        /// <summary>
+        /// Returns the leaf results of every broken rule: results without <see cref="BusinessRuleResult.Details"/>
+        /// are returned as they are, composed results are replaced by their member leaves, recursively.
+        /// </summary>
+        /// <returns>The leaf results in evaluation order.</returns>
+        public IEnumerable<BusinessRuleResult> Flatten()
+        {
+            return BrokenRules.SelectMany(result => result.Flatten());
         }
     }
 }

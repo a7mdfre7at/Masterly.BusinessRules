@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -7,6 +7,8 @@ namespace Masterly.BusinessRules
     /// <summary>
     /// Static utility class for batch validation of synchronous business rules.
     /// Provides methods for checking multiple rules at once, filtering by criteria, and detailed evaluation.
+    /// Composed rules (groups, composites, And/Or/Not) are evaluated exactly once and their broken members are
+    /// surfaced in <see cref="BusinessRuleResult.Details"/> of the reported result.
     /// </summary>
     /// <example>
     /// <code>
@@ -97,11 +99,10 @@ namespace Masterly.BusinessRules
             {
                 observer?.OnBeforeEvaluate(rule);
 
-                bool isBroken = context != null ? rule.IsBroken(context) : rule.IsBroken();
+                BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(rule, context, null);
 
-                if (isBroken)
+                if (result != null)
                 {
-                    BusinessRuleResult result = rule.Evaluate();
                     brokenRules.Add(result);
                     observer?.OnAfterEvaluate(rule, result);
                     observer?.OnRuleBroken(rule, result);
@@ -157,11 +158,11 @@ namespace Masterly.BusinessRules
 
             foreach (IBusinessRule rule in rules)
             {
-                bool isBroken = context != null ? rule.IsBroken(context) : rule.IsBroken();
+                BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(rule, context, null);
 
-                if (isBroken)
+                if (result != null)
                 {
-                    brokenRules.Add(rule.Evaluate());
+                    brokenRules.Add(result);
                 }
                 else
                 {
