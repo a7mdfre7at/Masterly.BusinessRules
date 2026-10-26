@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <Description>Rule expression DSL for Masterly.BusinessRules: parse a textual condition once, evaluate it against the rule context and explain the verdict with bound values.</Description>
+    <PackageTags>Rule;Business;Engine;Expression;DSL;Parser;Masterly;Csharp;DotNet</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Masterly.BusinessRules\Masterly.BusinessRules.csproj" />
+  </ItemGroup>
+
+</Project>

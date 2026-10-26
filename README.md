@@ -17,6 +17,7 @@ If you like or are using this project please give it a star. Thanks!
 
 - [Features](#features)
 - [Installation](#installation)
+- [Packages](#packages)
 - [Quick Start](#quick-start)
 - [Creating Rules](#creating-rules)
 - [Fluent Builders](#fluent-builders)
@@ -66,6 +67,7 @@ If you like or are using this project please give it a star. Thanks!
 - **Rich Results** - Every result carries the rule's `Name`, `Category` and `Tags`; a `Describe(context)` hook (or the builders' `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation`) attaches `Detail`, `Actual`, `Expected`, `Remediation` and a `Data` bag on the broken path only, and exceptions and results filter with `ByTag`/`ByCategory`: enough to build an RFC 7807 Problem Details response straight from the engine
 - **Typed Context** - Strongly-typed data passing to rules: `BusinessRuleContext<T>.Data` for one object, `ContextKey<T>` for named values read with `context.Get(OrderKeys.Order)` (no cast, no string literal); a failed read throws `ContextKeyNotFoundException` listing the available keys or `ContextValueTypeMismatchException` naming both types, and the checkers wrap either in a `BusinessRuleContextException` that names the failing rule
 - **Testing Utilities** - Helper methods for unit testing rules
+- **Companion Packages** - Diagnostics (structured logging, OpenTelemetry spans and metrics), Expressions (textual conditions with bound-value explanations), DependencyInjection (assembly scanning, rule runners, scoped registry), Testing (outcome coverage, boundary finder, CsCheck properties) and FeatureManagement (Microsoft.FeatureManagement adapter) ship as separate opt-in packages, so the core stays dependency-free
 
 ---
 
@@ -82,6 +84,30 @@ Or via Package Manager Console:
 ```powershell
 Install-Package Masterly.BusinessRules
 ```
+
+---
+
+## Packages
+
+`Masterly.BusinessRules` is the zero-dependency core. Companion packages ship from the same repository, with the same version, and plug into the seams the core exposes (observers, `IRuleConditionCompiler`, `IRuleFeatureFlagProvider`, the subject-typed rule interfaces). Install only what you use; the core never references any of them.
+
+| Package | Purpose | Dependencies beyond the core |
+|---------|---------|------------------------------|
+| `Masterly.BusinessRules.Diagnostics` | Structured `ILogger` observer, OpenTelemetry `ActivitySource` spans and `Meter` instruments for rule evaluation | `Microsoft.Extensions.Logging.Abstractions`, `System.Diagnostics.DiagnosticSource` |
+| `Masterly.BusinessRules.Expressions` | Textual rule conditions parsed once and explained with bound values, plugged in through `IRuleConditionCompiler` / `IAsyncRuleConditionCompiler` | none |
+| `Masterly.BusinessRules.DependencyInjection` | Assembly scanning, injectable rule runners and the scoped rule registry | `Microsoft.Extensions.DependencyInjection.Abstractions` |
+| `Masterly.BusinessRules.Testing` | Outcome coverage, boundary finder and CsCheck-backed rule properties; targets `net8.0` because CsCheck ships no .NET Standard build | `CsCheck` |
+| `Masterly.BusinessRules.FeatureManagement` | `Microsoft.FeatureManagement` adapter supplying feature-gated rules with their `RuleRollout` | `Microsoft.FeatureManagement` |
+
+```bash
+dotnet add package Masterly.BusinessRules.Diagnostics
+dotnet add package Masterly.BusinessRules.Expressions
+dotnet add package Masterly.BusinessRules.DependencyInjection
+dotnet add package Masterly.BusinessRules.Testing
+dotnet add package Masterly.BusinessRules.FeatureManagement
+```
+
+All companion packages target `netstandard2.1` except where the table says otherwise. Each one is documented in its own section of this README.
 
 ---
 
@@ -1743,6 +1769,17 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `.GatedBy(flag, provider, stableKey?)` / `.GatedBy(flag, stableKey?)` | Wrap in a feature gate read from the provider on every evaluation (sync and async; the async form accepts a sync or an async provider, and the provider-less form resolves it from `RuleFeatureFlags.ContextKey`/`AsyncContextKey`) |
 | `.Check(throwOn)` / `.Check(context, throwOn)` | Check one sync rule, throwing only at or above the severity |
 | `.CheckAsync(context, throwOn, ct)` | Check one async rule, throwing only at or above the severity |
+
+### Packages
+
+| Package | Contents |
+|---------|----------|
+| `Masterly.BusinessRules` | The core: every type listed above; no dependencies |
+| `Masterly.BusinessRules.Diagnostics` | `ILogger` observer and OpenTelemetry tracing/metrics observers and decorators |
+| `Masterly.BusinessRules.Expressions` | Rule expression parser, expression rules and bound-value explanations |
+| `Masterly.BusinessRules.DependencyInjection` | `IServiceCollection` registration, rule runners and the scoped rule registry |
+| `Masterly.BusinessRules.Testing` | Outcome coverage, boundary finder and CsCheck-backed rule properties |
+| `Masterly.BusinessRules.FeatureManagement` | `IRuleFeatureFlagProvider` / `IAsyncRuleFeatureFlagProvider` over `Microsoft.FeatureManagement` |
 
 ---
 

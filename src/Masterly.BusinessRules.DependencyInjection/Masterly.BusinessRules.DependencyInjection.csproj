@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <Description>Microsoft.Extensions.DependencyInjection integration for Masterly.BusinessRules: assembly scanning, injectable rule runners and the scoped rule registry.</Description>
+    <PackageTags>Rule;Business;Engine;DependencyInjection;DI;Registry;Masterly;Csharp;DotNet</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Masterly.BusinessRules\Masterly.BusinessRules.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+</Project>
