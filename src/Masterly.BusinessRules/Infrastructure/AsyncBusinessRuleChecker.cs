@@ -10,6 +10,9 @@ namespace Masterly.BusinessRules
     /// Static utility class for batch validation of asynchronous business rules.
     /// Provides methods for checking multiple async rules with support for parallel execution,
     /// fail-fast behavior, and observer notifications.
+    /// Every overload runs through one core that records an evaluation ledger (<see cref="AsyncRuleEvaluationResult.Entries"/>);
+    /// the overloads taking <see cref="AsyncRuleEvaluationOptions"/> add a fault policy, a severity threshold and observer
+    /// callbacks from both <c>CheckAllAsync</c> and <c>EvaluateAllAsync</c>.
     /// </summary>
     /// <example>
     /// <code>
@@ -24,6 +27,10 @@ namespace Masterly.BusinessRules
     ///
     /// // Evaluate without throwing
     /// AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(context, rules);
+    ///
+    /// // Options object: parallel, record faults, observe
+    /// result = await AsyncBusinessRuleChecker.EvaluateAllAsync(context, rules,
+    ///     new AsyncRuleEvaluationOptions { RunInParallel = true, OnFault = FaultPolicy.Record, Observer = myObserver }, ct);
     /// </code>
     /// </example>
     public static class AsyncBusinessRuleChecker
@@ -36,7 +43,7 @@ namespace Masterly.BusinessRules
         /// <returns>A task representing the asynchronous operation.</returns>
         public static async Task CheckAllAsync(params IAsyncBusinessRule[] rules)
         {
-            await CheckAllAsyncCore(new BusinessRuleContext(), rules, stopOnFirstFailure: false, runInParallel: false, observer: null, cancellationToken: default);
+            await CheckAllAsyncCore(new BusinessRuleContext(), rules, LegacyOptions(stopOnFirstFailure: false, runInParallel: false, observer: null), cancellationToken: default);
         }
 
         /// <summary>
@@ -48,7 +55,7 @@ namespace Masterly.BusinessRules
         /// <returns>A task representing the asynchronous operation.</returns>
         public static async Task CheckAllAsync(bool stopOnFirstFailure, params IAsyncBusinessRule[] rules)
         {
-            await CheckAllAsyncCore(new BusinessRuleContext(), rules, stopOnFirstFailure: stopOnFirstFailure, runInParallel: false, observer: null, cancellationToken: default);
+            await CheckAllAsyncCore(new BusinessRuleContext(), rules, LegacyOptions(stopOnFirstFailure, runInParallel: false, observer: null), cancellationToken: default);
         }
 
         /// <summary>
@@ -60,7 +67,7 @@ namespace Masterly.BusinessRules
         /// <returns>A task representing the asynchronous operation.</returns>
         public static async Task CheckAllAsync(BusinessRuleContext context, params IAsyncBusinessRule[] rules)
         {
-            await CheckAllAsyncCore(context, rules, stopOnFirstFailure: false, runInParallel: false, observer: null, cancellationToken: default);
+            await CheckAllAsyncCore(context, rules, LegacyOptions(stopOnFirstFailure: false, runInParallel: false, observer: null), cancellationToken: default);
         }
 
         /// <summary>
@@ -73,7 +80,7 @@ namespace Masterly.BusinessRules
         /// <returns>A task representing the asynchronous operation.</returns>
         public static async Task CheckAllAsync(BusinessRuleContext context, bool stopOnFirstFailure, params IAsyncBusinessRule[] rules)
         {
-            await CheckAllAsyncCore(context, rules, stopOnFirstFailure: stopOnFirstFailure, runInParallel: false, observer: null, cancellationToken: default);
+            await CheckAllAsyncCore(context, rules, LegacyOptions(stopOnFirstFailure, runInParallel: false, observer: null), cancellationToken: default);
         }
 
         /// <summary>
@@ -93,7 +100,7 @@ namespace Masterly.BusinessRules
             IAsyncRuleExecutionObserver? observer = null,
             CancellationToken cancellationToken = default)
         {
-            await CheckAllAsyncCore(new BusinessRuleContext(), rules, stopOnFirstFailure, runInParallel, observer, cancellationToken);
+            await CheckAllAsyncCore(new BusinessRuleContext(), rules, LegacyOptions(stopOnFirstFailure, runInParallel, observer), cancellationToken);
         }
 
         /// <summary>
@@ -115,32 +122,45 @@ namespace Masterly.BusinessRules
             IAsyncRuleExecutionObserver? observer = null,
             CancellationToken cancellationToken = default)
         {
-            await CheckAllAsyncCore(context, rules, stopOnFirstFailure, runInParallel, observer, cancellationToken);
+            await CheckAllAsyncCore(context, rules, LegacyOptions(stopOnFirstFailure, runInParallel, observer), cancellationToken);
         }
 
-        private static async Task CheckAllAsyncCore(
+        /// <summary>
+        /// Checks all async rules with the supplied options against a fresh context and throws if any broken rule is
+        /// at or above <see cref="AsyncRuleEvaluationOptions.ThrowOn"/>.
+        /// </summary>
+        /// <param name="rules">The async rules to check.</param>
+        /// <param name="options">The evaluation options: fail-fast, parallel, fault policy, severity threshold and observer.</param>
+        /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when a broken rule is at or above the threshold; broken rules below it are in <see cref="BusinessRuleValidationException.CollectedRules"/>.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static Task CheckAllAsync(
+            IEnumerable<IAsyncBusinessRule> rules,
+            AsyncRuleEvaluationOptions options,
+            CancellationToken cancellationToken = default)
+        {
+            return CheckAllAsyncCore(new BusinessRuleContext(), rules, options, cancellationToken);
+        }
+
+        /// <summary>
+        /// Checks all async rules using context with the supplied options and throws if any broken rule is at or above
+        /// <see cref="AsyncRuleEvaluationOptions.ThrowOn"/>.
+        /// </summary>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="rules">The async rules to check.</param>
+        /// <param name="options">The evaluation options: fail-fast, parallel, fault policy, severity threshold and observer.</param>
+        /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="context"/>, <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when a broken rule is at or above the threshold; broken rules below it are in <see cref="BusinessRuleValidationException.CollectedRules"/>.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static Task CheckAllAsync(
             BusinessRuleContext context,
             IEnumerable<IAsyncBusinessRule> rules,
-            bool stopOnFirstFailure,
-            bool runInParallel,
-            IAsyncRuleExecutionObserver? observer,
-            CancellationToken cancellationToken)
+            AsyncRuleEvaluationOptions options,
+            CancellationToken cancellationToken = default)
         {
-            List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
-
-            if (runInParallel && !stopOnFirstFailure)
-            {
-                brokenRules = await EvaluateParallelAsync(context, rules, observer, cancellationToken);
-            }
-            else
-            {
-                brokenRules = await EvaluateSequentialAsync(context, rules, stopOnFirstFailure, observer, cancellationToken);
-            }
-
-            if (brokenRules.Any())
-            {
-                throw new BusinessRuleValidationException(brokenRules);
-            }
+            return CheckAllAsyncCore(context, rules, options, cancellationToken);
         }
 
         /// <summary>
@@ -150,7 +170,7 @@ namespace Masterly.BusinessRules
         /// <returns>A result object containing broken and passed rules with filtering capabilities.</returns>
         public static async Task<AsyncRuleEvaluationResult> EvaluateAllAsync(params IAsyncBusinessRule[] rules)
         {
-            return await EvaluateAllAsyncCore(new BusinessRuleContext(), rules, runInParallel: false, cancellationToken: default);
+            return await EvaluateAllAsyncCore(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions(), RuleSeverity.Info, cancellationToken: default);
         }
 
         /// <summary>
@@ -161,7 +181,7 @@ namespace Masterly.BusinessRules
         /// <returns>A result object containing broken and passed rules with filtering capabilities.</returns>
         public static async Task<AsyncRuleEvaluationResult> EvaluateAllAsync(BusinessRuleContext context, params IAsyncBusinessRule[] rules)
         {
-            return await EvaluateAllAsyncCore(context, rules, runInParallel: false, cancellationToken: default);
+            return await EvaluateAllAsyncCore(context, rules, new AsyncRuleEvaluationOptions(), RuleSeverity.Info, cancellationToken: default);
         }
 
         /// <summary>
@@ -176,7 +196,7 @@ namespace Masterly.BusinessRules
             bool runInParallel = false,
             CancellationToken cancellationToken = default)
         {
-            return await EvaluateAllAsyncCore(new BusinessRuleContext(), rules, runInParallel, cancellationToken);
+            return await EvaluateAllAsyncCore(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { RunInParallel = runInParallel }, RuleSeverity.Info, cancellationToken);
         }
 
         /// <summary>
@@ -193,51 +213,45 @@ namespace Masterly.BusinessRules
             bool runInParallel = false,
             CancellationToken cancellationToken = default)
         {
-            return await EvaluateAllAsyncCore(context, rules, runInParallel, cancellationToken);
+            return await EvaluateAllAsyncCore(context, rules, new AsyncRuleEvaluationOptions { RunInParallel = runInParallel }, RuleSeverity.Info, cancellationToken);
         }
 
-        private static async Task<AsyncRuleEvaluationResult> EvaluateAllAsyncCore(
+        /// <summary>
+        /// Evaluates all async rules with the supplied options against a fresh context and returns the result with
+        /// its evaluation ledger. Never throws for broken rules: <see cref="AsyncRuleEvaluationOptions.ThrowOn"/> is
+        /// ignored, faults follow <see cref="AsyncRuleEvaluationOptions.OnFault"/> and the observer receives every callback.
+        /// </summary>
+        /// <param name="rules">The async rules to evaluate.</param>
+        /// <param name="options">The evaluation options: fail-fast, parallel, fault policy and observer.</param>
+        /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
+        /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
+        public static Task<AsyncRuleEvaluationResult> EvaluateAllAsync(
+            IEnumerable<IAsyncBusinessRule> rules,
+            AsyncRuleEvaluationOptions options,
+            CancellationToken cancellationToken = default)
+        {
+            return EvaluateAllAsyncCore(new BusinessRuleContext(), rules, options, RuleSeverity.Info, cancellationToken);
+        }
+
+        /// <summary>
+        /// Evaluates all async rules using context with the supplied options and returns the result with its
+        /// evaluation ledger. Never throws for broken rules: <see cref="AsyncRuleEvaluationOptions.ThrowOn"/> is
+        /// ignored, faults follow <see cref="AsyncRuleEvaluationOptions.OnFault"/> and the observer receives every callback.
+        /// </summary>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="rules">The async rules to evaluate.</param>
+        /// <param name="options">The evaluation options: fail-fast, parallel, fault policy and observer.</param>
+        /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
+        /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="context"/>, <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
+        public static Task<AsyncRuleEvaluationResult> EvaluateAllAsync(
             BusinessRuleContext context,
             IEnumerable<IAsyncBusinessRule> rules,
-            bool runInParallel,
-            CancellationToken cancellationToken)
+            AsyncRuleEvaluationOptions options,
+            CancellationToken cancellationToken = default)
         {
-            List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
-            List<IAsyncBusinessRule> passedRules = new List<IAsyncBusinessRule>();
-            List<IAsyncBusinessRule> rulesList = rules.ToList();
-
-            if (runInParallel)
-            {
-                IEnumerable<Task<(IAsyncBusinessRule rule, BusinessRuleResult? result)>> tasks = rulesList.Select(async rule =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    BusinessRuleResult? result = await rule.EvaluateAsync(context, cancellationToken);
-                    return (rule, result);
-                });
-
-                (IAsyncBusinessRule rule, BusinessRuleResult? result)[] results = await Task.WhenAll(tasks);
-                foreach ((IAsyncBusinessRule rule, BusinessRuleResult? result) in results)
-                {
-                    if (result != null)
-                        brokenRules.Add(result);
-                    else
-                        passedRules.Add(rule);
-                }
-            }
-            else
-            {
-                foreach (IAsyncBusinessRule rule in rulesList)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    BusinessRuleResult? result = await rule.EvaluateAsync(context, cancellationToken);
-                    if (result != null)
-                        brokenRules.Add(result);
-                    else
-                        passedRules.Add(rule);
-                }
-            }
-
-            return new AsyncRuleEvaluationResult(brokenRules, passedRules);
+            return EvaluateAllAsyncCore(context, rules, options, RuleSeverity.Info, cancellationToken);
         }
 
         /// <summary>
@@ -278,73 +292,217 @@ namespace Masterly.BusinessRules
             await CheckAllAsync(context, filteredRules.ToArray());
         }
 
-        private static async Task<List<BusinessRuleResult>> EvaluateSequentialAsync(
+        private static AsyncRuleEvaluationOptions LegacyOptions(bool stopOnFirstFailure, bool runInParallel, IAsyncRuleExecutionObserver? observer)
+        {
+            return new AsyncRuleEvaluationOptions
+            {
+                StopOnFirstFailure = stopOnFirstFailure,
+                RunInParallel = runInParallel,
+                Observer = observer
+            };
+        }
+
+        private static async Task CheckAllAsyncCore(
             BusinessRuleContext context,
             IEnumerable<IAsyncBusinessRule> rules,
-            bool stopOnFirstFailure,
-            IAsyncRuleExecutionObserver? observer,
+            AsyncRuleEvaluationOptions options,
             CancellationToken cancellationToken)
         {
-            List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
-
-            foreach (IAsyncBusinessRule rule in rules)
+            if (options == null)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                throw new ArgumentNullException(nameof(options));
+            }
 
-                if (observer != null)
-                    await observer.OnBeforeEvaluateAsync(rule, cancellationToken);
+            AsyncRuleEvaluationResult result = await EvaluateAllAsyncCore(context, rules, options, options.ThrowOn, cancellationToken);
+            result.ThrowIfAtLeast(options.ThrowOn);
+        }
 
-                BusinessRuleResult? result = await rule.EvaluateAsync(context, cancellationToken);
+        /// <summary>
+        /// The single evaluation core. <paramref name="stopThreshold"/> is the lowest severity at which a broken rule
+        /// stops a fail-fast batch: <c>ThrowOn</c> for <c>CheckAllAsync</c> (a rule that would not throw must not stop
+        /// the search for one that would) and <see cref="RuleSeverity.Info"/> for <c>EvaluateAllAsync</c>.
+        /// Fail-fast forces sequential evaluation even when parallel evaluation was requested.
+        /// </summary>
+        private static async Task<AsyncRuleEvaluationResult> EvaluateAllAsyncCore(
+            BusinessRuleContext context,
+            IEnumerable<IAsyncBusinessRule> rules,
+            AsyncRuleEvaluationOptions options,
+            RuleSeverity stopThreshold,
+            CancellationToken cancellationToken)
+        {
+            if (context == null)
+            {
+                throw new ArgumentNullException(nameof(context));
+            }
 
-                if (result != null)
+            if (rules == null)
+            {
+                throw new ArgumentNullException(nameof(rules));
+            }
+
+            if (options == null)
+            {
+                throw new ArgumentNullException(nameof(options));
+            }
+
+            IReadOnlyList<IAsyncBusinessRule> batch = rules as IReadOnlyList<IAsyncBusinessRule> ?? rules.ToList();
+            IAsyncRuleExecutionObserver? observer = options.Observer;
+
+            long batchStart = RuleTiming.Start();
+            if (observer != null)
+            {
+                await observer.OnBatchStartedAsync(batch.Count, cancellationToken);
+            }
+
+            List<RuleEvaluationEntry> entries = options.EffectiveParallel
+                ? await EvaluateParallelAsync(context, batch, options, cancellationToken)
+                : await EvaluateSequentialAsync(context, batch, options, stopThreshold, cancellationToken);
+
+            AsyncRuleEvaluationResult result = new AsyncRuleEvaluationResult(entries, RuleTiming.ElapsedSince(batchStart));
+
+            if (observer != null)
+            {
+                await observer.OnBatchCompletedAsync(result, cancellationToken);
+            }
+
+            return result;
+        }
+
+        private static async Task<List<RuleEvaluationEntry>> EvaluateSequentialAsync(
+            BusinessRuleContext context,
+            IReadOnlyList<IAsyncBusinessRule> batch,
+            AsyncRuleEvaluationOptions options,
+            RuleSeverity stopThreshold,
+            CancellationToken cancellationToken)
+        {
+            List<RuleEvaluationEntry> entries = new List<RuleEvaluationEntry>(batch.Count);
+
+            int index = 0;
+            for (; index < batch.Count; index++)
+            {
+                RuleEvaluationEntry entry = await EvaluateEntryAsync(index, batch[index], context, options, cancellationToken);
+                entries.Add(entry);
+
+                if (options.StopOnFirstFailure && entry.Result != null && RuleSeverityThreshold.IsAtLeast(entry.Result.Severity, stopThreshold))
                 {
-                    brokenRules.Add(result);
-
-                    if (observer != null)
-                    {
-                        await observer.OnAfterEvaluateAsync(rule, result, cancellationToken);
-                        await observer.OnRuleBrokenAsync(rule, result, cancellationToken);
-                    }
-
-                    if (stopOnFirstFailure)
-                        break;
-                }
-                else if (observer != null)
-                {
-                    await observer.OnAfterEvaluateAsync(rule, null, cancellationToken);
+                    index++;
+                    break;
                 }
             }
 
-            return brokenRules;
+            for (; index < batch.Count; index++)
+            {
+                entries.Add(NotEvaluated(index, batch[index]));
+            }
+
+            return entries;
         }
 
-        private static async Task<List<BusinessRuleResult>> EvaluateParallelAsync(
+        private static async Task<List<RuleEvaluationEntry>> EvaluateParallelAsync(
             BusinessRuleContext context,
-            IEnumerable<IAsyncBusinessRule> rules,
-            IAsyncRuleExecutionObserver? observer,
+            IReadOnlyList<IAsyncBusinessRule> batch,
+            AsyncRuleEvaluationOptions options,
             CancellationToken cancellationToken)
         {
-            IEnumerable<Task<BusinessRuleResult?>> tasks = rules.Select(async rule =>
+            Task<RuleEvaluationEntry>[] tasks = new Task<RuleEvaluationEntry>[batch.Count];
+            for (int index = 0; index < batch.Count; index++)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                tasks[index] = EvaluateEntryAsync(index, batch[index], context, options, cancellationToken);
+            }
 
-                if (observer != null)
-                    await observer.OnBeforeEvaluateAsync(rule, cancellationToken);
+            RuleEvaluationEntry[] entries = await Task.WhenAll(tasks);
+            return new List<RuleEvaluationEntry>(entries);
+        }
 
-                BusinessRuleResult? result = await rule.EvaluateAsync(context, cancellationToken);
+        private static async Task<RuleEvaluationEntry> EvaluateEntryAsync(
+            int order,
+            IAsyncBusinessRule rule,
+            BusinessRuleContext context,
+            AsyncRuleEvaluationOptions options,
+            CancellationToken cancellationToken)
+        {
+            if (rule == null)
+            {
+                throw new ArgumentException($"The rule at position {order} is null.", "rules");
+            }
 
+            cancellationToken.ThrowIfCancellationRequested();
+
+            IAsyncRuleExecutionObserver? observer = options.Observer;
+            if (observer != null)
+            {
+                await observer.OnBeforeEvaluateAsync(rule, cancellationToken);
+            }
+
+            long start = RuleTiming.Start();
+            BusinessRuleResult? result;
+            try
+            {
+                result = await AsyncBusinessRuleWalker.EvaluateNodeAsync(rule, context, null, cancellationToken);
+            }
+            catch (Exception exception) when (!(exception is OperationCanceledException))
+            {
+                TimeSpan faultElapsed = RuleTiming.ElapsedSince(start);
                 if (observer != null)
                 {
-                    await observer.OnAfterEvaluateAsync(rule, result, cancellationToken);
-                    if (result != null)
-                        await observer.OnRuleBrokenAsync(rule, result, cancellationToken);
+                    await observer.OnRuleFaultedAsync(rule, exception, cancellationToken);
                 }
 
-                return result;
-            });
+                if (options.OnFault == FaultPolicy.Throw)
+                {
+                    throw;
+                }
 
-            BusinessRuleResult?[] results = await Task.WhenAll(tasks);
-            return results.Where(r => r != null).Cast<BusinessRuleResult>().ToList();
+                return await RecordFaultAsync(order, rule, exception, faultElapsed, options, cancellationToken);
+            }
+
+            TimeSpan elapsed = RuleTiming.ElapsedSince(start);
+            bool isBroken = result != null;
+
+            if (observer != null)
+            {
+                await observer.OnAfterEvaluateAsync(rule, result, cancellationToken);
+                await observer.OnAfterEvaluateAsync(rule, isBroken, elapsed, cancellationToken);
+
+                if (result != null)
+                {
+                    await observer.OnRuleBrokenAsync(rule, result, cancellationToken);
+                }
+            }
+
+            return new RuleEvaluationEntry(order, rule, isBroken ? RuleOutcome.Broken : RuleOutcome.Passed, result, null, elapsed);
+        }
+
+        private static async Task<RuleEvaluationEntry> RecordFaultAsync(
+            int order,
+            IAsyncBusinessRule rule,
+            Exception exception,
+            TimeSpan elapsed,
+            AsyncRuleEvaluationOptions options,
+            CancellationToken cancellationToken)
+        {
+            BusinessRuleResult? result = null;
+
+            if (options.OnFault == FaultPolicy.TreatAsBroken)
+            {
+                result = RuleFaultResult.Create(rule, exception);
+                if (options.Observer != null)
+                {
+                    await options.Observer.OnRuleBrokenAsync(rule, result, cancellationToken);
+                }
+            }
+
+            return new RuleEvaluationEntry(order, rule, RuleOutcome.Faulted, result, exception, elapsed);
+        }
+
+        private static RuleEvaluationEntry NotEvaluated(int order, IAsyncBusinessRule rule)
+        {
+            if (rule == null)
+            {
+                throw new ArgumentException($"The rule at position {order} is null.", "rules");
+            }
+
+            return new RuleEvaluationEntry(order, rule, RuleOutcome.NotEvaluated, null, null, TimeSpan.Zero);
         }
     }
 }

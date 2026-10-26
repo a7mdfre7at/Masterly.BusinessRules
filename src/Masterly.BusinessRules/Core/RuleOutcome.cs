@@ -2,7 +2,8 @@ namespace Masterly.BusinessRules
 {
     /// <summary>
     /// Describes what happened to a single rule during an evaluation walk.
-    /// Used by <see cref="RuleExplanation"/> to report the state of every node in an explanation tree.
+    /// Used by <see cref="RuleExplanation"/> to report the state of every node in an explanation tree and by
+    /// <see cref="RuleEvaluationEntry"/> to report the state of every rule in a batch ledger.
     /// </summary>
     public enum RuleOutcome
     {
@@ -29,13 +30,15 @@ namespace Masterly.BusinessRules
         CacheHit,
 
         /// <summary>
-        /// The rule was never evaluated because a composed parent short-circuited before reaching it.
+        /// The rule was never evaluated because a composed parent short-circuited before reaching it, or because a
+        /// fail-fast batch stopped before reaching it.
         /// </summary>
         NotEvaluated,
 
         /// <summary>
-        /// The rule threw an exception during evaluation. Only reported when an explanation is requested with
-        /// <c>captureExceptions: true</c>; the faulted rule is treated as broken for aggregation purposes.
+        /// The rule threw an exception during evaluation. Reported by an explanation requested with
+        /// <c>captureExceptions: true</c> (where the faulted rule is treated as broken) and by the batch checkers'
+        /// evaluation ledger under <see cref="FaultPolicy.Record"/> or <see cref="FaultPolicy.TreatAsBroken"/>.
         /// </summary>
         Faulted
     }

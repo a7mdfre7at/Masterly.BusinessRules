@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 
 namespace Masterly.BusinessRules
 {
@@ -66,21 +65,20 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
-        /// Starts a high-resolution timing measurement.
+        /// Starts a high-resolution timing measurement. Delegates to <see cref="RuleTiming.Start"/>.
         /// </summary>
         public static long StartTiming()
         {
-            return Stopwatch.GetTimestamp();
+            return RuleTiming.Start();
         }
 
         /// <summary>
         /// Returns the time elapsed since <paramref name="start"/> was taken with <see cref="StartTiming"/>.
+        /// Delegates to <see cref="RuleTiming.ElapsedSince"/>.
         /// </summary>
         public static TimeSpan ElapsedSince(long start)
         {
-            long elapsedTicks = Stopwatch.GetTimestamp() - start;
-            double ticksPerStopwatchTick = TimeSpan.TicksPerSecond / (double)Stopwatch.Frequency;
-            return TimeSpan.FromTicks((long)(elapsedTicks * ticksPerStopwatchTick));
+            return RuleTiming.ElapsedSince(start);
         }
     }
 }

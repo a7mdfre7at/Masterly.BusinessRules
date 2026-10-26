@@ -1,25 +1,87 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Masterly.BusinessRules
 {
     /// <summary>
     /// Represents the result of evaluating a collection of synchronous business rules.
-    /// Provides access to both broken and passed rules, along with filtering capabilities.
+    /// Provides access to both broken and passed rules, severity filters and, when produced by
+    /// <see cref="BusinessRuleChecker"/>, the per-rule evaluation ledger (<see cref="Entries"/>).
     /// </summary>
     public sealed class RuleEvaluationResult
     {
+        private static readonly IReadOnlyList<RuleEvaluationEntry> NoEntries = Array.Empty<RuleEvaluationEntry>();
+
         /// <summary>
-        /// Initializes a new instance of the <see cref="RuleEvaluationResult"/> class.
+        /// Initializes a new instance of the <see cref="RuleEvaluationResult"/> class from explicit broken and passed
+        /// collections. A result built this way has no ledger: <see cref="Entries"/> is empty and
+        /// <see cref="TotalDuration"/> is zero.
         /// </summary>
         /// <param name="brokenRules">The collection of broken rule results.</param>
         /// <param name="passedRules">The collection of rules that passed evaluation.</param>
+        /// <exception cref="ArgumentNullException">Thrown when either collection is null.</exception>
         public RuleEvaluationResult(
             IEnumerable<BusinessRuleResult> brokenRules,
             IEnumerable<IBusinessRule> passedRules)
         {
+            if (brokenRules == null)
+            {
+                throw new ArgumentNullException(nameof(brokenRules));
+            }
+
+            if (passedRules == null)
+            {
+                throw new ArgumentNullException(nameof(passedRules));
+            }
+
             BrokenRules = brokenRules.ToList().AsReadOnly();
             PassedRules = passedRules.ToList().AsReadOnly();
+            Entries = NoEntries;
+            TotalDuration = TimeSpan.Zero;
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="RuleEvaluationResult"/> class from an evaluation ledger.
+        /// <see cref="BrokenRules"/> holds the <see cref="RuleEvaluationEntry.Result"/> of every entry that has one and
+        /// <see cref="PassedRules"/> the rule of every <see cref="RuleOutcome.Passed"/> entry, both in ledger order.
+        /// </summary>
+        /// <param name="entries">The ledger entries, in submission order; every entry must carry a synchronous <see cref="RuleEvaluationEntry.Rule"/>.</param>
+        /// <param name="totalDuration">The wall-clock duration of the whole batch.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="entries"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when an entry does not carry a synchronous rule.</exception>
+        public RuleEvaluationResult(IEnumerable<RuleEvaluationEntry> entries, TimeSpan totalDuration)
+        {
+            if (entries == null)
+            {
+                throw new ArgumentNullException(nameof(entries));
+            }
+
+            List<RuleEvaluationEntry> ledger = entries.ToList();
+            List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
+            List<IBusinessRule> passedRules = new List<IBusinessRule>();
+
+            foreach (RuleEvaluationEntry entry in ledger)
+            {
+                if (entry.Rule == null)
+                {
+                    throw new ArgumentException("Every entry of a synchronous evaluation result must carry a synchronous rule.", nameof(entries));
+                }
+
+                if (entry.Result != null)
+                {
+                    brokenRules.Add(entry.Result);
+                }
+                else if (entry.Outcome == RuleOutcome.Passed)
+                {
+                    passedRules.Add(entry.Rule);
+                }
+            }
+
+            Entries = ledger.AsReadOnly();
+            BrokenRules = brokenRules.AsReadOnly();
+            PassedRules = passedRules.AsReadOnly();
+            TotalDuration = totalDuration;
         }
 
         /// <summary>
@@ -31,6 +93,48 @@ namespace Masterly.BusinessRules
         /// Gets all rules that passed evaluation.
         /// </summary>
         public IReadOnlyCollection<IBusinessRule> PassedRules { get; }
+
+        /// <summary>
+        /// Gets the evaluation ledger: one entry per submitted rule, in submission order, with its outcome, duration
+        /// and fault. Empty for a result built from explicit broken/passed collections.
+        /// </summary>
+        public IReadOnlyList<RuleEvaluationEntry> Entries { get; }
+
+        /// <summary>
+        /// Gets the entries of rules that threw during evaluation.
+        /// </summary>
+        public IEnumerable<RuleEvaluationEntry> Faulted => Entries.Where(entry => entry.IsFaulted);
+
+        /// <summary>
+        /// Returns true if any rule threw during evaluation.
+        /// </summary>
+        public bool HasFaults => Faulted.Any();
+
+        /// <summary>
+        /// Gets the wall-clock duration of the whole batch. Zero for a result built without a ledger.
+        /// </summary>
+        public TimeSpan TotalDuration { get; }
+
+        /// <summary>
+        /// Gets the entry with the longest <see cref="RuleEvaluationEntry.Duration"/>, or null when the ledger is empty.
+        /// Ties resolve to the earliest entry.
+        /// </summary>
+        public RuleEvaluationEntry? Slowest
+        {
+            get
+            {
+                RuleEvaluationEntry? slowest = null;
+                foreach (RuleEvaluationEntry entry in Entries)
+                {
+                    if (slowest == null || entry.Duration > slowest.Duration)
+                    {
+                        slowest = entry;
+                    }
+                }
+
+                return slowest;
+            }
+        }
 
         /// <summary>
         /// Returns true if any rules were broken.
@@ -84,8 +188,7 @@ namespace Masterly.BusinessRules
         /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
         public void ThrowIfBroken()
         {
-            if (HasBrokenRules)
-                throw new BusinessRuleValidationException(BrokenRules);
+            ThrowIfAtLeast(RuleSeverity.Info);
         }
 
         /// <summary>
@@ -95,9 +198,25 @@ namespace Masterly.BusinessRules
         /// <exception cref="BusinessRuleValidationException">Thrown when there are error-level broken rules.</exception>
         public void ThrowIfErrors()
         {
-            List<BusinessRuleResult> errors = Errors.ToList();
-            if (errors.Any())
-                throw new BusinessRuleValidationException(errors);
+            ThrowIfAtLeast(RuleSeverity.Error);
+        }
+
+        /// <summary>
+        /// Throws a <see cref="BusinessRuleValidationException"/> if any broken rule has a severity at or above
+        /// <paramref name="severity"/>. The exception's <see cref="BusinessRuleValidationException.BrokenRules"/> holds the
+        /// results at or above the threshold, <see cref="BusinessRuleValidationException.CollectedRules"/> the broken results
+        /// below it, and <see cref="BusinessRuleValidationException.Entries"/> this result's ledger.
+        /// </summary>
+        /// <param name="severity">The lowest severity that triggers the exception.</param>
+        /// <exception cref="BusinessRuleValidationException">Thrown when a broken rule is at or above the threshold.</exception>
+        public void ThrowIfAtLeast(RuleSeverity severity)
+        {
+            RuleSeverityThreshold.Split(BrokenRules, severity, out List<BusinessRuleResult> thrown, out List<BusinessRuleResult> collected);
+
+            if (thrown.Count > 0)
+            {
+                throw new BusinessRuleValidationException(thrown, collected, Entries);
+            }
         }
     }
 }

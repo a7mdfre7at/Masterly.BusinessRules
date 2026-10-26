@@ -1,0 +1,249 @@
+namespace Masterly.BusinessRules.UnitTests;
+
+public class RuleEvaluationResultLedgerTests
+{
+    private const string PassingCode = "PASS";
+    private const string BrokenCode = "BROKEN";
+    private const string FaultedCode = "FAULTED";
+    private const string NotEvaluatedCode = "SKIPPED";
+
+    [Fact]
+    public void LegacyConstructor_HasEmptyLedger()
+    {
+        RuleEvaluationResult result = new RuleEvaluationResult(
+            new[] { new BusinessRuleResult(BrokenCode, BrokenCode, RuleSeverity.Error) },
+            new[] { RuleTestHelper.CreatePassingRule(PassingCode) });
+
+        Assert.Empty(result.Entries);
+        Assert.Empty(result.Faulted);
+        Assert.False(result.HasFaults);
+        Assert.Equal(TimeSpan.Zero, result.TotalDuration);
+        Assert.Null(result.Slowest);
+        Assert.True(result.HasBrokenRules);
+    }
+
+    [Fact]
+    public void LegacyConstructor_NullBrokenRules_ThrowsArgumentNullException()
+    {
+        IEnumerable<BusinessRuleResult> brokenRules = null!; // intentional: exercising the null guard
+
+        Assert.Throws<ArgumentNullException>(() => new RuleEvaluationResult(brokenRules, Array.Empty<IBusinessRule>()));
+    }
+
+    [Fact]
+    public void LegacyConstructor_NullPassedRules_ThrowsArgumentNullException()
+    {
+        IEnumerable<IBusinessRule> passedRules = null!; // intentional: exercising the null guard
+
+        Assert.Throws<ArgumentNullException>(() => new RuleEvaluationResult(Array.Empty<BusinessRuleResult>(), passedRules));
+    }
+
+    [Fact]
+    public void LedgerConstructor_DerivesBrokenAndPassedRulesFromEntries()
+    {
+        IBusinessRule passing = RuleTestHelper.CreatePassingRule(PassingCode);
+        IBusinessRule broken = RuleTestHelper.CreateBrokenRule(BrokenCode);
+        BusinessRuleResult brokenResult = new BusinessRuleResult(BrokenCode, BrokenCode, RuleSeverity.Error);
+        RuleEvaluationEntry[] entries =
+        {
+            new RuleEvaluationEntry(0, passing, RuleOutcome.Passed, null, null, TimeSpan.FromMilliseconds(1)),
+            new RuleEvaluationEntry(1, broken, RuleOutcome.Broken, brokenResult, null, TimeSpan.FromMilliseconds(2))
+        };
+
+        RuleEvaluationResult result = new RuleEvaluationResult(entries, TimeSpan.FromMilliseconds(5));
+
+        Assert.Equal(2, result.Entries.Count);
+        Assert.Same(brokenResult, Assert.Single(result.BrokenRules));
+        Assert.Same(passing, Assert.Single(result.PassedRules));
+        Assert.Equal(TimeSpan.FromMilliseconds(5), result.TotalDuration);
+        Assert.False(result.HasFaults);
+    }
+
+    [Fact]
+    public void LedgerConstructor_FaultedEntryWithoutResult_IsNeitherBrokenNorPassed()
+    {
+        IBusinessRule faulted = RuleTestHelper.CreatePassingRule(FaultedCode);
+        RuleEvaluationEntry[] entries =
+        {
+            new RuleEvaluationEntry(0, faulted, RuleOutcome.Faulted, null, new InvalidOperationException(), TimeSpan.Zero)
+        };
+
+        RuleEvaluationResult result = new RuleEvaluationResult(entries, TimeSpan.Zero);
+
+        Assert.Empty(result.BrokenRules);
+        Assert.Empty(result.PassedRules);
+        Assert.True(result.AllPassed);
+        Assert.True(result.HasFaults);
+        Assert.Same(entries[0], Assert.Single(result.Faulted));
+    }
+
+    [Fact]
+    public void LedgerConstructor_FaultedEntryWithResult_CountsAsBroken()
+    {
+        IBusinessRule faulted = RuleTestHelper.CreatePassingRule(FaultedCode);
+        BusinessRuleResult synthesised = new BusinessRuleResult(FaultedCode, FaultedCode, RuleSeverity.Error);
+        RuleEvaluationEntry[] entries =
+        {
+            new RuleEvaluationEntry(0, faulted, RuleOutcome.Faulted, synthesised, new InvalidOperationException(), TimeSpan.Zero)
+        };
+
+        RuleEvaluationResult result = new RuleEvaluationResult(entries, TimeSpan.Zero);
+
+        Assert.Same(synthesised, Assert.Single(result.BrokenRules));
+        Assert.Empty(result.PassedRules);
+        Assert.True(result.HasFaults);
+    }
+
+    [Fact]
+    public void LedgerConstructor_NotEvaluatedEntry_IsNeitherBrokenNorPassed()
+    {
+        IBusinessRule skipped = RuleTestHelper.CreatePassingRule(NotEvaluatedCode);
+        RuleEvaluationEntry[] entries =
+        {
+            new RuleEvaluationEntry(0, skipped, RuleOutcome.NotEvaluated, null, null, TimeSpan.Zero)
+        };
+
+        RuleEvaluationResult result = new RuleEvaluationResult(entries, TimeSpan.Zero);
+
+        Assert.Empty(result.BrokenRules);
+        Assert.Empty(result.PassedRules);
+        Assert.False(result.HasFaults);
+    }
+
+    [Fact]
+    public void LedgerConstructor_EmptyEntries_ProducesEmptyResult()
+    {
+        RuleEvaluationResult result = new RuleEvaluationResult(Array.Empty<RuleEvaluationEntry>(), TimeSpan.Zero);
+
+        Assert.Empty(result.Entries);
+        Assert.Empty(result.BrokenRules);
+        Assert.Empty(result.PassedRules);
+        Assert.Null(result.Slowest);
+        Assert.True(result.AllPassed);
+    }
+
+    [Fact]
+    public void LedgerConstructor_NullEntries_ThrowsArgumentNullException()
+    {
+        IEnumerable<RuleEvaluationEntry> entries = null!; // intentional: exercising the null guard
+
+        Assert.Throws<ArgumentNullException>(() => new RuleEvaluationResult(entries, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public void LedgerConstructor_EntryWithAsyncRule_ThrowsArgumentException()
+    {
+        IAsyncBusinessRule asyncRule = RuleTestHelper.CreatePassingAsyncRule();
+        RuleEvaluationEntry[] entries = { new RuleEvaluationEntry(0, asyncRule, RuleOutcome.Passed, null, null, TimeSpan.Zero) };
+
+        Assert.Throws<ArgumentException>(() => new RuleEvaluationResult(entries, TimeSpan.Zero));
+    }
+
+    [Fact]
+    public void Slowest_ReturnsEntryWithLongestDuration()
+    {
+        RuleEvaluationEntry[] entries =
+        {
+            Passed(0, TimeSpan.FromMilliseconds(1)),
+            Passed(1, TimeSpan.FromMilliseconds(9)),
+            Passed(2, TimeSpan.FromMilliseconds(4))
+        };
+
+        RuleEvaluationResult result = new RuleEvaluationResult(entries, TimeSpan.FromMilliseconds(14));
+
+        Assert.Same(entries[1], result.Slowest);
+    }
+
+    [Fact]
+    public void Slowest_OnTie_ReturnsEarliestEntry()
+    {
+        RuleEvaluationEntry[] entries =
+        {
+            Passed(0, TimeSpan.FromMilliseconds(5)),
+            Passed(1, TimeSpan.FromMilliseconds(5))
+        };
+
+        RuleEvaluationResult result = new RuleEvaluationResult(entries, TimeSpan.FromMilliseconds(10));
+
+        Assert.Same(entries[0], result.Slowest);
+    }
+
+    [Fact]
+    public void ThrowIfAtLeast_SplitsThrownAndCollectedAndCarriesEntries()
+    {
+        RuleEvaluationEntry[] entries =
+        {
+            Broken(0, "INFO", RuleSeverity.Info),
+            Broken(1, "WARN", RuleSeverity.Warning),
+            Broken(2, "ERR", RuleSeverity.Error)
+        };
+        RuleEvaluationResult result = new RuleEvaluationResult(entries, TimeSpan.Zero);
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => result.ThrowIfAtLeast(RuleSeverity.Warning));
+
+        Assert.Equal(new[] { "WARN", "ERR" }, exception.BrokenRules.Select(r => r.Code));
+        Assert.Equal(new[] { "INFO" }, exception.CollectedRules.Select(r => r.Code));
+        Assert.Equal(3, exception.Entries.Count);
+        Assert.Same(entries[0], exception.Entries[0]);
+    }
+
+    [Fact]
+    public void ThrowIfAtLeast_NothingAtThreshold_DoesNotThrow()
+    {
+        RuleEvaluationResult result = new RuleEvaluationResult(new[] { Broken(0, "WARN", RuleSeverity.Warning) }, TimeSpan.Zero);
+
+        result.ThrowIfAtLeast(RuleSeverity.Error);
+    }
+
+    [Fact]
+    public void ThrowIfAtLeast_Info_ThrowsForEveryBrokenRule()
+    {
+        RuleEvaluationResult result = new RuleEvaluationResult(new[] { Broken(0, "INFO", RuleSeverity.Info) }, TimeSpan.Zero);
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => result.ThrowIfAtLeast(RuleSeverity.Info));
+
+        Assert.Single(exception.BrokenRules);
+        Assert.Empty(exception.CollectedRules);
+    }
+
+    [Fact]
+    public void ThrowIfAtLeast_NoBrokenRules_DoesNotThrow()
+    {
+        RuleEvaluationResult result = new RuleEvaluationResult(new[] { Passed(0, TimeSpan.Zero) }, TimeSpan.Zero);
+
+        result.ThrowIfAtLeast(RuleSeverity.Info);
+    }
+
+    [Fact]
+    public void ThrowIfBroken_CarriesLedgerEntries()
+    {
+        RuleEvaluationResult result = new RuleEvaluationResult(new[] { Broken(0, "INFO", RuleSeverity.Info) }, TimeSpan.Zero);
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => result.ThrowIfBroken());
+
+        Assert.Single(exception.Entries);
+    }
+
+    [Fact]
+    public void ThrowIfErrors_CollectsWarningsOnException()
+    {
+        RuleEvaluationEntry[] entries = { Broken(0, "WARN", RuleSeverity.Warning), Broken(1, "ERR", RuleSeverity.Error) };
+        RuleEvaluationResult result = new RuleEvaluationResult(entries, TimeSpan.Zero);
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => result.ThrowIfErrors());
+
+        Assert.Equal("ERR", Assert.Single(exception.BrokenRules).Code);
+        Assert.Equal("WARN", Assert.Single(exception.CollectedRules).Code);
+    }
+
+    private static RuleEvaluationEntry Passed(int order, TimeSpan duration)
+    {
+        return new RuleEvaluationEntry(order, RuleTestHelper.CreatePassingRule(PassingCode), RuleOutcome.Passed, null, null, duration);
+    }
+
+    private static RuleEvaluationEntry Broken(int order, string code, RuleSeverity severity)
+    {
+        IBusinessRule rule = RuleTestHelper.CreateBrokenRule(code);
+        return new RuleEvaluationEntry(order, rule, RuleOutcome.Broken, new BusinessRuleResult(code, code, severity), null, TimeSpan.Zero);
+    }
+}

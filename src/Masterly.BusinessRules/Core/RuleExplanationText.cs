@@ -19,6 +19,7 @@ namespace Masterly.BusinessRules
         public const string CachedOperator = "CACHED";
         public const string WhenOperator = "WHEN";
         public const string AdapterOperator = "ADAPTER";
+        public const string SeverityOperator = "SEVERITY";
 
         public const string NoReason = "";
         public const string ShortCircuitReason = "short-circuit";

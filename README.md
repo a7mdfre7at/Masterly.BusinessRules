@@ -30,6 +30,7 @@ If you like or are using this project please give it a star. Thanks!
 - [Rule Adapters](#rule-adapters)
 - [Observers](#observers)
 - [Evaluation Results](#evaluation-results)
+- [Evaluation Ledger, Options and Fault Policy](#evaluation-ledger-options-and-fault-policy)
 - [Testing Utilities](#testing-utilities)
 - [Real-World Examples](#real-world-examples)
 - [API Reference](#api-reference)
@@ -48,8 +49,10 @@ If you like or are using this project please give it a star. Thanks!
 - **Caching** - Time-based caching for expensive rule evaluations
 - **Conditional Execution** - Execute rules only when preconditions are met
 - **Rule Adapters** - Convert between sync and async rules
-- **Observers** - Monitor rule execution with callbacks
-- **Batch Validation** - Check multiple rules with fail-fast and parallel execution
+- **Observers** - Monitor rule execution with per-rule and batch lifecycle callbacks (`OnBatchStarted`, `OnAfterEvaluate` with elapsed time, `OnRuleFaulted`, `OnBatchCompleted`) from both `CheckAll` and `EvaluateAll`
+- **Batch Validation** - Check multiple rules with fail-fast and parallel execution, or pass a `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` object
+- **Evaluation Ledger** - Every batch result carries one `RuleEvaluationEntry` per rule (order, outcome, duration, fault), `TotalDuration`, `Slowest` and `Faulted`
+- **Fault Policy and Severity Threshold** - Decide whether a throwing rule aborts the batch, is recorded, or counts as broken (`FaultPolicy`); make `CheckAll` throw only at or above a severity (`ThrowOn`), and re-severity any rule with `.WithSeverity()`
 - **Typed Context** - Strongly-typed data passing to rules
 - **Testing Utilities** - Helper methods for unit testing rules
 
@@ -425,6 +428,7 @@ Batch validation allows checking multiple rules at once. The library provides tw
 - **Parallel Execution** (`runInParallel: true`): Evaluates async rules concurrently for better performance with I/O-bound rules
 - **Observer Support**: Receive callbacks during rule evaluation for logging, metrics, etc.
 - **Filtering**: Check only rules matching specific severity, category, or tags
+- **Options Objects**: `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` replace the boolean parameters and add a fault policy, a severity threshold and observer callbacks from `EvaluateAll` (see [Evaluation Ledger, Options and Fault Policy](#evaluation-ledger-options-and-fault-policy))
 
 Note: Fail-fast and parallel execution cannot be combined - fail-fast takes precedence.
 
@@ -463,6 +467,20 @@ BusinessRuleChecker.CheckByTags(rules, "checkout");
 await AsyncBusinessRuleChecker.CheckBySeverityAsync(
     context, rules, default, RuleSeverity.Error
 );
+
+// Options object (fault policy, severity threshold, observer)
+BusinessRuleChecker.CheckAll(rules, context, new RuleEvaluationOptions
+{
+    StopOnFirstFailure = true,
+    OnFault = FaultPolicy.Record,
+    ThrowOn = RuleSeverity.Error
+});
+
+await AsyncBusinessRuleChecker.CheckAllAsync(context, asyncRules, new AsyncRuleEvaluationOptions
+{
+    RunInParallel = true,
+    OnFault = FaultPolicy.TreatAsBroken
+}, cancellationToken);
 ```
 
 ---
@@ -684,11 +702,18 @@ Observers receive callbacks during rule evaluation, enabling:
   - `OnBeforeEvaluate(IBusinessRule rule)`: Called before evaluation
   - `OnAfterEvaluate(IBusinessRule rule, BusinessRuleResult? result)`: Called after (result is null if passed)
   - `OnRuleBroken(IBusinessRule rule, BusinessRuleResult result)`: Called only when broken
+  - Batch lifecycle hooks with empty default implementations (existing observers keep compiling):
+    - `OnBatchStarted(int ruleCount)`: Called once before the first rule
+    - `OnAfterEvaluate(IBusinessRule rule, bool isBroken, TimeSpan elapsed)`: Called after each rule with the time the checker measured
+    - `OnRuleFaulted(IBusinessRule rule, Exception exception)`: Called when a rule throws, before the `FaultPolicy` is applied
+    - `OnBatchCompleted(RuleEvaluationResult result)`: Called once with the result and its ledger, before `CheckAll` throws
 
 - `IAsyncRuleExecutionObserver`: For async rule evaluation
-  - Same methods with async signatures and CancellationToken
+  - Same methods with async signatures and CancellationToken (`OnBatchStartedAsync`, `OnAfterEvaluateAsync(rule, isBroken, elapsed, ct)`, `OnRuleFaultedAsync`, `OnBatchCompletedAsync`)
 
-Observers are passed to `BusinessRuleChecker.CheckAll()` or `AsyncBusinessRuleChecker.CheckAllAsync()` via the `observer` parameter.
+Per rule the order is `OnBeforeEvaluate`, `OnAfterEvaluate(rule, result)`, `OnAfterEvaluate(rule, isBroken, elapsed)`, then `OnRuleBroken` when broken. A rule that throws gets `OnRuleFaulted` instead of the two `OnAfterEvaluate` calls (plus `OnRuleBroken` under `FaultPolicy.TreatAsBroken`). `OnBatchCompleted` is not raised when a fault propagates under `FaultPolicy.Throw`.
+
+Observers are passed to `BusinessRuleChecker.CheckAll()` / `AsyncBusinessRuleChecker.CheckAllAsync()` via the `observer` parameter, or to any options-taking overload through `RuleEvaluationOptions.Observer` / `AsyncRuleEvaluationOptions.Observer`. Observers fire from `EvaluateAll` / `EvaluateAllAsync` only through the options-taking overloads; the boolean `EvaluateAll` overloads have no observer parameter.
 
 ### Observer Examples
 
@@ -759,13 +784,13 @@ Evaluation methods return detailed results without throwing exceptions. This is 
 - `BrokenRules`: List of `BusinessRuleResult` for broken rules
 - `PassedRules`: List of rules that passed
 - `HasBrokenRules`: True if any rules are broken
-- `HasPassedRules`: True if any rules passed
-- `AllRulesPassed`: True if all rules passed
-- `AllRulesBroken`: True if all rules are broken
+- `AllPassed`: True if all rules passed
+- `Errors` / `Warnings` / `Infos` and `HasErrors` / `HasWarnings`: Broken rules by severity
+- `Entries`, `Faulted`, `HasFaults`, `TotalDuration`, `Slowest`: The evaluation ledger (see [Evaluation Ledger, Options and Fault Policy](#evaluation-ledger-options-and-fault-policy))
 
-**Filtering Methods:**
-- `GetBrokenByCode(string)`: Filter by code (contains match)
-- `GetBrokenBySeverity(RuleSeverity)`: Filter by severity
+**Methods:**
+- `GetBySeverity(RuleSeverity)`: Filter broken rules by severity
+- `ThrowIfBroken()`, `ThrowIfErrors()`, `ThrowIfAtLeast(RuleSeverity)`: Turn the result into a `BusinessRuleValidationException`; broken rules below the threshold travel on `exception.CollectedRules`
 
 ### Evaluation Examples
 
@@ -779,13 +804,16 @@ if (result.HasBrokenRules)
         Console.WriteLine($"{error.Code}: {error.Message}");
 }
 
-if (result.AllRulesPassed)
+if (result.AllPassed)
     Console.WriteLine("Validation successful!");
 
 // Filter results
-IEnumerable<BusinessRuleResult> paymentErrors = result.GetBrokenByCode("PAYMENT");
-IEnumerable<BusinessRuleResult> errors = result.GetBrokenBySeverity(RuleSeverity.Error);
-IEnumerable<BusinessRuleResult> warnings = result.GetBrokenBySeverity(RuleSeverity.Warning);
+IEnumerable<BusinessRuleResult> paymentErrors = result.BrokenRules.Where(r => r.Code.StartsWith("PAYMENT"));
+IEnumerable<BusinessRuleResult> errors = result.Errors;
+IEnumerable<BusinessRuleResult> warnings = result.GetBySeverity(RuleSeverity.Warning);
+
+// Throw only for errors; warnings stay reachable on the exception
+result.ThrowIfAtLeast(RuleSeverity.Error);
 
 // Async evaluation
 AsyncRuleEvaluationResult asyncResult = await AsyncBusinessRuleChecker.EvaluateAllAsync(
@@ -808,6 +836,78 @@ if (result.HasBrokenRules)
         })
     });
 }
+```
+
+---
+
+## Evaluation Ledger, Options and Fault Policy
+
+One options object per side (`RuleEvaluationOptions` for `BusinessRuleChecker`, `AsyncRuleEvaluationOptions` for `AsyncBusinessRuleChecker`) replaces the growing pile of boolean parameters. Every checker call, including the existing boolean overloads, now runs through a single core that records an **evaluation ledger**: one `RuleEvaluationEntry` per submitted rule with its `Order` (submission index), `Outcome` (`Passed`, `Broken`, `Faulted`, or `NotEvaluated` after a fail-fast stop), `Result`, `Fault` and `Duration`. The result exposes the ledger as `Entries`, plus `Faulted`, `HasFaults`, `TotalDuration` (batch wall clock) and `Slowest`. Timing uses `Stopwatch.GetTimestamp()` tick math, so no `Stopwatch` is allocated.
+
+**Options:**
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `StopOnFirstFailure` | `false` | Stop at the first broken rule; the remaining rules are recorded as `NotEvaluated`. In `CheckAll` only a rule at or above `ThrowOn` stops the batch |
+| `OnFault` | `FaultPolicy.Throw` | What happens when a rule throws (see below) |
+| `ThrowOn` | `RuleSeverity.Info` | The lowest severity that makes `CheckAll` throw. Honoured by `CheckAll` only; `EvaluateAll` never throws for broken rules |
+| `Observer` | `null` | Receives every callback from both `CheckAll` and `EvaluateAll` |
+| `RunInParallel` (async only) | `false` | Evaluate concurrently; fail-fast still wins and forces sequential evaluation |
+
+**Fault policy.** Cancellation (`OperationCanceledException`) always propagates and is never subject to the policy.
+
+| `FaultPolicy` | Behaviour |
+|---------------|-----------|
+| `Throw` | The exception propagates after `OnRuleFaulted`; no result or ledger is produced (pre-3.0 behaviour) |
+| `Record` | The entry is `Faulted` with the exception; the rule is neither broken nor passed and the batch continues. `CheckAll` does not throw for a recorded fault by itself, so use it with `EvaluateAll` or an observer |
+| `TreatAsBroken` | As `Record`, plus a broken result built from the rule's `Code`/`Message`/`Severity` is added, so the fault blocks like a violation. A `Message` getter that throws falls back to the rule's type name without masking the original fault |
+
+There is deliberately no `TreatAsPassed`: a fault is never silently turned into a pass.
+
+**Severity threshold.** `CheckAll` with `ThrowOn = RuleSeverity.Error` throws only when an error-level rule is broken; broken warnings and infos ride along on `exception.CollectedRules` and the full ledger on `exception.Entries`. `result.ThrowIfAtLeast(severity)` does the same on a result, and the `rule.Check(context, throwOn)` / `await rule.CheckAsync(context, throwOn, ct)` extensions apply the threshold to a single rule. `rule.WithSeverity(RuleSeverity.Warning)` wraps any rule in a `SeverityOverrideBusinessRule` (async: `SeverityOverrideAsyncBusinessRule`) that reports the new severity while forwarding every other metadata member, the verdict and member `Details`; it appears as a `SEVERITY` node in an explain tree.
+
+### Ledger and Options Examples
+
+```csharp
+// Record faults instead of aborting the batch, and inspect the ledger
+RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(rules, context, new RuleEvaluationOptions
+{
+    OnFault = FaultPolicy.Record
+});
+
+foreach (RuleEvaluationEntry entry in result.Entries)
+    Console.WriteLine($"{entry.Order}: {entry.Code} {entry.Outcome} in {entry.Duration.TotalMilliseconds:F2} ms");
+
+if (result.HasFaults)
+    Console.WriteLine($"{result.Faulted.First().Code} threw {result.Faulted.First().Fault!.GetType().Name}");
+
+Console.WriteLine($"Slowest rule: {result.Slowest?.Code}, batch took {result.TotalDuration.TotalMilliseconds:F2} ms");
+
+// Throw only at Error; warnings are collected on the exception
+try
+{
+    BusinessRuleChecker.CheckAll(rules, context, new RuleEvaluationOptions { ThrowOn = RuleSeverity.Error });
+}
+catch (BusinessRuleValidationException ex)
+{
+    IReadOnlyCollection<BusinessRuleResult> errors = ex.BrokenRules;        // at or above the threshold
+    IReadOnlyCollection<BusinessRuleResult> warnings = ex.CollectedRules;   // below the threshold
+    IReadOnlyList<RuleEvaluationEntry> ledger = ex.Entries;
+}
+
+// Re-severity a rule without subclassing it
+IBusinessRule softened = new EmailFormatRule(email).WithSeverity(RuleSeverity.Warning);
+softened.Check(context, throwOn: RuleSeverity.Error);   // broken as a warning => returns silently
+
+// Async: parallel, faults count as broken, observer sees every rule and the batch
+AsyncRuleEvaluationResult asyncResult = await AsyncBusinessRuleChecker.EvaluateAllAsync(context, asyncRules, new AsyncRuleEvaluationOptions
+{
+    RunInParallel = true,
+    OnFault = FaultPolicy.TreatAsBroken,
+    Observer = new MetricsObserver()
+}, cancellationToken);
+
+asyncResult.ThrowIfAtLeast(RuleSeverity.Error);
 ```
 
 ---
@@ -991,9 +1091,9 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `IAsyncBusinessRule` | Async rule: `IsBrokenAsync()`, `CheckAsync()`, `EvaluateAsync()` |
 | `IBusinessRuleMetadata` | Metadata: Name, Description, Category, Tags, Severity |
 | `IComposedBusinessRule` / `IComposedAsyncBusinessRule` | A rule computed from operands: `Operator`, `Operands` (And/Or/Not nodes, groups, composites) |
-| `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached and conditional decorators) |
-| `IRuleExecutionObserver` | Sync execution callbacks |
-| `IAsyncRuleExecutionObserver` | Async execution callbacks |
+| `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached, conditional and severity-override decorators) |
+| `IRuleExecutionObserver` | Sync execution callbacks plus batch hooks `OnBatchStarted`, `OnAfterEvaluate(rule, isBroken, elapsed)`, `OnRuleFaulted`, `OnBatchCompleted` |
+| `IAsyncRuleExecutionObserver` | Async execution callbacks plus the async batch hooks |
 
 ### Classes
 
@@ -1018,14 +1118,18 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `CachedAsyncBusinessRule` | Time-based caching for async rules |
 | `ConditionalBusinessRule` | Conditional execution for sync rules |
 | `ConditionalAsyncBusinessRule` | Conditional execution for async rules |
+| `SeverityOverrideBusinessRule` / `SeverityOverrideAsyncBusinessRule` | Decorator reporting a different severity (`.WithSeverity()`) |
 | `SyncToAsyncRuleAdapter` | Adapts sync rules to async |
 | `AsyncToSyncRuleAdapter` | Adapts async rules to sync (blocking) |
-| `BusinessRuleChecker` | Batch sync validation |
-| `AsyncBusinessRuleChecker` | Batch async validation |
+| `BusinessRuleChecker` | Batch sync validation; options-taking `CheckAll`/`EvaluateAll` overloads |
+| `AsyncBusinessRuleChecker` | Batch async validation; options-taking `CheckAllAsync`/`EvaluateAllAsync` overloads |
+| `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` | `StopOnFirstFailure`, `OnFault`, `ThrowOn`, `Observer` (async: `RunInParallel`) |
+| `FaultPolicy` | `Throw`, `Record`, `TreatAsBroken` |
+| `RuleEvaluationEntry` | Ledger line: `Order`, `Rule`/`AsyncRule`, `Code`, `Outcome`, `Result`, `Fault`, `Duration` |
 | `BusinessRuleResult` | Immutable result with Code, Message, Severity and `Details` (broken members of a composed rule); `Flatten()` |
-| `RuleEvaluationResult` | Batch sync evaluation result |
-| `AsyncRuleEvaluationResult` | Batch async evaluation result |
-| `BusinessRuleValidationException` | Exception when rules are broken; `Flatten()` yields the leaf results |
+| `RuleEvaluationResult` | Batch sync evaluation result with ledger (`Entries`, `Faulted`, `HasFaults`, `TotalDuration`, `Slowest`, `ThrowIfAtLeast`) |
+| `AsyncRuleEvaluationResult` | Batch async evaluation result with the same ledger surface |
+| `BusinessRuleValidationException` | Exception when rules are broken; `CollectedRules` (below threshold), `Entries` (ledger), `Flatten()` yields the leaf results |
 | `RuleTestHelper` | Testing assertions and factories |
 
 ### Extension Methods
@@ -1041,6 +1145,9 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `.ToSyncRule()` | Convert async to sync (blocking) |
 | `.WithCache(TimeSpan)` | Add caching |
 | `.WithCondition(Func)` | Add conditional execution |
+| `.WithSeverity(RuleSeverity)` | Wrap in a severity-override decorator (sync and async) |
+| `.Check(throwOn)` / `.Check(context, throwOn)` | Check one sync rule, throwing only at or above the severity |
+| `.CheckAsync(context, throwOn, ct)` | Check one async rule, throwing only at or above the severity |
 
 ---
 

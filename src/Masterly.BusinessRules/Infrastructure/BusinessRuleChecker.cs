@@ -9,6 +9,9 @@ namespace Masterly.BusinessRules
     /// Provides methods for checking multiple rules at once, filtering by criteria, and detailed evaluation.
     /// Composed rules (groups, composites, And/Or/Not) are evaluated exactly once and their broken members are
     /// surfaced in <see cref="BusinessRuleResult.Details"/> of the reported result.
+    /// Every overload runs through one core that records an evaluation ledger (<see cref="RuleEvaluationResult.Entries"/>);
+    /// the overloads taking <see cref="RuleEvaluationOptions"/> add a fault policy, a severity threshold and observer
+    /// callbacks from both <c>CheckAll</c> and <c>EvaluateAll</c>.
     /// </summary>
     /// <example>
     /// <code>
@@ -22,6 +25,9 @@ namespace Masterly.BusinessRules
     /// RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(rules);
     /// if (result.HasErrors)
     ///     Console.WriteLine(result.Errors.First().Message);
+    ///
+    /// // Options object: record faults, throw only at Error
+    /// BusinessRuleChecker.CheckAll(rules, ctx, new RuleEvaluationOptions { OnFault = FaultPolicy.Record, ThrowOn = RuleSeverity.Error });
     /// </code>
     /// </example>
     public static class BusinessRuleChecker
@@ -33,7 +39,7 @@ namespace Masterly.BusinessRules
         /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
         public static void CheckAll(params IBusinessRule[] rules)
         {
-            CheckAllCore(rules, stopOnFirstFailure: false, observer: null, context: null);
+            CheckAllCore(rules, null, LegacyOptions(stopOnFirstFailure: false, observer: null));
         }
 
         /// <summary>
@@ -44,7 +50,7 @@ namespace Masterly.BusinessRules
         /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
         public static void CheckAll(bool stopOnFirstFailure, params IBusinessRule[] rules)
         {
-            CheckAllCore(rules, stopOnFirstFailure: stopOnFirstFailure, observer: null, context: null);
+            CheckAllCore(rules, null, LegacyOptions(stopOnFirstFailure, observer: null));
         }
 
         /// <summary>
@@ -55,7 +61,7 @@ namespace Masterly.BusinessRules
         /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
         public static void CheckAll(BusinessRuleContext context, params IBusinessRule[] rules)
         {
-            CheckAllCore(rules, stopOnFirstFailure: false, observer: null, context: context);
+            CheckAllCore(rules, context, LegacyOptions(stopOnFirstFailure: false, observer: null));
         }
 
         /// <summary>
@@ -67,7 +73,7 @@ namespace Masterly.BusinessRules
         /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
         public static void CheckAll(BusinessRuleContext context, bool stopOnFirstFailure, params IBusinessRule[] rules)
         {
-            CheckAllCore(rules, stopOnFirstFailure: stopOnFirstFailure, observer: null, context: context);
+            CheckAllCore(rules, context, LegacyOptions(stopOnFirstFailure, observer: null));
         }
 
         /// <summary>
@@ -84,42 +90,34 @@ namespace Masterly.BusinessRules
             IRuleExecutionObserver? observer = null,
             BusinessRuleContext? context = null)
         {
-            CheckAllCore(rules, stopOnFirstFailure, observer, context);
+            CheckAllCore(rules, context, LegacyOptions(stopOnFirstFailure, observer));
         }
 
-        private static void CheckAllCore(
-            IEnumerable<IBusinessRule> rules,
-            bool stopOnFirstFailure,
-            IRuleExecutionObserver? observer,
-            BusinessRuleContext? context)
+        /// <summary>
+        /// Checks all rules with the supplied options and throws if any broken rule is at or above
+        /// <see cref="RuleEvaluationOptions.ThrowOn"/>.
+        /// </summary>
+        /// <param name="rules">The rules to check.</param>
+        /// <param name="options">The evaluation options: fail-fast, fault policy, severity threshold and observer.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when a broken rule is at or above the threshold; broken rules below it are in <see cref="BusinessRuleValidationException.CollectedRules"/>.</exception>
+        public static void CheckAll(IEnumerable<IBusinessRule> rules, RuleEvaluationOptions options)
         {
-            List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
+            CheckAllCore(rules, null, options);
+        }
 
-            foreach (IBusinessRule rule in rules)
-            {
-                observer?.OnBeforeEvaluate(rule);
-
-                BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(rule, context, null);
-
-                if (result != null)
-                {
-                    brokenRules.Add(result);
-                    observer?.OnAfterEvaluate(rule, result);
-                    observer?.OnRuleBroken(rule, result);
-
-                    if (stopOnFirstFailure)
-                        break;
-                }
-                else
-                {
-                    observer?.OnAfterEvaluate(rule, null);
-                }
-            }
-
-            if (brokenRules.Any())
-            {
-                throw new BusinessRuleValidationException(brokenRules);
-            }
+        /// <summary>
+        /// Checks all rules using context with the supplied options and throws if any broken rule is at or above
+        /// <see cref="RuleEvaluationOptions.ThrowOn"/>.
+        /// </summary>
+        /// <param name="rules">The rules to check.</param>
+        /// <param name="context">Optional context containing data for rule evaluation.</param>
+        /// <param name="options">The evaluation options: fail-fast, fault policy, severity threshold and observer.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when a broken rule is at or above the threshold; broken rules below it are in <see cref="BusinessRuleValidationException.CollectedRules"/>.</exception>
+        public static void CheckAll(IEnumerable<IBusinessRule> rules, BusinessRuleContext? context, RuleEvaluationOptions options)
+        {
+            CheckAllCore(rules, context, options);
         }
 
         /// <summary>
@@ -129,7 +127,7 @@ namespace Masterly.BusinessRules
         /// <returns>A result object containing broken and passed rules.</returns>
         public static RuleEvaluationResult EvaluateAll(params IBusinessRule[] rules)
         {
-            return EvaluateAll(rules, context: null);
+            return EvaluateAllCore(rules, null, new RuleEvaluationOptions(), RuleSeverity.Info);
         }
 
         /// <summary>
@@ -140,7 +138,7 @@ namespace Masterly.BusinessRules
         /// <returns>A result object containing broken and passed rules.</returns>
         public static RuleEvaluationResult EvaluateAll(BusinessRuleContext context, params IBusinessRule[] rules)
         {
-            return EvaluateAll(rules, context: context);
+            return EvaluateAllCore(rules, context, new RuleEvaluationOptions(), RuleSeverity.Info);
         }
 
         /// <summary>
@@ -153,24 +151,36 @@ namespace Masterly.BusinessRules
             IEnumerable<IBusinessRule> rules,
             BusinessRuleContext? context = null)
         {
-            List<BusinessRuleResult> brokenRules = new List<BusinessRuleResult>();
-            List<IBusinessRule> passedRules = new List<IBusinessRule>();
+            return EvaluateAllCore(rules, context, new RuleEvaluationOptions(), RuleSeverity.Info);
+        }
 
-            foreach (IBusinessRule rule in rules)
-            {
-                BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(rule, context, null);
+        /// <summary>
+        /// Evaluates all rules with the supplied options and returns the result with its evaluation ledger.
+        /// Never throws for broken rules: <see cref="RuleEvaluationOptions.ThrowOn"/> is ignored, faults follow
+        /// <see cref="RuleEvaluationOptions.OnFault"/> and the observer receives every callback.
+        /// </summary>
+        /// <param name="rules">The rules to evaluate.</param>
+        /// <param name="options">The evaluation options: fail-fast, fault policy and observer.</param>
+        /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
+        public static RuleEvaluationResult EvaluateAll(IEnumerable<IBusinessRule> rules, RuleEvaluationOptions options)
+        {
+            return EvaluateAllCore(rules, null, options, RuleSeverity.Info);
+        }
 
-                if (result != null)
-                {
-                    brokenRules.Add(result);
-                }
-                else
-                {
-                    passedRules.Add(rule);
-                }
-            }
-
-            return new RuleEvaluationResult(brokenRules, passedRules);
+        /// <summary>
+        /// Evaluates all rules using context with the supplied options and returns the result with its evaluation ledger.
+        /// Never throws for broken rules: <see cref="RuleEvaluationOptions.ThrowOn"/> is ignored, faults follow
+        /// <see cref="RuleEvaluationOptions.OnFault"/> and the observer receives every callback.
+        /// </summary>
+        /// <param name="rules">The rules to evaluate.</param>
+        /// <param name="context">Optional context containing data for rule evaluation.</param>
+        /// <param name="options">The evaluation options: fail-fast, fault policy and observer.</param>
+        /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
+        public static RuleEvaluationResult EvaluateAll(IEnumerable<IBusinessRule> rules, BusinessRuleContext? context, RuleEvaluationOptions options)
+        {
+            return EvaluateAllCore(rules, context, options, RuleSeverity.Info);
         }
 
         /// <summary>
@@ -214,6 +224,146 @@ namespace Masterly.BusinessRules
             HashSet<string> tagSet = new HashSet<string>(tags, StringComparer.OrdinalIgnoreCase);
             IEnumerable<IBusinessRule> filteredRules = rules.Where(r => r.Tags.Any(t => tagSet.Contains(t)));
             CheckAll(filteredRules.ToArray());
+        }
+
+        private static RuleEvaluationOptions LegacyOptions(bool stopOnFirstFailure, IRuleExecutionObserver? observer)
+        {
+            return new RuleEvaluationOptions
+            {
+                StopOnFirstFailure = stopOnFirstFailure,
+                Observer = observer
+            };
+        }
+
+        private static void CheckAllCore(IEnumerable<IBusinessRule> rules, BusinessRuleContext? context, RuleEvaluationOptions options)
+        {
+            if (options == null)
+            {
+                throw new ArgumentNullException(nameof(options));
+            }
+
+            RuleEvaluationResult result = EvaluateAllCore(rules, context, options, options.ThrowOn);
+            result.ThrowIfAtLeast(options.ThrowOn);
+        }
+
+        /// <summary>
+        /// The single evaluation core. <paramref name="stopThreshold"/> is the lowest severity at which a broken rule
+        /// stops a fail-fast batch: <c>ThrowOn</c> for <c>CheckAll</c> (a rule that would not throw must not stop the
+        /// search for one that would) and <see cref="RuleSeverity.Info"/> for <c>EvaluateAll</c>.
+        /// </summary>
+        private static RuleEvaluationResult EvaluateAllCore(
+            IEnumerable<IBusinessRule> rules,
+            BusinessRuleContext? context,
+            RuleEvaluationOptions options,
+            RuleSeverity stopThreshold)
+        {
+            if (rules == null)
+            {
+                throw new ArgumentNullException(nameof(rules));
+            }
+
+            if (options == null)
+            {
+                throw new ArgumentNullException(nameof(options));
+            }
+
+            IReadOnlyList<IBusinessRule> batch = rules as IReadOnlyList<IBusinessRule> ?? rules.ToList();
+            IRuleExecutionObserver? observer = options.Observer;
+            List<RuleEvaluationEntry> entries = new List<RuleEvaluationEntry>(batch.Count);
+
+            long batchStart = RuleTiming.Start();
+            observer?.OnBatchStarted(batch.Count);
+
+            int index = 0;
+            for (; index < batch.Count; index++)
+            {
+                RuleEvaluationEntry entry = EvaluateEntry(index, batch[index], context, options);
+                entries.Add(entry);
+
+                if (options.StopOnFirstFailure && entry.Result != null && RuleSeverityThreshold.IsAtLeast(entry.Result.Severity, stopThreshold))
+                {
+                    index++;
+                    break;
+                }
+            }
+
+            for (; index < batch.Count; index++)
+            {
+                entries.Add(NotEvaluated(index, batch[index]));
+            }
+
+            RuleEvaluationResult result = new RuleEvaluationResult(entries, RuleTiming.ElapsedSince(batchStart));
+            observer?.OnBatchCompleted(result);
+            return result;
+        }
+
+        private static RuleEvaluationEntry EvaluateEntry(int order, IBusinessRule rule, BusinessRuleContext? context, RuleEvaluationOptions options)
+        {
+            if (rule == null)
+            {
+                throw new ArgumentException($"The rule at position {order} is null.", "rules");
+            }
+
+            IRuleExecutionObserver? observer = options.Observer;
+            observer?.OnBeforeEvaluate(rule);
+
+            long start = RuleTiming.Start();
+            BusinessRuleResult? result;
+            try
+            {
+                result = BusinessRuleWalker.EvaluateNode(rule, context, null);
+            }
+            catch (Exception exception) when (!(exception is OperationCanceledException))
+            {
+                TimeSpan faultElapsed = RuleTiming.ElapsedSince(start);
+                observer?.OnRuleFaulted(rule, exception);
+
+                if (options.OnFault == FaultPolicy.Throw)
+                {
+                    throw;
+                }
+
+                return RecordFault(order, rule, exception, faultElapsed, options);
+            }
+
+            TimeSpan elapsed = RuleTiming.ElapsedSince(start);
+            bool isBroken = result != null;
+
+            if (observer != null)
+            {
+                observer.OnAfterEvaluate(rule, result);
+                observer.OnAfterEvaluate(rule, isBroken, elapsed);
+
+                if (result != null)
+                {
+                    observer.OnRuleBroken(rule, result);
+                }
+            }
+
+            return new RuleEvaluationEntry(order, rule, isBroken ? RuleOutcome.Broken : RuleOutcome.Passed, result, null, elapsed);
+        }
+
+        private static RuleEvaluationEntry RecordFault(int order, IBusinessRule rule, Exception exception, TimeSpan elapsed, RuleEvaluationOptions options)
+        {
+            BusinessRuleResult? result = null;
+
+            if (options.OnFault == FaultPolicy.TreatAsBroken)
+            {
+                result = RuleFaultResult.Create(rule, exception);
+                options.Observer?.OnRuleBroken(rule, result);
+            }
+
+            return new RuleEvaluationEntry(order, rule, RuleOutcome.Faulted, result, exception, elapsed);
+        }
+
+        private static RuleEvaluationEntry NotEvaluated(int order, IBusinessRule rule)
+        {
+            if (rule == null)
+            {
+                throw new ArgumentException($"The rule at position {order} is null.", "rules");
+            }
+
+            return new RuleEvaluationEntry(order, rule, RuleOutcome.NotEvaluated, null, null, TimeSpan.Zero);
         }
     }
 }
