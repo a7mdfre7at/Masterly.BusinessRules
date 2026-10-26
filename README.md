@@ -25,6 +25,7 @@ If you like or are using this project please give it a star. Thanks!
 - [Structural Composition and Explain Trees](#structural-composition-and-explain-trees)
 - [Batch Validation](#batch-validation)
 - [Context and Data Passing](#context-and-data-passing)
+- [Typed Context Keys](#typed-context-keys)
 - [Caching](#caching)
 - [Conditional Execution](#conditional-execution)
 - [Rule Adapters](#rule-adapters)
@@ -55,7 +56,7 @@ If you like or are using this project please give it a star. Thanks!
 - **Evaluation Ledger** - Every batch result carries one `RuleEvaluationEntry` per rule (order, outcome, duration, fault), `TotalDuration`, `Slowest` and `Faulted`
 - **Fault Policy and Severity Threshold** - Decide whether a throwing rule aborts the batch, is recorded, or counts as broken (`FaultPolicy`); make `CheckAll` throw only at or above a severity (`ThrowOn`), and re-severity any rule with `.WithSeverity()`
 - **Rich Results** - Every result carries the rule's `Name`, `Category` and `Tags`; a `Describe(context)` hook (or the builders' `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation`) attaches `Detail`, `Actual`, `Expected`, `Remediation` and a `Data` bag on the broken path only, and exceptions and results filter with `ByTag`/`ByCategory`: enough to build an RFC 7807 Problem Details response straight from the engine
-- **Typed Context** - Strongly-typed data passing to rules
+- **Typed Context** - Strongly-typed data passing to rules: `BusinessRuleContext<T>.Data` for one object, `ContextKey<T>` for named values read with `context.Get(OrderKeys.Order)` (no cast, no string literal); a failed read throws `ContextKeyNotFoundException` listing the available keys or `ContextValueTypeMismatchException` naming both types, and the checkers wrap either in a `BusinessRuleContextException` that names the failing rule
 - **Testing Utilities** - Helper methods for unit testing rules
 
 ---
@@ -497,10 +498,12 @@ await AsyncBusinessRuleChecker.CheckAllAsync(context, asyncRules, new AsyncRuleE
 
 **Features:**
 - `Set(key, value)`: Store a value
-- `Get<T>(key)`: Retrieve a typed value
-- `TryGet<T>(key, out value)`: Safe retrieval
+- `Get<T>(key)`: Retrieve a typed value; throws `ContextKeyNotFoundException` (a `KeyNotFoundException` that lists the available keys) when the key is missing and `ContextValueTypeMismatchException` (an `InvalidCastException` that names the stored and requested types) when the value is of another type
+- `TryGet<T>(key, out value)`: Safe retrieval; `false` for a missing key or a type mismatch, never throws
 - `ContainsKey(key)`: Check existence
 - `Remove(key)`: Remove a value
+- `Keys`: Read-only live view of the stored key names
+- Every method has a `ContextKey<T>` overload; see [Typed Context Keys](#typed-context-keys)
 
 **Typed Context:** `BusinessRuleContext<T>` provides strongly-typed access to a data object via the `Data` property, while still supporting the key-value store for additional data.
 
@@ -543,6 +546,82 @@ BusinessRuleContext<OrderContext> typedContext = new BusinessRuleContext<OrderCo
 
 Order order = typedContext.Data.Order;
 typedContext.Set("additionalInfo", "extra data"); // Still works
+```
+
+---
+
+## Typed Context Keys
+
+`context.Get<Order>("ordr")` compiles, and fails ten frames deep with a bare `KeyNotFoundException`. `ContextKey<T>` binds the key name and the value type into one symbol: declare the keys once as `static readonly` fields, share them between the code that fills the context and the rules that read it, and `context.Get(OrderKeys.Order)` infers `T` with no cast and no string literal. The typed overloads delegate to the string API through `key.Name`, so typed and string access to the same key interoperate and `BusinessRuleContext<T>`'s `Data` slot is untouched.
+
+**Features:**
+- `ContextKey<T>(name)`: Immutable, equatable key (ordinal name comparison, null/blank names rejected); `Name`, `ValueType`
+- `Get(key)`, `TryGet(key, out value)`, `Set(key, value)`, `ContainsKey(key)`, `Remove(key)`: typed overloads of every `BusinessRuleContext` member
+- `Keys`: Read-only live view of the stored key names (also what the failure messages list)
+- `ContextKeyNotFoundException`: `Context has no key 'ordr'. Available keys: customer, limit, order`; derives from `KeyNotFoundException` and exposes `Key` and `AvailableKeys`
+- `ContextValueTypeMismatchException`: `Key 'order' holds Int32, requested Order`; derives from `InvalidCastException` and exposes `Key`, `ActualType` (null when the stored value is null) and `RequestedType`
+- `BusinessRuleContextException`: thrown by `BusinessRuleChecker` / `AsyncBusinessRuleChecker` when a rule in the batch fails to read the context: `Rule LIMIT.EXCEEDED failed to read context: Context has no key 'limit'. Available keys: order`; exposes `RuleCode`, `Key` and the original exception as `InnerException`. Under `FaultPolicy.Record` / `TreatAsBroken` the wrapped exception is what the ledger entry's `Fault` and the observer's `OnRuleFaulted` receive. Exceptions that are not context reads propagate untouched
+
+### Typed Context Key Examples
+
+```csharp
+// Declare the keys once
+public static class OrderKeys
+{
+    public static readonly ContextKey<Order> Order = new ContextKey<Order>("order");
+    public static readonly ContextKey<decimal> Limit = new ContextKey<decimal>("limit");
+}
+
+// Fill the context
+BusinessRuleContext context = new BusinessRuleContext();
+context.Set(OrderKeys.Order, order);
+context.Set(OrderKeys.Limit, 1000m);
+
+// Read it in a rule: T is inferred from the key
+public class TransactionLimitRule : BaseBusinessRule
+{
+    public override string Code => "LIMIT.EXCEEDED";
+    public override string Message => "Transaction amount exceeds limit.";
+
+    public override bool IsBroken(BusinessRuleContext context)
+    {
+        Order order = context.Get(OrderKeys.Order);
+        decimal limit = context.Get(OrderKeys.Limit);
+        return order.Total > limit;
+    }
+}
+
+// Safe read and existence checks
+if (context.TryGet(OrderKeys.Limit, out decimal limit))
+    Console.WriteLine($"Limit: {limit}");
+
+bool hasOrder = context.ContainsKey(OrderKeys.Order);
+IReadOnlyCollection<string> keys = context.Keys;   // "order", "limit"
+
+// Descriptive failures
+try
+{
+    context.Get<Order>("ordr");
+}
+catch (ContextKeyNotFoundException ex)              // still a KeyNotFoundException
+{
+    // Context has no key 'ordr'. Available keys: limit, order
+    Console.WriteLine($"{ex.Key} missing; have {string.Join(", ", ex.AvailableKeys)}");
+}
+
+// The checkers name the failing rule and keep the original exception
+try
+{
+    BusinessRuleChecker.CheckAll(new[] { new TransactionLimitRule() }, context: new BusinessRuleContext());
+}
+catch (BusinessRuleContextException ex)
+{
+    // Rule LIMIT.EXCEEDED failed to read context: Context has no key 'order'. The context is empty.
+    Console.WriteLine($"{ex.RuleCode} could not read '{ex.Key}': {ex.InnerException!.Message}");
+}
+
+// Tests: typed pairs of different types in one call (up to four; call Set for more)
+BusinessRuleContext testContext = RuleTestHelper.CreateContext((OrderKeys.Order, order), (OrderKeys.Limit, 1000m));
 ```
 
 ---
@@ -1037,6 +1116,7 @@ BusinessRuleResult warning = softened.Evaluate();            // Severity = Warni
 
 **Factory Methods:**
 - `CreateContext(params (string, object)[])`: Create context with key-value pairs
+- `CreateContext((ContextKey<T1>, T1), ...)`: Create context from one to four typed key/value pairs of different types
 - `CreateContext<T>(T data)`: Create typed context
 - `CreateBrokenRule(code, message)`: Create a rule that always fails
 - `CreatePassingRule(code, message)`: Create a rule that always passes
@@ -1092,6 +1172,10 @@ IBusinessRule passingRule = RuleTestHelper.CreatePassingRule();
 BusinessRuleContext context = RuleTestHelper.CreateContext(
     ("userId", 123),
     ("role", "admin")
+);
+BusinessRuleContext typedContext = RuleTestHelper.CreateContext(
+    (OrderKeys.Order, order),
+    (OrderKeys.Limit, 1000m)
 );
 ```
 
@@ -1242,7 +1326,12 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `RuleEvaluationResult` | Batch sync evaluation result with ledger (`Entries`, `Faulted`, `HasFaults`, `TotalDuration`, `Slowest`, `ThrowIfAtLeast`) and `ByTag`/`ByCategory` filters |
 | `AsyncRuleEvaluationResult` | Batch async evaluation result with the same ledger surface and filters |
 | `BusinessRuleValidationException` | Exception when rules are broken; `CollectedRules` (below threshold), `Entries` (ledger), `Flatten()` yields the leaf results, `ByTag`/`ByCategory` filter them |
-| `RuleTestHelper` | Testing assertions and factories |
+| `BusinessRuleContext` / `BusinessRuleContext<T>` | Key-value bag passed to rules: `Get`/`TryGet`/`Set`/`ContainsKey`/`Remove` by string or `ContextKey<T>`, `Keys`, `Count`, `Clear`, `FormatProvider`; the generic form adds `Data` |
+| `ContextKey<T>` | Typed context key (`Name`, `ValueType`); equatable by ordinal name |
+| `ContextKeyNotFoundException` | `KeyNotFoundException` from `Get` naming the missing `Key` and the `AvailableKeys` |
+| `ContextValueTypeMismatchException` | `InvalidCastException` from `Get` naming the `Key`, `ActualType` and `RequestedType` |
+| `BusinessRuleContextException` | Thrown by the checkers when a rule fails to read the context: `RuleCode`, `Key`, original exception as `InnerException` |
+| `RuleTestHelper` | Testing assertions and factories, including `CreateContext` from typed key/value pairs |
 
 ### Extension Methods
 

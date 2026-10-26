@@ -12,6 +12,9 @@ namespace Masterly.BusinessRules
     /// Every overload runs through one core that records an evaluation ledger (<see cref="RuleEvaluationResult.Entries"/>);
     /// the overloads taking <see cref="RuleEvaluationOptions"/> add a fault policy, a severity threshold and observer
     /// callbacks from both <c>CheckAll</c> and <c>EvaluateAll</c>.
+    /// A rule that fails to read the context (<see cref="ContextKeyNotFoundException"/> / <see cref="ContextValueTypeMismatchException"/>)
+    /// is reported as a <see cref="BusinessRuleContextException"/> naming the rule's <c>Code</c>, with the original exception preserved
+    /// as its inner exception; the fault policy then applies to the wrapped exception.
     /// </summary>
     /// <example>
     /// <code>
@@ -316,14 +319,20 @@ namespace Masterly.BusinessRules
             catch (Exception exception) when (!(exception is OperationCanceledException))
             {
                 TimeSpan faultElapsed = RuleTiming.ElapsedSince(start);
-                observer?.OnRuleFaulted(rule, exception);
+                Exception fault = ContextReadFault.Wrap(rule, exception);
+                observer?.OnRuleFaulted(rule, fault);
 
                 if (options.OnFault == FaultPolicy.Throw)
                 {
-                    throw;
+                    if (ReferenceEquals(fault, exception))
+                    {
+                        throw;
+                    }
+
+                    throw fault;
                 }
 
-                return RecordFault(order, rule, exception, faultElapsed, options);
+                return RecordFault(order, rule, fault, faultElapsed, options);
             }
 
             TimeSpan elapsed = RuleTiming.ElapsedSince(start);

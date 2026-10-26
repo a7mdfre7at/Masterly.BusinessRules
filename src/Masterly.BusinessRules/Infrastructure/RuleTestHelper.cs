@@ -17,6 +17,9 @@ namespace Masterly.BusinessRules
     /// BusinessRuleContext ctx = RuleTestHelper.CreateContext(("userId", 123));
     /// RuleTestHelper.AssertNotBroken(myRule, ctx);
     ///
+    /// // Typed keys of different value types in one call
+    /// BusinessRuleContext typed = RuleTestHelper.CreateContext((OrderKeys.Order, order), (OrderKeys.Limit, 1000m));
+    ///
     /// // Create test rules
     /// IBusinessRule brokenRule = RuleTestHelper.CreateBrokenRule("CUSTOM.CODE", "Custom message");
     /// IBusinessRule passingRule = RuleTestHelper.CreatePassingRule();
@@ -118,6 +121,79 @@ namespace Masterly.BusinessRules
             {
                 context.Set(key, value);
             }
+            return context;
+        }
+
+        /// <summary>
+        /// Creates a context holding one typed key/value pair. For more than four pairs, call <see cref="BusinessRuleContext.Set{T}(ContextKey{T}, T)"/>.
+        /// </summary>
+        /// <typeparam name="T1">The value type of the pair, inferred from the key.</typeparam>
+        /// <param name="first">The typed key and the value to store under it.</param>
+        /// <returns>A new context populated with the pair.</returns>
+        public static BusinessRuleContext CreateContext<T1>((ContextKey<T1> key, T1 value) first)
+        {
+            BusinessRuleContext context = new BusinessRuleContext();
+            context.Set(first.key, first.value);
+            return context;
+        }
+
+        /// <summary>
+        /// Creates a context holding two typed key/value pairs.
+        /// </summary>
+        /// <typeparam name="T1">The value type of the first pair, inferred from its key.</typeparam>
+        /// <typeparam name="T2">The value type of the second pair, inferred from its key.</typeparam>
+        /// <param name="first">The first typed key and value.</param>
+        /// <param name="second">The second typed key and value.</param>
+        /// <returns>A new context populated with the pairs.</returns>
+        public static BusinessRuleContext CreateContext<T1, T2>(
+            (ContextKey<T1> key, T1 value) first,
+            (ContextKey<T2> key, T2 value) second)
+        {
+            BusinessRuleContext context = CreateContext(first);
+            context.Set(second.key, second.value);
+            return context;
+        }
+
+        /// <summary>
+        /// Creates a context holding three typed key/value pairs.
+        /// </summary>
+        /// <typeparam name="T1">The value type of the first pair, inferred from its key.</typeparam>
+        /// <typeparam name="T2">The value type of the second pair, inferred from its key.</typeparam>
+        /// <typeparam name="T3">The value type of the third pair, inferred from its key.</typeparam>
+        /// <param name="first">The first typed key and value.</param>
+        /// <param name="second">The second typed key and value.</param>
+        /// <param name="third">The third typed key and value.</param>
+        /// <returns>A new context populated with the pairs.</returns>
+        public static BusinessRuleContext CreateContext<T1, T2, T3>(
+            (ContextKey<T1> key, T1 value) first,
+            (ContextKey<T2> key, T2 value) second,
+            (ContextKey<T3> key, T3 value) third)
+        {
+            BusinessRuleContext context = CreateContext(first, second);
+            context.Set(third.key, third.value);
+            return context;
+        }
+
+        /// <summary>
+        /// Creates a context holding four typed key/value pairs.
+        /// </summary>
+        /// <typeparam name="T1">The value type of the first pair, inferred from its key.</typeparam>
+        /// <typeparam name="T2">The value type of the second pair, inferred from its key.</typeparam>
+        /// <typeparam name="T3">The value type of the third pair, inferred from its key.</typeparam>
+        /// <typeparam name="T4">The value type of the fourth pair, inferred from its key.</typeparam>
+        /// <param name="first">The first typed key and value.</param>
+        /// <param name="second">The second typed key and value.</param>
+        /// <param name="third">The third typed key and value.</param>
+        /// <param name="fourth">The fourth typed key and value.</param>
+        /// <returns>A new context populated with the pairs.</returns>
+        public static BusinessRuleContext CreateContext<T1, T2, T3, T4>(
+            (ContextKey<T1> key, T1 value) first,
+            (ContextKey<T2> key, T2 value) second,
+            (ContextKey<T3> key, T3 value) third,
+            (ContextKey<T4> key, T4 value) fourth)
+        {
+            BusinessRuleContext context = CreateContext(first, second, third);
+            context.Set(fourth.key, fourth.value);
             return context;
         }
 

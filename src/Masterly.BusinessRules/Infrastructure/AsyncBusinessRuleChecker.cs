@@ -13,6 +13,9 @@ namespace Masterly.BusinessRules
     /// Every overload runs through one core that records an evaluation ledger (<see cref="AsyncRuleEvaluationResult.Entries"/>);
     /// the overloads taking <see cref="AsyncRuleEvaluationOptions"/> add a fault policy, a severity threshold and observer
     /// callbacks from both <c>CheckAllAsync</c> and <c>EvaluateAllAsync</c>.
+    /// A rule that fails to read the context (<see cref="ContextKeyNotFoundException"/> / <see cref="ContextValueTypeMismatchException"/>)
+    /// is reported as a <see cref="BusinessRuleContextException"/> naming the rule's <c>Code</c>, with the original exception preserved
+    /// as its inner exception; the fault policy then applies to the wrapped exception. Cancellation is never wrapped.
     /// </summary>
     /// <example>
     /// <code>
@@ -443,17 +446,23 @@ namespace Masterly.BusinessRules
             catch (Exception exception) when (!(exception is OperationCanceledException))
             {
                 TimeSpan faultElapsed = RuleTiming.ElapsedSince(start);
+                Exception fault = ContextReadFault.Wrap(rule, exception);
                 if (observer != null)
                 {
-                    await observer.OnRuleFaultedAsync(rule, exception, cancellationToken);
+                    await observer.OnRuleFaultedAsync(rule, fault, cancellationToken);
                 }
 
                 if (options.OnFault == FaultPolicy.Throw)
                 {
-                    throw;
+                    if (ReferenceEquals(fault, exception))
+                    {
+                        throw;
+                    }
+
+                    throw fault;
                 }
 
-                return await RecordFaultAsync(order, rule, exception, faultElapsed, options, cancellationToken);
+                return await RecordFaultAsync(order, rule, fault, faultElapsed, options, cancellationToken);
             }
 
             TimeSpan elapsed = RuleTiming.ElapsedSince(start);
