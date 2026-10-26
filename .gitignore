@@ -364,3 +364,6 @@ FodyWeavers.xsd
 /nul
 /.claude
 /CLAUDE.md
+
+# Framework run telemetry
+docs/runs/

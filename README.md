@@ -40,7 +40,7 @@ If you like or are using this project please give it a star. Thanks!
 
 - **Sync & Async Rules** - Full support for both synchronous and asynchronous business rules
 - **Fluent Builders** - Create rules inline without subclassing
-- **Logical Composition** - Combine rules with `And()`, `Or()`, `Not()`
+- **Logical Composition** - Combine rules with `And()`, `Or()`, `Not()` (operators combine the *broken* state of their operands; see the pinned truth table)
 - **Rule Metadata** - Name, description, category, tags, and severity
 - **Caching** - Time-based caching for expensive rule evaluations
 - **Conditional Execution** - Execute rules only when preconditions are met
@@ -279,32 +279,51 @@ BusinessRuleChecker.CheckByTags(rules, "checkout", "payment");
 Rule composition allows you to combine multiple rules using logical operators. This creates complex validation logic from simple, reusable building blocks.
 
 **Operators:**
-- `And()`: Both rules must pass (composite is broken if EITHER rule is broken)
-- `Or()`: At least one rule must pass (composite is broken only if BOTH are broken)
-- `Not()`: Inverts the rule's result
 
-Composition works with both sync and async rules. You can chain operators to create complex expressions like `rule1.And(rule2.Or(rule3.Not()))`.
+The operators combine the **broken** state of their operands, not the "passes" state. A rule is broken when `IsBroken()` returns `true`, and the composed rule's `IsBroken()` is computed as follows:
 
-**CompositeBusinessRule** and **CompositeAsyncBusinessRule** provide containers for grouping multiple rules that are evaluated together.
+- `And()`: broken **only when both** operands are broken (`first.IsBroken() && second.IsBroken()`). If either operand passes, the composed rule passes.
+- `Or()`: broken **when either** operand is broken (`first.IsBroken() || second.IsBroken()`). It passes only when both operands pass.
+- `Not()`: inverts the operand's broken state (`!rule.IsBroken()`).
+
+The synthesised code of a composed rule is `A+B` for `And`, `A|B` for `Or` and `!A` for `Not`.
+
+| `first` | `second` | `first.And(second)` | `first.Or(second)` |
+|---------|----------|---------------------|--------------------|
+| passes  | passes   | passes              | passes             |
+| passes  | broken   | passes              | **broken**         |
+| broken  | passes   | passes              | **broken**         |
+| broken  | broken   | **broken**          | **broken**         |
+
+| `rule`  | `rule.Not()` |
+|---------|--------------|
+| passes  | **broken**   |
+| broken  | passes       |
+
+In practice this means: use `Or()` when **every** operand must hold ("broken if any check fails"), and `And()` when it is enough that **one** operand holds ("broken only if all checks fail"). These semantics are pinned by `CompositionTruthTableTests` in the test suite and are kept unchanged for backwards compatibility; the unambiguous quantifier-style groups (`All`, `Any`) planned for a later 3.x release will be documented here when they ship.
+
+Composition works with both sync and async rules. You can chain operators to create complex expressions like `rule1.And(rule2.Or(rule3.Not()))`. The sync operators evaluate their operands with the parameterless `IsBroken()` and do not forward a context; the async operators forward both the context and the cancellation token, and short-circuit on the first operand when its result already decides the outcome.
+
+**CompositeBusinessRule** and **CompositeAsyncBusinessRule** provide containers for grouping multiple rules that are evaluated together; a composite is broken when **any** of its inner rules is broken.
 
 ### Composition Examples
 
 ```csharp
-// AND - both rules must pass
+// OR - broken when EITHER check fails (both must hold)
 IBusinessRule rule = new CustomerIsAdultRule(customer)
-    .And(new CustomerIsActiveRule(customer));
+    .Or(new CustomerIsActiveRule(customer));
 
-// OR - at least one must pass
-IBusinessRule paymentRule = new HasCreditCardRule(customer)
-    .Or(new HasBankAccountRule(customer));
+// AND - broken only when BOTH checks fail (one holding is enough)
+IBusinessRule paymentRule = new HasNoCreditCardRule(customer)
+    .And(new HasNoBankAccountRule(customer));
 
-// NOT - invert the result
+// NOT - invert the broken state
 IBusinessRule notBlockedRule = new IsBlockedRule(customer).Not();
 
-// Complex composition
+// Complex composition: (adult-or-active broken) AND (vip-check broken)
 IBusinessRule accessRule = new CustomerIsAdultRule(customer)
-    .And(new CustomerIsActiveRule(customer))
-    .Or(new CustomerIsVIPRule(customer));
+    .Or(new CustomerIsActiveRule(customer))
+    .And(new CustomerIsNotVIPRule(customer));
 
 // Async composition
 IAsyncBusinessRule asyncRule = new EmailUniqueRule(repo, email)
@@ -928,9 +947,9 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 
 | Method | Description |
 |--------|-------------|
-| `.And(rule)` | Combine with AND logic |
-| `.Or(rule)` | Combine with OR logic |
-| `.Not()` | Invert rule result |
+| `.And(rule)` | Broken only when **both** rules are broken (code `A+B`) |
+| `.Or(rule)` | Broken when **either** rule is broken (code `A\|B`) |
+| `.Not()` | Inverts the rule's broken state (code `!A`) |
 | `.ToAsyncRule()` | Convert sync to async |
 | `.ToSyncRule()` | Convert async to sync (blocking) |
 | `.WithCache(TimeSpan)` | Add caching |

@@ -1,3 +1,23 @@
+## [3.0.0] - Unreleased
+
+### Breaking Changes
+
+- _None yet._
+
+### Added
+
+- `Directory.Build.props` at the repository root now holds the shared package version (`3.0.0`), authors, repository, licence, icon and the packed README/LICENSE/icon files for every project, so sibling packages ship with one version number
+- `publish.yml` packs and pushes every packable project under `src/` (`dotnet pack` + `dotnet nuget push --skip-duplicate`) and reads the release version from `Directory.Build.props`
+- `CompositionTruthTableTests` pins the full `And()`/`Or()`/`Not()` truth tables on both the sync and async side
+
+### Changed
+
+- `src/Masterly.BusinessRules/Masterly.BusinessRules.csproj` keeps only its `TargetFramework`, `Description` and `PackageTags`; all other package metadata is inherited from `Directory.Build.props`
+
+### Fixed
+
+- README "Rule Composition" documented `And()` as "broken if either rule is broken" and `Or()` as "broken only if both are broken", which is the opposite of what the code does and has always done. The code semantics are unchanged and now pinned by tests: `And()` is broken only when **both** operands are broken, `Or()` is broken when **either** operand is broken, `Not()` inverts the broken state. The README, the Features bullet and the API Reference table now describe the actual behaviour.
+
 ## [2.0.0] - 2025-01-01
 
 ### Breaking Changes

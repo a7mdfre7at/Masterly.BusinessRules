@@ -7,6 +7,10 @@ on:
     branches: [master]
     types: [completed]
 
+env:
+  NUGET_SOURCE: https://api.nuget.org/v3/index.json
+  PACKAGE_OUTPUT: artifacts/packages
+
 jobs:
   publish:
     name: Publish to NuGet
@@ -28,29 +32,75 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', 'Directory.Build.props') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      - name: Publish to NuGet
-        id: publish_nuget
-        uses: alirezanet/publish-nuget@v3.1.0
-        with:
-          PROJECT_FILE_PATH: src/Masterly.BusinessRules/Masterly.BusinessRules.csproj
-          VERSION_REGEX: ^\s*<Version>(.*)<\/Version>\s*$
-          TAG_COMMIT: true
-          TAG_FORMAT: v*
-          NUGET_KEY: ${{ secrets.NUGET_API_KEY }}
-          INCLUDE_SYMBOLS: false
+      # The shared version lives in Directory.Build.props so every packable project
+      # under src/ ships with the same version number.
+      - name: Read version from Directory.Build.props
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(sed -n 's/.*<Version>\(.*\)<\/Version>.*/\1/p' Directory.Build.props | head -n 1 | tr -d '[:space:]')"
+          if [ -z "$VERSION" ]; then
+            echo "::error::No <Version> element found in Directory.Build.props."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved package version: $VERSION"
+
+      - name: Check whether release tag already exists
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ steps.version.outputs.version }}" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag v${{ steps.version.outputs.version }} already exists; the GitHub Release step will be skipped."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      # Every project under src/ is packed; projects that set IsPackable=false produce nothing.
+      - name: Pack all packable projects under src/
+        shell: bash
+        run: |
+          set -euo pipefail
+          for project in src/*/*.csproj; do
+            echo "Packing $project"
+            dotnet pack "$project" --configuration Release --no-build --output "$PACKAGE_OUTPUT"
+          done
+          echo "Packages produced:"
+          ls -1 "$PACKAGE_OUTPUT"/*.nupkg
+
+      - name: Push packages to NuGet
+        shell: bash
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          set -euo pipefail
+          dotnet nuget push "$PACKAGE_OUTPUT/*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source "$NUGET_SOURCE" \
+            --skip-duplicate
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
-        if: steps.publish_nuget.outputs.VERSION != ''
+        if: steps.tag.outputs.exists == 'false'
         with:
-          name: Release v${{ steps.publish_nuget.outputs.VERSION }}
-          tag_name: v${{ steps.publish_nuget.outputs.VERSION }}
+          name: Release v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
           body_path: CHANGELOG.md
           generate_release_notes: true
+          files: artifacts/packages/*.nupkg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
