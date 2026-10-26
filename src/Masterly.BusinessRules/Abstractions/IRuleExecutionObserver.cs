@@ -182,7 +182,7 @@ namespace Masterly.BusinessRules
         /// Called when a <see cref="FeatureGatedAsyncBusinessRule"/> in <see cref="RuleRolloutMode.Shadow"/> mode (anywhere
         /// in the evaluated tree) observed a violation that it did not report as broken. The result is also collected on
         /// <see cref="AsyncRuleEvaluationResult.ShadowResults"/>. In a sequential batch it is raised after the rule's own
-        /// callbacks; in a parallel batch after the rule whose evaluation completed next.
+        /// callbacks; in a parallel batch once every rule has completed, before <see cref="OnBatchCompletedAsync"/>.
         /// </summary>
         /// <param name="rule">The gated rule that would have failed; a sync gated rule reached through an adapter is wrapped in a <see cref="SyncToAsyncRuleAdapter"/>.</param>
         /// <param name="result">The result the inner rule produced.</param>

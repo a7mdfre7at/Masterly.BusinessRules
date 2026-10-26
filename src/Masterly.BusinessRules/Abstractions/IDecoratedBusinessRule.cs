@@ -2,7 +2,8 @@ namespace Masterly.BusinessRules
 {
     /// <summary>
     /// A synchronous rule that wraps exactly one other synchronous rule and forwards its metadata.
-    /// Implemented by <see cref="CachedBusinessRule"/> and <see cref="ConditionalBusinessRule"/>.
+    /// Implemented by <see cref="CachedBusinessRule"/>, <see cref="ConditionalBusinessRule"/>,
+    /// <see cref="SeverityOverrideBusinessRule"/> and <see cref="FeatureGatedBusinessRule"/>.
     /// The adapters expose their wrapped rule through their own <c>InnerRule</c> property because the wrapped rule
     /// lives on the other (sync/async) hierarchy.
     /// </summary>

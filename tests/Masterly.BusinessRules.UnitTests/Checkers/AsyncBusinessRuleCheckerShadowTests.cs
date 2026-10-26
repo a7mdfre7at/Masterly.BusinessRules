@@ -315,6 +315,32 @@ public class AsyncBusinessRuleCheckerShadowTests
     }
 
     [Fact]
+    public async Task EvaluateAllAsync_MissingKeyInsideABatch_ListsOnlyTheCallersKeys()
+    {
+        BusinessRuleContext context = RuleTestHelper.CreateContext(("order", "order-1"));
+        IAsyncBusinessRule reader = AsyncBusinessRuleBuilder.Create("READER").WithMessage("reader").WhenAsync(ctx => Task.FromResult(ctx.Get<decimal>("limit") > 0)).Build();
+
+        BusinessRuleContextException exception = await Assert.ThrowsAsync<BusinessRuleContextException>(() => AsyncBusinessRuleChecker.EvaluateAllAsync(context, new[] { CreateShadowRule(), reader }, new AsyncRuleEvaluationOptions(), TestToken));
+
+        Assert.Equal(new[] { "order" }, Assert.IsType<ContextKeyNotFoundException>(exception.InnerException).AvailableKeys);
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_NestedCheckerCallOnTheSameContext_KeepsTheOuterSink()
+    {
+        BusinessRuleContext context = new BusinessRuleContext();
+        IAsyncBusinessRule innerBatch = AsyncBusinessRuleBuilder.Create("NESTED").WithMessage("nested")
+            .WhenAsync(async (ctx, ct) => (await AsyncBusinessRuleChecker.EvaluateAllAsync(ctx, new[] { RuleTestHelper.CreatePassingAsyncRule(PassingCode) }, new AsyncRuleEvaluationOptions(), ct)).HasBrokenRules)
+            .Build();
+        IAsyncBusinessRule shadow = CreateShadowRule();
+
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(context, new[] { innerBatch, shadow }, new AsyncRuleEvaluationOptions(), TestToken);
+
+        Assert.Equal(ShadowCode, Assert.Single(result.ShadowResults).Code);
+        Assert.Equal(0, context.Count);
+    }
+
+    [Fact]
     public async Task EvaluateAllAsync_CancelledToken_PropagatesAndRemovesTheSink()
     {
         BusinessRuleContext context = new BusinessRuleContext();

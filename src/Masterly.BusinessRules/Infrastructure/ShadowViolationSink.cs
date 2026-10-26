@@ -9,7 +9,10 @@ namespace Masterly.BusinessRules
     /// (never to its key/value store, so <c>Keys</c> and <c>Count</c> are untouched) for the duration of the batch and
     /// drain it after every rule, so a gated rule nested anywhere in the tree (inside a group, a cache, an adapter)
     /// reaches the observer and <c>ShadowResults</c>. Reporting without an attached sink is a no-op. The sink is
-    /// thread-safe because parallel async batches share one context.
+    /// thread-safe because parallel async batches share one context. A nested checker call on the same context
+    /// shares the outer sink and drains it after each of its own rules, so in a sequential batch a violation is
+    /// reported by the batch whose rule produced it; in a parallel batch a concurrently running nested batch may
+    /// report a sibling rule's violation instead, which is why one context should serve one batch at a time.
     /// </summary>
     internal sealed class ShadowViolationSink
     {

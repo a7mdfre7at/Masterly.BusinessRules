@@ -134,6 +134,26 @@ public class FeatureGatedAsyncRuleTests
         Assert.Equal(0, evaluations);
     }
 
+    [Fact]
+    public async Task IsBrokenAsync_UnknownFlag_IsOff()
+    {
+        int evaluations = 0;
+        IAsyncBusinessRule gated = CreateCountingRule(() => evaluations++, broken: true).GatedBy("other-flag", RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Enforced));
+
+        Assert.False(await gated.IsBrokenAsync(new BusinessRuleContext(), TestToken));
+        Assert.Equal(0, evaluations);
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_ForwardsContextToInnerRule()
+    {
+        IAsyncBusinessRule contextRule = AsyncBusinessRuleBuilder.Create(Code).WithMessage(Message).WhenAsync(ctx => Task.FromResult(ctx.Get<bool>("flag"))).Build();
+        IAsyncBusinessRule gated = contextRule.GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Enforced));
+
+        Assert.True(await gated.IsBrokenAsync(RuleTestHelper.CreateContext(("flag", true)), TestToken));
+        Assert.False(await gated.IsBrokenAsync(RuleTestHelper.CreateContext(("flag", false)), TestToken));
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -238,6 +258,22 @@ public class FeatureGatedAsyncRuleTests
 
         Assert.Equal(Code, exception.RuleCode);
         Assert.Contains(Flag, exception.Message);
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_AsyncProviderThrows_Propagates()
+    {
+        IAsyncBusinessRule gated = CreateRule(broken: true).GatedBy(Flag, new ThrowingAsyncProvider());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => gated.IsBrokenAsync(new BusinessRuleContext(), TestToken));
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_SyncProviderThrows_Propagates()
+    {
+        IAsyncBusinessRule gated = CreateRule(broken: true).GatedBy(Flag, new ThrowingSyncProvider());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => gated.IsBrokenAsync(new BusinessRuleContext(), TestToken));
     }
 
     [Fact]
@@ -372,6 +408,26 @@ public class FeatureGatedAsyncRuleTests
     }
 
     [Fact]
+    public async Task IsBrokenAsync_PartialRollout_IsStableForTheSameKey()
+    {
+        IAsyncBusinessRule gated = CreateRule(broken: true).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Enforced, percent: 50), ctx => ctx.Get<string>(CustomerIdKey));
+        BusinessRuleContext context = RuleTestHelper.CreateContext((CustomerIdKey, "customer-7"));
+
+        bool first = await gated.IsBrokenAsync(context, TestToken);
+        bool second = await gated.IsBrokenAsync(context, TestToken);
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_ZeroPercent_NeverCallsStableKeyAndPasses()
+    {
+        IAsyncBusinessRule gated = CreateRule(broken: true).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Enforced, percent: 0), ctx => throw new InvalidOperationException("stable key must not be called"));
+
+        Assert.False(await gated.IsBrokenAsync(new BusinessRuleContext(), TestToken));
+    }
+
+    [Fact]
     public async Task IsBrokenAsync_PartialRollout_WithoutStableKey_ThrowsRuleConfigurationException()
     {
         IAsyncBusinessRule gated = CreateRule(broken: true).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow, percent: 10));
@@ -467,6 +523,18 @@ public class FeatureGatedAsyncRuleTests
         Assert.Equal(1, evaluations);
     }
 
+    [Fact]
+    public async Task ExplainAsync_ShadowPass_ReportsPassedShadowNodeWithoutReason()
+    {
+        IAsyncBusinessRule gated = CreateRule(broken: false).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow));
+
+        RuleExplanation explanation = await gated.ExplainAsync(new BusinessRuleContext(), TestToken);
+
+        Assert.Equal("SHADOW", explanation.Operator);
+        Assert.Equal(RuleOutcome.Passed, explanation.Outcome);
+        Assert.Equal(string.Empty, explanation.Reason);
+    }
+
     // ---------------------------------------------------------------------
     // Interaction with CachedAsyncBusinessRule
     // ---------------------------------------------------------------------
@@ -543,6 +611,22 @@ public class FeatureGatedAsyncRuleTests
         }
 
         throw new InvalidOperationException("No stable key with the requested bucket was found.");
+    }
+
+    private sealed class ThrowingAsyncProvider : IAsyncRuleFeatureFlagProvider
+    {
+        public Task<RuleRollout> GetRolloutAsync(string flag, BusinessRuleContext context, CancellationToken cancellationToken = default)
+        {
+            throw new InvalidOperationException("provider unavailable");
+        }
+    }
+
+    private sealed class ThrowingSyncProvider : IRuleFeatureFlagProvider
+    {
+        public RuleRollout GetRollout(string flag, BusinessRuleContext context)
+        {
+            throw new InvalidOperationException("provider unavailable");
+        }
     }
 
     private sealed class AsyncOnlyProvider : IAsyncRuleFeatureFlagProvider

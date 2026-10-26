@@ -434,7 +434,7 @@ composite.Check();
 
 ## Structural Composition and Explain Trees
 
-Every composed rule keeps its shape. The `And()`, `Or()` and `Not()` operators, the composites and the new rule groups all implement `IComposedBusinessRule` (`Operator`, `Operands`), while `CachedBusinessRule` and `ConditionalBusinessRule` implement `IDecoratedBusinessRule` (`InnerRule`); the async side mirrors this with `IComposedAsyncBusinessRule` and `IDecoratedAsyncBusinessRule`, and both adapters expose their wrapped rule as `InnerRule`. Tooling can therefore walk any rule tree without knowing the concrete node types.
+Every composed rule keeps its shape. The `And()`, `Or()` and `Not()` operators, the composites and the new rule groups all implement `IComposedBusinessRule` (`Operator`, `Operands`), while `CachedBusinessRule`, `ConditionalBusinessRule`, `SeverityOverrideBusinessRule` and `FeatureGatedBusinessRule` implement `IDecoratedBusinessRule` (`InnerRule`); the async side mirrors this with `IComposedAsyncBusinessRule` and `IDecoratedAsyncBusinessRule`, and both adapters expose their wrapped rule as `InnerRule`. Tooling can therefore walk any rule tree without knowing the concrete node types.
 
 **Rule groups** are unambiguous N-ary quantifiers stated in terms of how many members must **pass**:
 
@@ -826,7 +826,7 @@ Ship a new rule dark and ramp it from your flag provider without touching the ru
 
 **Providers.** Pass the provider to `GatedBy(...)`, or store one on the context under `RuleFeatureFlags.ContextKey` (`RuleFeatureFlags.AsyncContextKey` for async providers): a provider on the context overrides the injected one for that evaluation, which lets a test or a canary pipeline force a rollout. Async gated rules try the async provider first, then the sync one. When no provider can be found anywhere the evaluation throws `RuleConfigurationException` naming the rule's `Code`. `InMemoryRuleFeatureFlagProvider` implements both interfaces, is thread-safe and can be flipped at any time; `RuleTestHelper.CreateFlagProvider(flag, mode, percent)` builds one for tests. An adapter for `Microsoft.FeatureManagement` is planned as the sibling package `Masterly.BusinessRules.FeatureManagement`.
 
-**Shadow results.** Both checkers collect what shadow-mode rules would have reported on `RuleEvaluationResult.ShadowResults` / `AsyncRuleEvaluationResult.ShadowResults` (`HasShadowResults`), whether the gated rule is a batch member or nested inside a group, a cache or an adapter. These results are not in `BrokenRules`, never make `CheckAll` throw and never affect `AllPassed`. The options-taking overloads additionally raise the observer hook `OnShadowViolation(rule, result)` / `OnShadowViolationAsync(rule, result, ct)` right after the rule's own callbacks; it is a default interface member, so existing observers keep compiling.
+**Shadow results.** Both checkers collect what shadow-mode rules would have reported on `RuleEvaluationResult.ShadowResults` / `AsyncRuleEvaluationResult.ShadowResults` (`HasShadowResults`), whether the gated rule is a batch member or nested inside a group, a cache or an adapter. These results are not in `BrokenRules`, never make `CheckAll` throw and never affect `AllPassed`. The options-taking overloads additionally raise the observer hook `OnShadowViolation(rule, result)` / `OnShadowViolationAsync(rule, result, ct)` right after the rule's own callbacks (in a parallel async batch, once every rule has completed and before `OnBatchCompletedAsync`); it is a default interface member, so existing observers keep compiling.
 
 **A gate needs a context.** The sync `IsBroken()` / `Check()` without a context, and therefore a context-less `BusinessRuleChecker` call or an `And`/`Or` composition evaluated without a context, evaluate the inner rule **un-gated** and never consult the provider, so composition can never throw for a missing provider. Pass a context (`CheckAll(context, rules)`) to gate. The async checkers always evaluate with a context.
 
@@ -881,7 +881,10 @@ IBusinessRule wrong = new ExpensiveRule().GatedBy("expensive-v2", flags).Cached(
 
 // Explain shows the gate decision and its reason
 RuleExplanation explanation = gated.Explain(context);
-Console.WriteLine($"{explanation.Operator} {explanation.Outcome} {explanation.Reason}");   // GATED Skipped flag 'credit-score-v2' is off
+Console.WriteLine($"{explanation.Operator} {explanation.Outcome} {explanation.Reason}");
+// Enforced and broken:  GATED Broken
+// Shadow and broken:    SHADOW Passed shadow violation
+// Flag off:             GATED Skipped flag 'credit-score-v2' is off
 ```
 
 ---
@@ -1449,7 +1452,7 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `IAsyncBusinessRule<TSubject>` | Subject-typed async rule: `IsBrokenAsync(subject, context, ct)`, `EvaluateAsync(subject, context, ct)`; bind with `.For(subject)` |
 | `IBusinessRuleMetadata` | Base of all four rule interfaces: `Code`, `Message`, and defaulted `Severity`, `Name`, `Description`, `Category`, `Tags` |
 | `IComposedBusinessRule` / `IComposedAsyncBusinessRule` | A rule computed from operands: `Operator`, `Operands` (And/Or/Not nodes, groups, composites) |
-| `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached, conditional and severity-override decorators) |
+| `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached, conditional, severity-override and feature-gated decorators) |
 | `IRuleExecutionObserver` | Sync execution callbacks plus batch hooks `OnBatchStarted`, `OnAfterEvaluate(rule, isBroken, elapsed)`, `OnRuleFaulted`, `OnBatchCompleted`, `OnShadowViolation` |
 | `IAsyncRuleExecutionObserver` | Async execution callbacks plus the async batch hooks and `OnShadowViolationAsync` |
 | `IRuleFeatureFlagProvider` / `IAsyncRuleFeatureFlagProvider` | Supply a flag's `RuleRollout` to gated rules: `GetRollout(flag, context)` / `GetRolloutAsync(flag, context, ct)` |
