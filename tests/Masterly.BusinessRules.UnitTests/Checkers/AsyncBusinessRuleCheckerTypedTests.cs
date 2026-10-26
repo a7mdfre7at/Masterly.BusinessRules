@@ -285,6 +285,19 @@ public class AsyncBusinessRuleCheckerTypedTests
         await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.CheckByTagsAsync(context, order, rules, TestToken, "items"));
     }
 
+    [Fact]
+    public async Task CheckByFilters_CancelledToken_PropagatesCancellation()
+    {
+        using CancellationTokenSource source = new CancellationTokenSource();
+        source.Cancel();
+        Order order = new Order(0, 500m);
+        BusinessRuleContext context = new BusinessRuleContext();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.CheckBySeverityAsync(context, order, Rules(), source.Token, RuleSeverity.Error));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.CheckByCategoryAsync(context, order, Rules(), "Orders", source.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.CheckByTagsAsync(context, order, Rules(), source.Token, "items"));
+    }
+
     // ---------------------------------------------------------------------
     // EvaluateEachAsync
     // ---------------------------------------------------------------------

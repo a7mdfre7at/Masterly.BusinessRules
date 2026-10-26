@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Masterly.BusinessRules
 {
@@ -191,11 +192,12 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
-        /// Snapshots the configured metadata for the rule being built.
+        /// Snapshots the configured metadata for the rule being built. The tags are copied, so a rule built here is
+        /// unaffected by later <see cref="WithTags"/> calls on the same builder.
         /// </summary>
         internal BuiltRuleMetadata BuildMetadata()
         {
-            return new BuiltRuleMetadata(_code, _message, _severity, _name, _description, _category, _tags.AsReadOnly());
+            return new BuiltRuleMetadata(_code, _message, _severity, _name, _description, _category, _tags.ToArray());
         }
 
         /// <summary>

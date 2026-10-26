@@ -822,7 +822,7 @@ Rule adapters convert between sync and async rule interfaces. This is useful whe
 - `AsyncToSyncRuleAdapter`: Wraps an async rule to implement `IBusinessRule` (**Warning: Blocks!**)
 
 **Extension Methods:**
-- `.ToAsyncRule()`: Convert sync to async
+- `.ToAsync()`: Convert sync to async
 - `.ToSyncRule()`: Convert async to sync (blocking)
 
 > **Warning:** `ToSyncRule()` and `AsyncToSyncRuleAdapter` block the calling thread using `.GetAwaiter().GetResult()`. Avoid using in UI threads or ASP.NET request threads to prevent deadlocks.
@@ -832,7 +832,7 @@ Rule adapters convert between sync and async rule interfaces. This is useful whe
 ```csharp
 // Sync to Async
 IBusinessRule syncRule = new CustomerIsAdultRule(customer);
-IAsyncBusinessRule convertedAsyncRule = syncRule.ToAsyncRule();
+IAsyncBusinessRule convertedAsyncRule = syncRule.ToAsync();
 
 // Or using adapter directly
 SyncToAsyncRuleAdapter syncToAsyncAdapter = new SyncToAsyncRuleAdapter(syncRule);
@@ -1435,7 +1435,7 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `.And(rule)` / `.Or(rule)` / `.Not()` on `IBusinessRule<T>` / `IAsyncBusinessRule<T>` | Typed composition with the same truth tables and codes; subject and context are forwarded to the operands |
 | `.Explain(context?, captureExceptions?)` | Evaluate once and return the `RuleExplanation` tree (sync) |
 | `.ExplainAsync(context, [captureExceptions], ct)` | Evaluate once and return the `RuleExplanation` tree (async) |
-| `.ToAsyncRule()` | Convert sync to async |
+| `.ToAsync()` | Convert sync to async |
 | `.ToSyncRule()` | Convert async to sync (blocking) |
 | `.WithCache(TimeSpan)` | Add caching |
 | `.WithCondition(Func)` | Add conditional execution |

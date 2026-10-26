@@ -75,6 +75,9 @@
 ### Fixed
 
 - `CachedBusinessRule.Check()`/`Check(context)` and `CachedAsyncBusinessRule.EvaluateAsync`/`CheckAsync` rebuilt a bare result after evaluating the inner rule and so dropped the `Details` of a cached group or composite; they now report the result of the single inner evaluation, so `AsyncBusinessRuleChecker` surfaces member details through a cached rule. A served cache hit still reports a result without details because only the verdict is cached
+- `AsyncBusinessRuleChecker.CheckBySeverityAsync` and `CheckByCategoryAsync` (non-generic) ignored their `cancellationToken` and evaluated the filtered rules with a default token; they now forward it like `CheckByTagsAsync` and the subject-typed filter overloads, so a cancelled token propagates `OperationCanceledException`
+- The rule builders handed the built rule a live view of the builder's tag list, so a later `WithTags` call on the same builder changed the `Tags` of a rule already built; `Build()` now snapshots the tags on every builder
+- README named the sync-to-async extension `.ToAsyncRule()`; the method is `.ToAsync()` and the "Rule Adapters" section and the API Reference table now say so
 - README "Rule Composition" documented `And()` as "broken if either rule is broken" and `Or()` as "broken only if both are broken", which is the opposite of what the code does and has always done. The code semantics are unchanged and now pinned by tests: `And()` is broken only when **both** operands are broken, `Or()` is broken when **either** operand is broken, `Not()` inverts the broken state. The README, the Features bullet and the API Reference table now describe the actual behaviour.
 
 ## [2.0.0] - 2025-01-01

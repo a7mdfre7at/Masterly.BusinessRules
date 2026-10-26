@@ -219,6 +219,39 @@ public class AsyncBusinessRuleCheckerEnhancedTests
         Assert.Equal("CHECKOUT", ex.BrokenRules.First().Code);
     }
 
+    [Fact]
+    public async Task CheckBySeverityAsync_CancelledToken_PropagatesCancellation()
+    {
+        using CancellationTokenSource source = new CancellationTokenSource();
+        source.Cancel();
+        IAsyncBusinessRule[] rules = { RuleTestHelper.CreateBrokenRule("ERROR").ToAsync() };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AsyncBusinessRuleChecker.CheckBySeverityAsync(new BusinessRuleContext(), rules, source.Token, RuleSeverity.Error));
+    }
+
+    [Fact]
+    public async Task CheckByCategoryAsync_CancelledToken_PropagatesCancellation()
+    {
+        using CancellationTokenSource source = new CancellationTokenSource();
+        source.Cancel();
+        IAsyncBusinessRule[] rules = { AsyncBusinessRuleBuilder.Create("CHECKOUT").WithCategory("Checkout").WhenAsync((ctx, ct) => Task.FromResult(true)).Build() };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AsyncBusinessRuleChecker.CheckByCategoryAsync(new BusinessRuleContext(), rules, "Checkout", source.Token));
+    }
+
+    [Fact]
+    public async Task CheckByTagsAsync_CancelledToken_PropagatesCancellation()
+    {
+        using CancellationTokenSource source = new CancellationTokenSource();
+        source.Cancel();
+        IAsyncBusinessRule[] rules = { AsyncBusinessRuleBuilder.Create("TAGGED").WithTags("checkout").WhenAsync((ctx, ct) => Task.FromResult(true)).Build() };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => AsyncBusinessRuleChecker.CheckByTagsAsync(new BusinessRuleContext(), rules, source.Token, "checkout"));
+    }
+
     private class TestAsyncRuleObserver : IAsyncRuleExecutionObserver
     {
         public int BeforeEvaluateCount { get; private set; }

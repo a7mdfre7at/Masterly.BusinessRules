@@ -76,6 +76,23 @@ public class BusinessRuleMetadataBuilderTests
     }
 
     [Fact]
+    public void AllFourBuilders_Build_SnapshotsTags_LaterWithTagsDoesNotAffectTheBuiltRule()
+    {
+        BusinessRuleBuilder sync = BusinessRuleBuilder.Create(Code).WithTags("a").When(() => true);
+        AsyncBusinessRuleBuilder asyncBuilder = AsyncBusinessRuleBuilder.Create(Code).WithTags("a").WhenAsync(_ => Task.FromResult(true));
+        BusinessRuleBuilder<int> typedSync = BusinessRuleBuilder<int>.Create(Code).WithTags("a").When(_ => true);
+        AsyncBusinessRuleBuilder<int> typedAsync = AsyncBusinessRuleBuilder<int>.Create(Code).WithTags("a").WhenAsync(_ => Task.FromResult(true));
+        IBusinessRuleMetadata[] built = { sync.Build(), asyncBuilder.Build(), typedSync.Build(), typedAsync.Build() };
+
+        sync.WithTags("b");
+        asyncBuilder.WithTags("b");
+        typedSync.WithTags("b");
+        typedAsync.WithTags("b");
+
+        Assert.All(built, metadata => Assert.Equal(new[] { "a" }, metadata.Tags));
+    }
+
+    [Fact]
     public void SyncBuilder_WithDetailNull_ThrowsArgumentNullException()
     {
         BusinessRuleBuilder builder = BusinessRuleBuilder.Create(Code);

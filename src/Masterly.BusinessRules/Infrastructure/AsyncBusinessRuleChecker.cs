@@ -273,7 +273,7 @@ namespace Masterly.BusinessRules
             params RuleSeverity[] severities)
         {
             IEnumerable<IAsyncBusinessRule> filteredRules = rules.Where(r => severities.Contains(r.Severity));
-            await CheckAllAsync(context, filteredRules.ToArray());
+            await CheckAllAsyncCore(context, filteredRules.ToArray(), LegacyOptions(stopOnFirstFailure: false, runInParallel: false, observer: null), cancellationToken);
         }
 
         /// <summary>
@@ -292,7 +292,7 @@ namespace Masterly.BusinessRules
             CancellationToken cancellationToken = default)
         {
             IEnumerable<IAsyncBusinessRule> filteredRules = rules.Where(r => r.Category == category);
-            await CheckAllAsync(context, filteredRules.ToArray());
+            await CheckAllAsyncCore(context, filteredRules.ToArray(), LegacyOptions(stopOnFirstFailure: false, runInParallel: false, observer: null), cancellationToken);
         }
 
         /// <summary>
