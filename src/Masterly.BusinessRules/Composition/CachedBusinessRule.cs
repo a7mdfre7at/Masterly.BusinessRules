@@ -10,6 +10,8 @@ namespace Masterly.BusinessRules
     /// <remarks>
     /// <para>The cache is thread-safe and uses a lock for synchronization.</para>
     /// <para>Use <see cref="InvalidateCache"/> to clear the cache before the duration expires.</para>
+    /// <para>Only the broken verdict is cached: a fresh evaluation reports the inner rule's result including its
+    /// <see cref="BusinessRuleResult.Details"/>, while a served cache hit reports a result without details.</para>
     /// <para>In an explanation tree a served cache entry is reported as <see cref="RuleOutcome.CacheHit"/> with the
     /// inner rule as a <see cref="RuleOutcome.NotEvaluated"/> child.</para>
     /// </remarks>
@@ -81,19 +83,17 @@ namespace Masterly.BusinessRules
         }
 
         /// <inheritdoc />
-        /// <exception cref="BusinessRuleValidationException">Thrown when the rule is broken.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when the rule is broken; a fresh evaluation carries the inner rule's <see cref="BusinessRuleResult.Details"/>.</exception>
         public void Check()
         {
-            if (IsBroken())
-                throw new BusinessRuleValidationException(new[] { Evaluate() });
+            ThrowIfBroken(EvaluateCore(null, null));
         }
 
         /// <inheritdoc />
-        /// <exception cref="BusinessRuleValidationException">Thrown when the rule is broken.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when the rule is broken; a fresh evaluation carries the inner rule's <see cref="BusinessRuleResult.Details"/>.</exception>
         public void Check(BusinessRuleContext context)
         {
-            if (IsBroken(context))
-                throw new BusinessRuleValidationException(new[] { Evaluate() });
+            ThrowIfBroken(EvaluateCore(context, null));
         }
 
         /// <inheritdoc />
@@ -113,6 +113,14 @@ namespace Masterly.BusinessRules
 
         BusinessRuleResult? IExplainableBusinessRule.EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
             => EvaluateCore(context, trace);
+
+        private static void ThrowIfBroken(BusinessRuleResult? result)
+        {
+            if (result != null)
+            {
+                throw new BusinessRuleValidationException(new[] { result });
+            }
+        }
 
         private BusinessRuleResult? EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
         {

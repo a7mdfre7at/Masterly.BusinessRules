@@ -289,6 +289,64 @@ public class AsyncStructuralCompositionTests
     }
 
     [Fact]
+    public async Task CachedAsyncBusinessRule_EvaluateAsync_WhenInnerGroupBroken_CarriesMemberDetails()
+    {
+        const string groupCode = "GROUP";
+        IAsyncBusinessRule group = AsyncRuleGroup.All(groupCode, groupCode, RuleTestHelper.CreateBrokenAsyncRule(FirstCode), RuleTestHelper.CreateBrokenAsyncRule(SecondCode));
+        IAsyncBusinessRule cached = group.Cached(TimeSpan.FromMinutes(1));
+
+        BusinessRuleResult? result = await cached.EvaluateAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result);
+        Assert.Equal(groupCode, result.Code);
+        Assert.Equal(new[] { FirstCode, SecondCode }, result.Details.Select(detail => detail.Code));
+    }
+
+    [Fact]
+    public async Task CachedAsyncBusinessRule_CheckAsync_WhenInnerGroupBroken_ThrowsResultWithMemberDetails()
+    {
+        const string groupCode = "GROUP";
+        IAsyncBusinessRule cached = AsyncRuleGroup.All(groupCode, groupCode, RuleTestHelper.CreateBrokenAsyncRule(FirstCode))
+            .Cached(TimeSpan.FromMinutes(1));
+
+        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
+            () => cached.CheckAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken));
+
+        BusinessRuleResult result = Assert.Single(exception.BrokenRules);
+        Assert.Equal(groupCode, result.Code);
+        Assert.Equal(FirstCode, Assert.Single(result.Details).Code);
+    }
+
+    [Fact]
+    public async Task CachedAsyncBusinessRule_EvaluateAsync_OnCacheHit_ReturnsResultWithoutDetails()
+    {
+        const string groupCode = "GROUP";
+        IAsyncBusinessRule cached = AsyncRuleGroup.All(groupCode, groupCode, RuleTestHelper.CreateBrokenAsyncRule(FirstCode))
+            .Cached(TimeSpan.FromMinutes(1));
+        BusinessRuleContext context = RuleTestHelper.CreateContext();
+        Assert.True(await cached.IsBrokenAsync(context, TestContext.Current.CancellationToken));
+
+        BusinessRuleResult? result = await cached.EvaluateAsync(context, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result);
+        Assert.Equal(groupCode, result.Code);
+        Assert.Empty(result.Details);
+    }
+
+    [Fact]
+    public async Task AsyncBusinessRuleChecker_CheckAllAsync_WithCachedGroup_SurfacesMemberDetails()
+    {
+        const string groupCode = "GROUP";
+        IAsyncBusinessRule cached = AsyncRuleGroup.All(groupCode, groupCode, RuleTestHelper.CreateBrokenAsyncRule(FirstCode))
+            .Cached(TimeSpan.FromMinutes(1));
+
+        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
+            () => AsyncBusinessRuleChecker.CheckAllAsync(RuleTestHelper.CreateContext(), cached));
+
+        Assert.Equal(FirstCode, Assert.Single(Assert.Single(exception.BrokenRules).Details).Code);
+    }
+
+    [Fact]
     public void ConditionalAsyncBusinessRule_ImplementsIDecorated_ExposingInnerRule()
     {
         IAsyncBusinessRule inner = RuleTestHelper.CreatePassingAsyncRule(FirstCode);

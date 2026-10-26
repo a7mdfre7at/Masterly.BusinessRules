@@ -18,6 +18,7 @@ namespace Masterly.BusinessRules
     public static class AsyncRuleGroup
     {
         private const int NoThreshold = 0;
+        private const string ThresholdParameterName = "count";
 
         /// <summary>
         /// Creates a group that is broken when <b>any</b> member is broken (every member must pass).
@@ -137,7 +138,7 @@ namespace Masterly.BusinessRules
 
             IReadOnlyList<IAsyncBusinessRule> validatedMembers = RuleGroupQuantifierLogic.ValidateMembers(members, nameof(members));
             int threshold = RuleGroupQuantifierLogic.ResolveThreshold(quantifier, requestedThreshold, validatedMembers.Count);
-            RuleGroupQuantifierLogic.ValidateThreshold(threshold, validatedMembers.Count, "count");
+            RuleGroupQuantifierLogic.ValidateThreshold(threshold, validatedMembers.Count, ThresholdParameterName);
 
             return new GroupAsyncBusinessRule(quantifier, threshold, code, message, RuleSeverity.Error, validatedMembers, shortCircuit: false, parallelEvaluation: false);
         }

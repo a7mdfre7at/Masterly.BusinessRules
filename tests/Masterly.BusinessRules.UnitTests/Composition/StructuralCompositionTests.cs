@@ -344,6 +344,49 @@ public class StructuralCompositionTests
     }
 
     [Fact]
+    public void CachedBusinessRule_Check_WhenInnerGroupBroken_ThrowsResultWithMemberDetails()
+    {
+        const string groupCode = "GROUP";
+        IBusinessRule group = RuleGroup.All(groupCode, groupCode, RuleTestHelper.CreateBrokenRule(FirstCode), RuleTestHelper.CreateBrokenRule(SecondCode));
+        IBusinessRule cached = group.Cached(TimeSpan.FromMinutes(1));
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => cached.Check());
+
+        BusinessRuleResult result = Assert.Single(exception.BrokenRules);
+        Assert.Equal(groupCode, result.Code);
+        Assert.Equal(new[] { FirstCode, SecondCode }, result.Details.Select(detail => detail.Code));
+    }
+
+    [Fact]
+    public void CachedBusinessRule_CheckWithContext_OnCacheHit_ThrowsResultWithoutDetails()
+    {
+        const string groupCode = "GROUP";
+        IBusinessRule group = RuleGroup.All(groupCode, groupCode, RuleTestHelper.CreateBrokenRule(FirstCode));
+        IBusinessRule cached = group.Cached(TimeSpan.FromMinutes(1));
+        BusinessRuleContext context = RuleTestHelper.CreateContext();
+        Assert.True(cached.IsBroken(context));
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => cached.Check(context));
+
+        BusinessRuleResult result = Assert.Single(exception.BrokenRules);
+        Assert.Equal(groupCode, result.Code);
+        Assert.Empty(result.Details);
+    }
+
+    [Fact]
+    public void BusinessRuleChecker_CheckAll_WithCachedGroup_SurfacesMemberDetails()
+    {
+        const string groupCode = "GROUP";
+        IBusinessRule cached = RuleGroup.All(groupCode, groupCode, RuleTestHelper.CreateBrokenRule(FirstCode))
+            .Cached(TimeSpan.FromMinutes(1));
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(
+            () => BusinessRuleChecker.CheckAll(RuleTestHelper.CreateContext(), cached));
+
+        Assert.Equal(FirstCode, Assert.Single(Assert.Single(exception.BrokenRules).Details).Code);
+    }
+
+    [Fact]
     public void ConditionalBusinessRule_ImplementsIDecorated_ExposingInnerRule()
     {
         IBusinessRule inner = RuleTestHelper.CreatePassingRule(FirstCode);

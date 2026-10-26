@@ -31,6 +31,7 @@
 
 ### Fixed
 
+- `CachedBusinessRule.Check()`/`Check(context)` and `CachedAsyncBusinessRule.EvaluateAsync`/`CheckAsync` rebuilt a bare result after evaluating the inner rule and so dropped the `Details` of a cached group or composite; they now report the result of the single inner evaluation, so `AsyncBusinessRuleChecker` surfaces member details through a cached rule. A served cache hit still reports a result without details because only the verdict is cached
 - README "Rule Composition" documented `And()` as "broken if either rule is broken" and `Or()` as "broken only if both are broken", which is the opposite of what the code does and has always done. The code semantics are unchanged and now pinned by tests: `And()` is broken only when **both** operands are broken, `Or()` is broken when **either** operand is broken, `Not()` inverts the broken state. The README, the Features bullet and the API Reference table now describe the actual behaviour.
 
 ## [2.0.0] - 2025-01-01

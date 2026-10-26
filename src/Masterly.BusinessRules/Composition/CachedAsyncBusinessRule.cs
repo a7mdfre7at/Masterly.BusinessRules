@@ -12,6 +12,8 @@ namespace Masterly.BusinessRules
     /// <remarks>
     /// <para>The cache is thread-safe and uses a semaphore for async synchronization.</para>
     /// <para>Use <see cref="InvalidateCacheAsync"/> to clear the cache before the duration expires.</para>
+    /// <para>Only the broken verdict is cached: a fresh evaluation reports the inner rule's result including its
+    /// <see cref="BusinessRuleResult.Details"/>, while a served cache hit reports a result without details.</para>
     /// <para>A cancelled evaluation never populates the cache. In an explanation tree a served cache entry is reported as
     /// <see cref="RuleOutcome.CacheHit"/> with the inner rule as a <see cref="RuleOutcome.NotEvaluated"/> child.</para>
     /// </remarks>
@@ -76,19 +78,24 @@ namespace Masterly.BusinessRules
         }
 
         /// <inheritdoc />
-        public async Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
+        /// <remarks>
+        /// When the inner rule is evaluated its result (including <see cref="BusinessRuleResult.Details"/> of a composed
+        /// inner rule) is returned as is; a served cache hit returns a result without details because only the verdict is cached.
+        /// </remarks>
+        public Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
         {
-            if (await IsBrokenAsync(context, cancellationToken))
-                return new BusinessRuleResult(Code, Message, Severity);
-            return null;
+            return EvaluateCoreAsync(context, null, cancellationToken);
         }
 
         /// <inheritdoc />
         /// <exception cref="BusinessRuleValidationException">Thrown when the rule is broken.</exception>
         public async Task CheckAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
         {
-            if (await IsBrokenAsync(context, cancellationToken))
-                throw new BusinessRuleValidationException(new[] { new BusinessRuleResult(Code, Message, Severity) });
+            BusinessRuleResult? result = await EvaluateCoreAsync(context, null, cancellationToken);
+            if (result != null)
+            {
+                throw new BusinessRuleValidationException(new[] { result });
+            }
         }
 
         /// <summary>
