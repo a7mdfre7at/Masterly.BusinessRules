@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 
 namespace Masterly.BusinessRules
 {
@@ -10,6 +11,7 @@ namespace Masterly.BusinessRules
     internal static class RuleFaultResult
     {
         private const string FaultedMessagePrefix = "Rule evaluation faulted";
+        private static readonly IReadOnlyList<string> NoTags = Array.Empty<string>();
 
         /// <summary>
         /// Creates the stand-in result for a faulted synchronous rule.
@@ -18,7 +20,7 @@ namespace Masterly.BusinessRules
         {
             try
             {
-                return new BusinessRuleResult(rule.Code, rule.Message, rule.Severity);
+                return RuleResultFactory.Create(rule);
             }
             catch (Exception)
             {
@@ -33,7 +35,7 @@ namespace Masterly.BusinessRules
         {
             try
             {
-                return new BusinessRuleResult(rule.Code, rule.Message, rule.Severity);
+                return RuleResultFactory.Create(rule);
             }
             catch (Exception)
             {
@@ -43,7 +45,13 @@ namespace Masterly.BusinessRules
 
         private static BusinessRuleResult Fallback(Type ruleType, Exception fault)
         {
-            return new BusinessRuleResult(ruleType.Name, $"{FaultedMessagePrefix}: {RuleExplanationText.FaultReason(fault)}", RuleSeverity.Error);
+            return new BusinessRuleResult(
+                ruleType.Name,
+                $"{FaultedMessagePrefix}: {RuleExplanationText.FaultReason(fault)}",
+                RuleSeverity.Error,
+                ruleType.Name,
+                string.Empty,
+                NoTags);
         }
     }
 }

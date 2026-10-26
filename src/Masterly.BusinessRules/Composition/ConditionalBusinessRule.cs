@@ -92,9 +92,17 @@ namespace Masterly.BusinessRules
         }
 
         /// <inheritdoc />
+        /// <remarks>Forwards to the inner rule, so its metadata and <c>Describe</c> details are kept.</remarks>
         public BusinessRuleResult Evaluate()
         {
             return _innerRule.Evaluate();
+        }
+
+        /// <inheritdoc />
+        /// <remarks>Forwards to the inner rule, so its metadata and context-aware <c>Describe</c> details are kept.</remarks>
+        public BusinessRuleResult Evaluate(BusinessRuleContext context)
+        {
+            return _innerRule.Evaluate(context);
         }
 
         BusinessRuleResult? IExplainableBusinessRule.EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)

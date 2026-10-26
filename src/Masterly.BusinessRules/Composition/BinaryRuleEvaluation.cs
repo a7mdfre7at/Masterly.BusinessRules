@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace Masterly.BusinessRules
 {
@@ -44,7 +44,7 @@ namespace Masterly.BusinessRules
             }
 
             return isBroken
-                ? new BusinessRuleResult(node.Code, node.Message, node.Severity, CollectDetails(firstResult, secondResult))
+                ? RuleResultFactory.Create(node, CollectDetails(firstResult, secondResult))
                 : null;
         }
 

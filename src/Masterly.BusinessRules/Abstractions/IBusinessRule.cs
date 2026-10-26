@@ -70,9 +70,20 @@ namespace Masterly.BusinessRules
         void Check(BusinessRuleContext context);
 
         /// <summary>
-        /// Evaluates the rule and returns a result containing the rule's code, message, and severity.
+        /// Creates the result describing this rule as broken: its code, message, severity and metadata.
+        /// This is a factory, not an evaluation; the library calls it only after <see cref="IsBroken()"/> returned true.
         /// </summary>
-        /// <returns>A <see cref="BusinessRuleResult"/> representing the evaluation result.</returns>
+        /// <returns>A <see cref="BusinessRuleResult"/> representing the violation.</returns>
         BusinessRuleResult Evaluate();
+
+        /// <summary>
+        /// Creates the result describing this rule as broken using the provided context, so that context-aware
+        /// details (<see cref="BusinessRuleResult.Detail"/>, <see cref="BusinessRuleResult.Actual"/>, ...) can be attached.
+        /// The default implementation ignores the context and returns <see cref="Evaluate()"/>.
+        /// This is a factory, not an evaluation; the library calls it only after <see cref="IsBroken(BusinessRuleContext)"/> returned true.
+        /// </summary>
+        /// <param name="context">The context the rule was evaluated with.</param>
+        /// <returns>A <see cref="BusinessRuleResult"/> representing the violation.</returns>
+        BusinessRuleResult Evaluate(BusinessRuleContext context) => Evaluate();
     }
 }

@@ -13,7 +13,8 @@ namespace Masterly.BusinessRules
     /// <para>The cache is thread-safe and uses a semaphore for async synchronization.</para>
     /// <para>Use <see cref="InvalidateCacheAsync"/> to clear the cache before the duration expires.</para>
     /// <para>Only the broken verdict is cached: a fresh evaluation reports the inner rule's result including its
-    /// <see cref="BusinessRuleResult.Details"/>, while a served cache hit reports a result without details.</para>
+    /// <see cref="BusinessRuleResult.Details"/> and <c>Describe</c> details, while a served cache hit reports a result
+    /// carrying the forwarded metadata only, because an async rule has no result factory to call without evaluating.</para>
     /// <para>A cancelled evaluation never populates the cache. In an explanation tree a served cache entry is reported as
     /// <see cref="RuleOutcome.CacheHit"/> with the inner rule as a <see cref="RuleOutcome.NotEvaluated"/> child.</para>
     /// </remarks>
@@ -129,7 +130,7 @@ namespace Masterly.BusinessRules
                 {
                     bool cachedIsBroken = _cachedResult.Value;
                     trace?.Add(AsyncBusinessRuleWalker.CacheHit(this, _innerRule, cachedIsBroken));
-                    return cachedIsBroken ? new BusinessRuleResult(Code, Message, Severity) : null;
+                    return cachedIsBroken ? RuleResultFactory.Create(this) : null;
                 }
 
                 RuleExplanationTrace? children = trace?.Branch();

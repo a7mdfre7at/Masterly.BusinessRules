@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -96,7 +96,7 @@ namespace Masterly.BusinessRules
                 trace.Add(AsyncBusinessRuleWalker.Evaluated(this, isBroken, RuleExplanationText.NotOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
             }
 
-            return isBroken ? new BusinessRuleResult(Code, Message, Severity) : null;
+            return isBroken ? RuleResultFactory.Create(this) : null;
         }
     }
 }

@@ -77,9 +77,17 @@ namespace Masterly.BusinessRules
         }
 
         /// <inheritdoc />
+        /// <remarks>A factory carrying the wrapped rule's metadata; an async rule has no factory of its own to forward to.</remarks>
         public BusinessRuleResult Evaluate()
         {
-            return new BusinessRuleResult(Code, Message, Severity);
+            return RuleResultFactory.Create(this);
+        }
+
+        /// <inheritdoc />
+        /// <remarks>The context is not used: the wrapped async rule attaches its details when it is evaluated, not here.</remarks>
+        public BusinessRuleResult Evaluate(BusinessRuleContext context)
+        {
+            return Evaluate();
         }
 
         /// <inheritdoc />

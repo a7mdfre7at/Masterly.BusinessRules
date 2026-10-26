@@ -89,6 +89,28 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Returns the broken rule results whose rule carries the tag, compared case-insensitively.
+        /// </summary>
+        /// <param name="tag">The tag to filter by.</param>
+        /// <returns>The matching results from <see cref="BrokenRules"/>, in order.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="tag"/> is null.</exception>
+        public IEnumerable<BusinessRuleResult> ByTag(string tag)
+        {
+            return RuleResultFilters.ByTag(BrokenRules, tag);
+        }
+
+        /// <summary>
+        /// Returns the broken rule results whose rule belongs to the category, compared ordinally.
+        /// </summary>
+        /// <param name="category">The category to filter by.</param>
+        /// <returns>The matching results from <see cref="BrokenRules"/>, in order.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="category"/> is null.</exception>
+        public IEnumerable<BusinessRuleResult> ByCategory(string category)
+        {
+            return RuleResultFilters.ByCategory(BrokenRules, category);
+        }
+
+        /// <summary>
         /// Returns the leaf results of every broken rule: results without <see cref="BusinessRuleResult.Details"/>
         /// are returned as they are, composed results are replaced by their member leaves, recursively.
         /// </summary>

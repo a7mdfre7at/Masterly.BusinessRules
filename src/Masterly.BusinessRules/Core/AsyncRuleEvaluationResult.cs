@@ -156,6 +156,24 @@ namespace Masterly.BusinessRules
             => BrokenRules.Where(r => r.Severity == severity);
 
         /// <summary>
+        /// Gets broken rules whose rule carries the tag, compared case-insensitively.
+        /// </summary>
+        /// <param name="tag">The tag to filter by.</param>
+        /// <returns>The matching results from <see cref="BrokenRules"/>, in order.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="tag"/> is null.</exception>
+        public IEnumerable<BusinessRuleResult> ByTag(string tag)
+            => RuleResultFilters.ByTag(BrokenRules, tag);
+
+        /// <summary>
+        /// Gets broken rules whose rule belongs to the category, compared ordinally.
+        /// </summary>
+        /// <param name="category">The category to filter by.</param>
+        /// <returns>The matching results from <see cref="BrokenRules"/>, in order.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="category"/> is null.</exception>
+        public IEnumerable<BusinessRuleResult> ByCategory(string category)
+            => RuleResultFilters.ByCategory(BrokenRules, category);
+
+        /// <summary>
         /// Gets only error-level broken rules.
         /// </summary>
         public IEnumerable<BusinessRuleResult> Errors

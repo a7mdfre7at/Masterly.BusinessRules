@@ -5,7 +5,9 @@ namespace Masterly.BusinessRules
 {
     /// <summary>
     /// Fluent builder for creating business rules inline without subclassing.
-    /// Provides a convenient way to define rules with full metadata support.
+    /// Provides a convenient way to define rules with full metadata support and, through
+    /// <see cref="WithDetail"/>, <see cref="WithActual"/>, <see cref="WithExpected(Func{BusinessRuleContext, object})"/>
+    /// and <see cref="WithRemediation(string)"/>, context-aware violation details produced only on the broken path.
     /// </summary>
     /// <example>
     /// <code>
@@ -29,6 +31,10 @@ namespace Masterly.BusinessRules
         private List<string> _tags = new List<string>();
         private Func<bool>? _isBrokenFunc;
         private Func<BusinessRuleContext, bool>? _isBrokenWithContextFunc;
+        private Func<BusinessRuleContext, FormattableString>? _detail;
+        private Func<BusinessRuleContext, object?>? _actual;
+        private Func<BusinessRuleContext, object?>? _expected;
+        private Func<BusinessRuleContext, string>? _remediation;
 
         private BusinessRuleBuilder() { }
 
@@ -109,6 +115,87 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Sets the detail sentence attached to the result when the rule is broken. Write it as an interpolated string;
+        /// its placeholders are formatted with <see cref="BusinessRuleContext.FormatProvider"/> (invariant by default).
+        /// The function runs only on the broken path; if it throws, the result is built without details.
+        /// </summary>
+        /// <param name="detail">A function that receives the context and returns the detail sentence.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="detail"/> is null.</exception>
+        public BusinessRuleBuilder WithDetail(Func<BusinessRuleContext, FormattableString> detail)
+        {
+            _detail = detail ?? throw new ArgumentNullException(nameof(detail));
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the actual value attached to the result when the rule is broken.
+        /// The function runs only on the broken path; if it throws, the result is built without details.
+        /// </summary>
+        /// <param name="actual">A function that receives the context and returns the actual value.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="actual"/> is null.</exception>
+        public BusinessRuleBuilder WithActual(Func<BusinessRuleContext, object?> actual)
+        {
+            _actual = actual ?? throw new ArgumentNullException(nameof(actual));
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the expected value attached to the result when the rule is broken.
+        /// The function runs only on the broken path; if it throws, the result is built without details.
+        /// </summary>
+        /// <param name="expected">A function that receives the context and returns the expected value or range.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="expected"/> is null.</exception>
+        public BusinessRuleBuilder WithExpected(Func<BusinessRuleContext, object?> expected)
+        {
+            _expected = expected ?? throw new ArgumentNullException(nameof(expected));
+            return this;
+        }
+
+        /// <summary>
+        /// Sets a constant expected value attached to the result when the rule is broken.
+        /// </summary>
+        /// <param name="expected">The expected value or range.</param>
+        /// <returns>This builder for method chaining.</returns>
+        public BusinessRuleBuilder WithExpected(object? expected)
+        {
+            _expected = _ => expected;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets a constant remediation hint attached to the result when the rule is broken.
+        /// </summary>
+        /// <param name="remediation">The hint telling the caller how to satisfy the rule.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="remediation"/> is null.</exception>
+        public BusinessRuleBuilder WithRemediation(string remediation)
+        {
+            if (remediation == null)
+            {
+                throw new ArgumentNullException(nameof(remediation));
+            }
+
+            _remediation = _ => remediation;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the remediation hint attached to the result when the rule is broken.
+        /// The function runs only on the broken path; if it throws, the result is built without details.
+        /// </summary>
+        /// <param name="remediation">A function that receives the context and returns the hint.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="remediation"/> is null.</exception>
+        public BusinessRuleBuilder WithRemediation(Func<BusinessRuleContext, string> remediation)
+        {
+            _remediation = remediation ?? throw new ArgumentNullException(nameof(remediation));
+            return this;
+        }
+
+        /// <summary>
         /// Sets the condition that determines if the rule is broken.
         /// </summary>
         /// <param name="isBrokenCondition">A function that returns true when the rule is broken.</param>
@@ -149,13 +236,15 @@ namespace Masterly.BusinessRules
                 _category,
                 _tags.AsReadOnly(),
                 _isBrokenFunc,
-                _isBrokenWithContextFunc);
+                _isBrokenWithContextFunc,
+                new BuiltRuleDescriptor(_detail, _actual, _expected, _remediation));
         }
 
         private sealed class BuiltBusinessRule : IBusinessRule
         {
             private readonly Func<bool>? _isBrokenFunc;
             private readonly Func<BusinessRuleContext, bool>? _isBrokenWithContextFunc;
+            private readonly BuiltRuleDescriptor _descriptor;
 
             public BuiltBusinessRule(
                 string code,
@@ -166,7 +255,8 @@ namespace Masterly.BusinessRules
                 string category,
                 IReadOnlyList<string> tags,
                 Func<bool>? isBrokenFunc,
-                Func<BusinessRuleContext, bool>? isBrokenWithContextFunc)
+                Func<BusinessRuleContext, bool>? isBrokenWithContextFunc,
+                BuiltRuleDescriptor descriptor)
             {
                 Code = code;
                 Message = message;
@@ -177,6 +267,7 @@ namespace Masterly.BusinessRules
                 Tags = tags;
                 _isBrokenFunc = isBrokenFunc;
                 _isBrokenWithContextFunc = isBrokenWithContextFunc;
+                _descriptor = descriptor;
             }
 
             public string Code { get; }
@@ -208,16 +299,22 @@ namespace Masterly.BusinessRules
             public void Check()
             {
                 if (IsBroken())
+                {
                     throw new BusinessRuleValidationException(new[] { Evaluate() });
+                }
             }
 
             public void Check(BusinessRuleContext context)
             {
                 if (IsBroken(context))
-                    throw new BusinessRuleValidationException(new[] { Evaluate() });
+                {
+                    throw new BusinessRuleValidationException(new[] { Evaluate(context) });
+                }
             }
 
-            public BusinessRuleResult Evaluate() => new BusinessRuleResult(Code, Message, Severity);
+            public BusinessRuleResult Evaluate() => _descriptor.CreateResult(this, null);
+
+            public BusinessRuleResult Evaluate(BusinessRuleContext context) => _descriptor.CreateResult(this, context);
         }
     }
 }

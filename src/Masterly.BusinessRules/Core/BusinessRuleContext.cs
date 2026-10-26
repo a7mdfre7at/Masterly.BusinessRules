@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 
 namespace Masterly.BusinessRules
 {
@@ -54,5 +55,11 @@ namespace Masterly.BusinessRules
         /// Gets the number of items in the context.
         /// </summary>
         public int Count => _items.Count;
+
+        /// <summary>
+        /// Gets or sets the provider used to format the <c>Detail</c> sentence of results produced for this context
+        /// (see <see cref="RuleResultDetails"/>). Null, the default, means the invariant culture.
+        /// </summary>
+        public IFormatProvider? FormatProvider { get; set; }
     }
 }

@@ -9,6 +9,9 @@ namespace Masterly.BusinessRules
     /// Base class for implementing asynchronous business rules.
     /// Inherit from this class and override <see cref="Code"/>, <see cref="Message"/>, and <see cref="IsBrokenAsync"/>
     /// to create custom async business rules that can perform I/O operations during validation.
+    /// Override <see cref="Describe"/> to attach rich violation details (<c>Detail</c>, <c>Actual</c>, <c>Expected</c>,
+    /// <c>Remediation</c>, <c>Data</c>) to the result; it runs only on the broken path and an exception inside it
+    /// degrades to <see cref="RuleResultDetails.Empty"/>.
     /// </summary>
     /// <example>
     /// <code>
@@ -92,9 +95,27 @@ namespace Masterly.BusinessRules
         public virtual async Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
         {
             if (await IsBrokenAsync(context, cancellationToken))
-                return new BusinessRuleResult(Code, Message, Severity);
+            {
+                return CreateResult(context);
+            }
 
             return null;
+        }
+
+        /// <summary>
+        /// Describes a violation of this rule. Called only when the rule is broken, with the evaluation context.
+        /// Override it to attach <c>Detail</c>, <c>Actual</c>, <c>Expected</c>, <c>Remediation</c> and <c>Data</c> to the
+        /// result. An exception thrown here is swallowed and the result is built without details, so a faulty
+        /// description never masks the violation. Defaults to <see cref="RuleResultDetails.Empty"/>.
+        /// </summary>
+        /// <param name="context">The context the rule was evaluated with, or null.</param>
+        /// <returns>The details to attach to the result.</returns>
+        protected virtual RuleResultDetails Describe(BusinessRuleContext? context) => RuleResultDetails.Empty;
+
+        private BusinessRuleResult CreateResult(BusinessRuleContext? context)
+        {
+            RuleResultDetails details = RuleResultFactory.DescribeGuarded(() => Describe(context));
+            return RuleResultFactory.Create(this, details, context?.FormatProvider);
         }
 
         /// <summary>
@@ -108,7 +129,9 @@ namespace Masterly.BusinessRules
         {
             BusinessRuleResult? result = await EvaluateAsync(context, cancellationToken);
             if (result != null)
+            {
                 throw new BusinessRuleValidationException(new[] { result });
+            }
         }
     }
 }

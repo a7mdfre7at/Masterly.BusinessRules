@@ -125,7 +125,9 @@ namespace Masterly.BusinessRules
         {
             BusinessRuleResult? result = await EvaluateAsync(context, cancellationToken);
             if (result != null)
+            {
                 throw new BusinessRuleValidationException(new[] { result });
+            }
         }
 
         /// <summary>
@@ -165,7 +167,7 @@ namespace Masterly.BusinessRules
         {
             if (_isBrokenFunc != null && await _isBrokenFunc(context, cancellationToken))
             {
-                return new BusinessRuleResult(Code, Message, Severity);
+                return RuleResultFactory.Create(this);
             }
 
             return null;
@@ -199,7 +201,7 @@ namespace Masterly.BusinessRules
                 trace.Add(AsyncBusinessRuleWalker.Evaluated(this, isBroken, RuleExplanationText.AllOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
             }
 
-            return isBroken ? new BusinessRuleResult(Code, Message, Severity, details ?? NoResults) : null;
+            return isBroken ? RuleResultFactory.Create(this, details ?? NoResults) : null;
         }
     }
 }

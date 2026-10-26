@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -36,7 +36,7 @@ namespace Masterly.BusinessRules
             catch (Exception exception) when (trace.ShouldCapture(exception))
             {
                 trace.Add(Faulted(rule, exception, RuleExplanationTrace.ElapsedSince(start)));
-                return new BusinessRuleResult(rule.Code, rule.Message, rule.Severity);
+                return RuleResultFactory.Create(rule);
             }
         }
 

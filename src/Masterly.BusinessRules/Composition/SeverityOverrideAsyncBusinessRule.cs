@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -95,9 +95,7 @@ namespace Masterly.BusinessRules
             long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
 
             BusinessRuleResult? innerResult = await AsyncBusinessRuleWalker.EvaluateNodeAsync(_innerRule, context, children, cancellationToken);
-            BusinessRuleResult? result = innerResult == null
-                ? null
-                : new BusinessRuleResult(innerResult.Code, innerResult.Message, _severity, innerResult.Details);
+            BusinessRuleResult? result = innerResult?.WithSeverity(_severity);
 
             if (trace != null && children != null)
             {

@@ -7,7 +7,9 @@ namespace Masterly.BusinessRules
 {
     /// <summary>
     /// Fluent builder for creating asynchronous business rules inline without subclassing.
-    /// Provides a convenient way to define async rules with full metadata support.
+    /// Provides a convenient way to define async rules with full metadata support and, through
+    /// <see cref="WithDetail"/>, <see cref="WithActual"/>, <see cref="WithExpected(Func{BusinessRuleContext, object})"/>
+    /// and <see cref="WithRemediation(string)"/>, context-aware violation details produced only on the broken path.
     /// </summary>
     /// <example>
     /// <code>
@@ -29,6 +31,10 @@ namespace Masterly.BusinessRules
         private string _category = string.Empty;
         private List<string> _tags = new List<string>();
         private Func<BusinessRuleContext, CancellationToken, Task<bool>>? _isBrokenFunc;
+        private Func<BusinessRuleContext, FormattableString>? _detail;
+        private Func<BusinessRuleContext, object?>? _actual;
+        private Func<BusinessRuleContext, object?>? _expected;
+        private Func<BusinessRuleContext, string>? _remediation;
 
         private AsyncBusinessRuleBuilder() { }
 
@@ -109,6 +115,87 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Sets the detail sentence attached to the result when the rule is broken. Write it as an interpolated string;
+        /// its placeholders are formatted with <see cref="BusinessRuleContext.FormatProvider"/> (invariant by default).
+        /// The function runs only on the broken path; if it throws, the result is built without details.
+        /// </summary>
+        /// <param name="detail">A function that receives the context and returns the detail sentence.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="detail"/> is null.</exception>
+        public AsyncBusinessRuleBuilder WithDetail(Func<BusinessRuleContext, FormattableString> detail)
+        {
+            _detail = detail ?? throw new ArgumentNullException(nameof(detail));
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the actual value attached to the result when the rule is broken.
+        /// The function runs only on the broken path; if it throws, the result is built without details.
+        /// </summary>
+        /// <param name="actual">A function that receives the context and returns the actual value.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="actual"/> is null.</exception>
+        public AsyncBusinessRuleBuilder WithActual(Func<BusinessRuleContext, object?> actual)
+        {
+            _actual = actual ?? throw new ArgumentNullException(nameof(actual));
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the expected value attached to the result when the rule is broken.
+        /// The function runs only on the broken path; if it throws, the result is built without details.
+        /// </summary>
+        /// <param name="expected">A function that receives the context and returns the expected value or range.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="expected"/> is null.</exception>
+        public AsyncBusinessRuleBuilder WithExpected(Func<BusinessRuleContext, object?> expected)
+        {
+            _expected = expected ?? throw new ArgumentNullException(nameof(expected));
+            return this;
+        }
+
+        /// <summary>
+        /// Sets a constant expected value attached to the result when the rule is broken.
+        /// </summary>
+        /// <param name="expected">The expected value or range.</param>
+        /// <returns>This builder for method chaining.</returns>
+        public AsyncBusinessRuleBuilder WithExpected(object? expected)
+        {
+            _expected = _ => expected;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets a constant remediation hint attached to the result when the rule is broken.
+        /// </summary>
+        /// <param name="remediation">The hint telling the caller how to satisfy the rule.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="remediation"/> is null.</exception>
+        public AsyncBusinessRuleBuilder WithRemediation(string remediation)
+        {
+            if (remediation == null)
+            {
+                throw new ArgumentNullException(nameof(remediation));
+            }
+
+            _remediation = _ => remediation;
+            return this;
+        }
+
+        /// <summary>
+        /// Sets the remediation hint attached to the result when the rule is broken.
+        /// The function runs only on the broken path; if it throws, the result is built without details.
+        /// </summary>
+        /// <param name="remediation">A function that receives the context and returns the hint.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="remediation"/> is null.</exception>
+        public AsyncBusinessRuleBuilder WithRemediation(Func<BusinessRuleContext, string> remediation)
+        {
+            _remediation = remediation ?? throw new ArgumentNullException(nameof(remediation));
+            return this;
+        }
+
+        /// <summary>
         /// Sets the async condition that determines if the rule is broken.
         /// </summary>
         /// <param name="isBrokenCondition">An async function that receives context and cancellation token, returns true when broken.</param>
@@ -148,12 +235,14 @@ namespace Masterly.BusinessRules
                 _description,
                 _category,
                 _tags.AsReadOnly(),
-                _isBrokenFunc);
+                _isBrokenFunc,
+                new BuiltRuleDescriptor(_detail, _actual, _expected, _remediation));
         }
 
         private sealed class BuiltAsyncBusinessRule : IAsyncBusinessRule
         {
             private readonly Func<BusinessRuleContext, CancellationToken, Task<bool>> _isBrokenFunc;
+            private readonly BuiltRuleDescriptor _descriptor;
 
             public BuiltAsyncBusinessRule(
                 string code,
@@ -163,7 +252,8 @@ namespace Masterly.BusinessRules
                 string description,
                 string category,
                 IReadOnlyList<string> tags,
-                Func<BusinessRuleContext, CancellationToken, Task<bool>> isBrokenFunc)
+                Func<BusinessRuleContext, CancellationToken, Task<bool>> isBrokenFunc,
+                BuiltRuleDescriptor descriptor)
             {
                 Code = code;
                 Message = message;
@@ -173,6 +263,7 @@ namespace Masterly.BusinessRules
                 Category = category;
                 Tags = tags;
                 _isBrokenFunc = isBrokenFunc;
+                _descriptor = descriptor;
             }
 
             public string Code { get; }
@@ -191,14 +282,20 @@ namespace Masterly.BusinessRules
             public async Task<BusinessRuleResult?> EvaluateAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
             {
                 if (await IsBrokenAsync(context, cancellationToken))
-                    return new BusinessRuleResult(Code, Message, Severity);
+                {
+                    return _descriptor.CreateResult(this, context);
+                }
+
                 return null;
             }
 
             public async Task CheckAsync(BusinessRuleContext context, CancellationToken cancellationToken = default)
             {
-                if (await IsBrokenAsync(context, cancellationToken))
-                    throw new BusinessRuleValidationException(new[] { new BusinessRuleResult(Code, Message, Severity) });
+                BusinessRuleResult? result = await EvaluateAsync(context, cancellationToken);
+                if (result != null)
+                {
+                    throw new BusinessRuleValidationException(new[] { result });
+                }
             }
         }
     }

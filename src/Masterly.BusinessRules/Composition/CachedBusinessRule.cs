@@ -11,7 +11,9 @@ namespace Masterly.BusinessRules
     /// <para>The cache is thread-safe and uses a lock for synchronization.</para>
     /// <para>Use <see cref="InvalidateCache"/> to clear the cache before the duration expires.</para>
     /// <para>Only the broken verdict is cached: a fresh evaluation reports the inner rule's result including its
-    /// <see cref="BusinessRuleResult.Details"/>, while a served cache hit reports a result without details.</para>
+    /// <see cref="BusinessRuleResult.Details"/>, while a served cache hit reports the inner rule's
+    /// <see cref="IBusinessRule.Evaluate(BusinessRuleContext)"/> factory result, which carries its metadata and
+    /// <c>Describe</c> details but no member details.</para>
     /// <para>In an explanation tree a served cache entry is reported as <see cref="RuleOutcome.CacheHit"/> with the
     /// inner rule as a <see cref="RuleOutcome.NotEvaluated"/> child.</para>
     /// </remarks>
@@ -97,7 +99,12 @@ namespace Masterly.BusinessRules
         }
 
         /// <inheritdoc />
-        public BusinessRuleResult Evaluate() => new BusinessRuleResult(Code, Message, Severity);
+        /// <remarks>Forwards to the inner rule, so its metadata and <c>Describe</c> details are kept.</remarks>
+        public BusinessRuleResult Evaluate() => _innerRule.Evaluate();
+
+        /// <inheritdoc />
+        /// <remarks>Forwards to the inner rule, so its metadata and context-aware <c>Describe</c> details are kept.</remarks>
+        public BusinessRuleResult Evaluate(BusinessRuleContext context) => _innerRule.Evaluate(context);
 
         /// <summary>
         /// Invalidates the cached result, forcing the next evaluation to re-execute the inner rule.
@@ -122,6 +129,11 @@ namespace Masterly.BusinessRules
             }
         }
 
+        private BusinessRuleResult CachedResult(BusinessRuleContext? context)
+        {
+            return context != null ? _innerRule.Evaluate(context) : _innerRule.Evaluate();
+        }
+
         private BusinessRuleResult? EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
         {
             lock (_lock)
@@ -130,7 +142,7 @@ namespace Masterly.BusinessRules
                 {
                     bool cachedIsBroken = _cachedResult.Value;
                     trace?.Add(BusinessRuleWalker.CacheHit(this, _innerRule, cachedIsBroken));
-                    return cachedIsBroken ? Evaluate() : null;
+                    return cachedIsBroken ? CachedResult(context) : null;
                 }
 
                 RuleExplanationTrace? children = trace?.Branch();

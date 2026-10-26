@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Masterly.BusinessRules
@@ -7,7 +7,8 @@ namespace Masterly.BusinessRules
     /// Evaluates a synchronous rule node exactly once and, when a trace is supplied, records its explanation.
     /// In-library composed and decorated rules are routed through <see cref="IExplainableBusinessRule.EvaluateCore"/>;
     /// every other rule is treated as a leaf and evaluated with <see cref="IBusinessRule.IsBroken(BusinessRuleContext)"/>
-    /// (or the parameterless overload when no context is supplied).
+    /// followed by <see cref="IBusinessRule.Evaluate(BusinessRuleContext)"/> (or the parameterless overloads when no
+    /// context is supplied), so context-aware <c>Describe</c> details reach the result.
     /// </summary>
     internal static class BusinessRuleWalker
     {
@@ -31,7 +32,7 @@ namespace Masterly.BusinessRules
             catch (Exception exception) when (trace.ShouldCapture(exception))
             {
                 trace.Add(Faulted(rule, exception, RuleExplanationTrace.ElapsedSince(start)));
-                return new BusinessRuleResult(rule.Code, rule.Message, rule.Severity);
+                return RuleResultFactory.Create(rule);
             }
         }
 
@@ -113,8 +114,12 @@ namespace Masterly.BusinessRules
 
         private static BusinessRuleResult? EvaluateLeaf(IBusinessRule rule, BusinessRuleContext? context)
         {
-            bool isBroken = context != null ? rule.IsBroken(context) : rule.IsBroken();
-            return isBroken ? rule.Evaluate() : null;
+            if (context != null)
+            {
+                return rule.IsBroken(context) ? rule.Evaluate(context) : null;
+            }
+
+            return rule.IsBroken() ? rule.Evaluate() : null;
         }
 
         private static RuleExplanation Leaf(IBusinessRule rule, BusinessRuleResult? result, TimeSpan duration)

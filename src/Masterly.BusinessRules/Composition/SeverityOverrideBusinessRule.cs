@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Masterly.BusinessRules
@@ -87,7 +87,12 @@ namespace Masterly.BusinessRules
         }
 
         /// <inheritdoc />
-        public BusinessRuleResult Evaluate() => new BusinessRuleResult(Code, Message, Severity);
+        /// <remarks>The inner rule's factory result with the overridden severity; metadata and <c>Describe</c> details are kept.</remarks>
+        public BusinessRuleResult Evaluate() => _innerRule.Evaluate().WithSeverity(_severity);
+
+        /// <inheritdoc />
+        /// <remarks>The inner rule's context-aware factory result with the overridden severity; metadata and <c>Describe</c> details are kept.</remarks>
+        public BusinessRuleResult Evaluate(BusinessRuleContext context) => _innerRule.Evaluate(context).WithSeverity(_severity);
 
         BusinessRuleResult? IExplainableBusinessRule.EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
             => EvaluateCore(context, trace);
@@ -106,9 +111,7 @@ namespace Masterly.BusinessRules
             long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
 
             BusinessRuleResult? innerResult = BusinessRuleWalker.EvaluateNode(_innerRule, context, children);
-            BusinessRuleResult? result = innerResult == null
-                ? null
-                : new BusinessRuleResult(innerResult.Code, innerResult.Message, _severity, innerResult.Details);
+            BusinessRuleResult? result = innerResult?.WithSeverity(_severity);
 
             if (trace != null && children != null)
             {

@@ -1,4 +1,4 @@
-using System.Threading;
+﻿using System.Threading;
 using System.Threading.Tasks;
 
 namespace Masterly.BusinessRules
@@ -56,7 +56,7 @@ namespace Masterly.BusinessRules
             }
 
             return isBroken
-                ? new BusinessRuleResult(node.Code, node.Message, node.Severity, BinaryRuleEvaluation.CollectDetails(firstResult, secondResult))
+                ? RuleResultFactory.Create(node, BinaryRuleEvaluation.CollectDetails(firstResult, secondResult))
                 : null;
         }
     }

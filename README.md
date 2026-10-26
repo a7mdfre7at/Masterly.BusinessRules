@@ -1,4 +1,4 @@
-# Masterly.BusinessRules
+﻿# Masterly.BusinessRules
 
 A clean, composable, and extensible business rule engine for .NET.
 
@@ -31,6 +31,7 @@ If you like or are using this project please give it a star. Thanks!
 - [Observers](#observers)
 - [Evaluation Results](#evaluation-results)
 - [Evaluation Ledger, Options and Fault Policy](#evaluation-ledger-options-and-fault-policy)
+- [Rich Results](#rich-results)
 - [Testing Utilities](#testing-utilities)
 - [Real-World Examples](#real-world-examples)
 - [API Reference](#api-reference)
@@ -53,6 +54,7 @@ If you like or are using this project please give it a star. Thanks!
 - **Batch Validation** - Check multiple rules with fail-fast and parallel execution, or pass a `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` object
 - **Evaluation Ledger** - Every batch result carries one `RuleEvaluationEntry` per rule (order, outcome, duration, fault), `TotalDuration`, `Slowest` and `Faulted`
 - **Fault Policy and Severity Threshold** - Decide whether a throwing rule aborts the batch, is recorded, or counts as broken (`FaultPolicy`); make `CheckAll` throw only at or above a severity (`ThrowOn`), and re-severity any rule with `.WithSeverity()`
+- **Rich Results** - Every result carries the rule's `Name`, `Category` and `Tags`; a `Describe(context)` hook (or the builders' `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation`) attaches `Detail`, `Actual`, `Expected`, `Remediation` and a `Data` bag on the broken path only, and exceptions and results filter with `ByTag`/`ByCategory`: enough to build an RFC 7807 Problem Details response straight from the engine
 - **Typed Context** - Strongly-typed data passing to rules
 - **Testing Utilities** - Helper methods for unit testing rules
 
@@ -790,6 +792,7 @@ Evaluation methods return detailed results without throwing exceptions. This is 
 
 **Methods:**
 - `GetBySeverity(RuleSeverity)`: Filter broken rules by severity
+- `ByTag(tag)` / `ByCategory(category)`: Filter broken rules by the rule's tags (case-insensitive) or category (see [Rich Results](#rich-results))
 - `ThrowIfBroken()`, `ThrowIfErrors()`, `ThrowIfAtLeast(RuleSeverity)`: Turn the result into a `BusinessRuleValidationException`; broken rules below the threshold travel on `exception.CollectedRules`
 
 ### Evaluation Examples
@@ -825,13 +828,16 @@ AsyncRuleEvaluationResult parallelResult = await AsyncBusinessRuleChecker.Evalua
     context, rules, runInParallel: true
 );
 
-// API response example
+// API response example (see Rich Results for Name, Category, Tags, Detail, Actual, Expected, Remediation)
 if (result.HasBrokenRules)
 {
     return BadRequest(new {
         errors = result.BrokenRules.Select(r => new {
             code = r.Code,
+            name = r.Name,
+            category = r.Category,
             message = r.Message,
+            detail = r.Detail,
             severity = r.Severity.ToString()
         })
     });
@@ -908,6 +914,111 @@ AsyncRuleEvaluationResult asyncResult = await AsyncBusinessRuleChecker.EvaluateA
 }, cancellationToken);
 
 asyncResult.ThrowIfAtLeast(RuleSeverity.Error);
+```
+
+---
+
+## Rich Results
+
+"Transaction amount exceeds limit" is useless to the user who needs to know it was 5,200 against a 5,000 limit. Every `BusinessRuleResult` now carries the rule's **`Name`, `Category` and `Tags`** (populated at every construction site: base classes, builders, decorators, adapters, composites, groups and the checkers), so an exception or a ledger can be filtered by category or tag and mapped to an RFC 7807 Problem Details payload without looking the rule up again. A rule can additionally attach rich violation details through a **`Describe(context)`** hook: a formatted `Detail` sentence, the `Actual` value that broke it, the `Expected` value or range, a `Remediation` hint and a free-form `Data` bag.
+
+**How it works:**
+- `RuleResultDetails` is an immutable fluent bag: start with `RuleResultDetails.Detail($"...")` or `RuleResultDetails.Empty`, then chain `.Actual(...)`, `.Expected(...)`, `.Remediation(...)`, `.With(key, value)`
+- `BaseBusinessRule` and `BaseAsyncBusinessRule` expose `protected virtual RuleResultDetails Describe(BusinessRuleContext? context)`. It runs **only on the broken path** (never from `IsBroken`, never for a passing rule) and is guarded: an exception inside `Describe` degrades the details to `RuleResultDetails.Empty` so it can never mask the violation it describes. Cancellation propagates
+- `IBusinessRule` gains `Evaluate(BusinessRuleContext context)` (a default interface member falling back to `Evaluate()`), implemented explicitly on every in-library node, decorator, adapter and composite. `Check(context)`, `CompositeBusinessRule.EvaluateAll(context)` and the checkers route broken leaves through it, so `Describe` sees the same context the rule was evaluated with. Both `Evaluate` overloads stay pure factories: they build the result without re-evaluating the rule
+- `Detail` is written as an interpolated string (`FormattableString`) and formatted when the result is built with `BusinessRuleContext.FormatProvider` when set, otherwise the invariant culture. `Actual`/`Expected` stay `object?` and are serialised by their runtime type. `Message` remains a finished string: no templating
+- Decorators keep the inner rule's details: `Cached`/`Conditional` forward `Evaluate(context)` to the inner rule, `WithSeverity()` copies the inner result with the new severity (`BusinessRuleResult.WithSeverity`), and composed results carry the member results in `Details`
+- Filters: `BusinessRuleValidationException`, `RuleEvaluationResult` and `AsyncRuleEvaluationResult` expose `ByTag(tag)` (case-insensitive) and `ByCategory(category)` (ordinal); `BusinessRuleResult.HasTag(tag)` is the per-result predicate
+
+### Rich Results Examples
+
+```csharp
+// A rule that describes what broke it
+public class TransactionLimitRule : BaseBusinessRule
+{
+    private readonly decimal _amount;
+    private readonly decimal _limit;
+
+    public TransactionLimitRule(decimal amount, decimal limit)
+    {
+        _amount = amount;
+        _limit = limit;
+    }
+
+    public override string Code => "LIMIT.EXCEEDED";
+    public override string Message => "Transaction limit exceeded";
+    public override string Category => "Payments";
+    public override IReadOnlyList<string> Tags => new[] { "customer-facing" };
+
+    public override bool IsBroken() => _amount > _limit;
+
+    // Runs only when the rule is broken; a throwing Describe degrades to RuleResultDetails.Empty
+    protected override RuleResultDetails Describe(BusinessRuleContext? context) => RuleResultDetails
+        .Detail($"Amount {_amount:C} exceeds limit {_limit:C}")      // formatted with context.FormatProvider (default: invariant)
+        .Actual(_amount)
+        .Expected($"<= {_limit}")
+        .Remediation("Reduce the amount or request a limit increase.")
+        .With("currency", "USD");
+}
+
+// The same with the fluent builder: every detail function receives the context and runs only on the broken path
+IBusinessRule rule = BusinessRuleBuilder.Create("LIMIT.EXCEEDED")
+    .WithMessage("Transaction limit exceeded")
+    .WithCategory("Payments")
+    .WithTags("customer-facing")
+    .When(ctx => ctx.Get<decimal>("amount") > ctx.Get<decimal>("limit"))
+    .WithDetail(ctx => $"Amount {ctx.Get<decimal>("amount"):C} exceeds limit {ctx.Get<decimal>("limit"):C}")
+    .WithActual(ctx => ctx.Get<decimal>("amount"))
+    .WithExpected(ctx => $"<= {ctx.Get<decimal>("limit")}")
+    .WithRemediation("Split the transaction.")
+    .Build();
+
+// Per-request culture for the Detail sentence
+BusinessRuleContext context = new BusinessRuleContext();
+context.Set("amount", 5200m);
+context.Set("limit", 5000m);
+context.FormatProvider = CultureInfo.GetCultureInfo("de-DE");
+
+try
+{
+    BusinessRuleChecker.CheckAll(context, rule, otherRule);
+}
+catch (BusinessRuleValidationException ex)
+{
+    // Filter without a rule lookup
+    IEnumerable<BusinessRuleResult> paymentErrors = ex.ByCategory("Payments");
+    IEnumerable<BusinessRuleResult> customerFacing = ex.ByTag("customer-facing");
+
+    // Everything needed for a 422 Problem Details payload comes straight out of the engine
+    return UnprocessableEntity(new ProblemDetails
+    {
+        Title = "One or more business rules were violated.",
+        Status = 422,
+        Extensions =
+        {
+            ["errors"] = ex.BrokenRules.Select(r => new
+            {
+                code = r.Code,
+                name = r.Name,
+                category = r.Category,
+                tags = r.Tags,
+                message = r.Message,
+                detail = r.Detail,              // "Amount 5.200,00 € exceeds limit 5.000,00 €"
+                actual = r.Actual,              // 5200 (serialised by runtime type)
+                expected = r.Expected,          // "<= 5000"
+                remediation = r.Remediation,
+                data = r.Data
+            })
+        }
+    });
+}
+
+// Describe sees the context the rule was checked with, and Evaluate(context) is a factory you can call directly
+BusinessRuleResult result = rule.Evaluate(context);          // same result Check(context) would throw with
+
+// Decorators keep the details; a severity override only changes the severity
+IBusinessRule softened = new TransactionLimitRule(5200m, 5000m).WithSeverity(RuleSeverity.Warning);
+BusinessRuleResult warning = softened.Evaluate();            // Severity = Warning, Actual = 5200, Remediation kept
 ```
 
 ---
@@ -1087,7 +1198,7 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 
 | Interface | Description |
 |-----------|-------------|
-| `IBusinessRule` | Sync rule: `IsBroken()`, `Check()`, `Evaluate()` |
+| `IBusinessRule` | Sync rule: `IsBroken()`, `Check()`, `Evaluate()`, `Evaluate(context)` (default member falling back to `Evaluate()`) |
 | `IAsyncBusinessRule` | Async rule: `IsBrokenAsync()`, `CheckAsync()`, `EvaluateAsync()` |
 | `IBusinessRuleMetadata` | Metadata: Name, Description, Category, Tags, Severity |
 | `IComposedBusinessRule` / `IComposedAsyncBusinessRule` | A rule computed from operands: `Operator`, `Operands` (And/Or/Not nodes, groups, composites) |
@@ -1099,10 +1210,10 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 
 | Class | Description |
 |-------|-------------|
-| `BaseBusinessRule` | Abstract base for sync rules |
-| `BaseAsyncBusinessRule` | Abstract base for async rules |
-| `BusinessRuleBuilder` | Fluent builder for sync rules |
-| `AsyncBusinessRuleBuilder` | Fluent builder for async rules |
+| `BaseBusinessRule` | Abstract base for sync rules; virtual `Evaluate()`/`Evaluate(context)` and the `protected virtual Describe(context)` hook |
+| `BaseAsyncBusinessRule` | Abstract base for async rules; the `protected virtual Describe(context)` hook |
+| `BusinessRuleBuilder` | Fluent builder for sync rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation` |
+| `AsyncBusinessRuleBuilder` | Fluent builder for async rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation` |
 | `AndBusinessRule` / `AndAsyncBusinessRule` | Structural node returned by `.And()` (operator `And`) |
 | `OrBusinessRule` / `OrAsyncBusinessRule` | Structural node returned by `.Or()` (operator `Or`) |
 | `NotBusinessRule` / `NotAsyncBusinessRule` | Structural node returned by `.Not()` (operator `Not`) |
@@ -1126,10 +1237,11 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` | `StopOnFirstFailure`, `OnFault`, `ThrowOn`, `Observer` (async: `RunInParallel`) |
 | `FaultPolicy` | `Throw`, `Record`, `TreatAsBroken` |
 | `RuleEvaluationEntry` | Ledger line: `Order`, `Rule`/`AsyncRule`, `Code`, `Outcome`, `Result`, `Fault`, `Duration` |
-| `BusinessRuleResult` | Immutable result with Code, Message, Severity and `Details` (broken members of a composed rule); `Flatten()` |
-| `RuleEvaluationResult` | Batch sync evaluation result with ledger (`Entries`, `Faulted`, `HasFaults`, `TotalDuration`, `Slowest`, `ThrowIfAtLeast`) |
-| `AsyncRuleEvaluationResult` | Batch async evaluation result with the same ledger surface |
-| `BusinessRuleValidationException` | Exception when rules are broken; `CollectedRules` (below threshold), `Entries` (ledger), `Flatten()` yields the leaf results |
+| `BusinessRuleResult` | Immutable result with `Code`, `Message`, `Severity`, `Name`, `Category`, `Tags`, rich `Detail`/`Actual`/`Expected`/`Remediation`/`Data`, and `Details` (broken members of a composed rule); `Flatten()`, `HasTag()`, `WithSeverity()` |
+| `RuleResultDetails` | Immutable fluent bag returned by `Describe`: `Detail($"...")`, `.Actual()`, `.Expected()`, `.Remediation()`, `.With(key, value)`, `Empty` |
+| `RuleEvaluationResult` | Batch sync evaluation result with ledger (`Entries`, `Faulted`, `HasFaults`, `TotalDuration`, `Slowest`, `ThrowIfAtLeast`) and `ByTag`/`ByCategory` filters |
+| `AsyncRuleEvaluationResult` | Batch async evaluation result with the same ledger surface and filters |
+| `BusinessRuleValidationException` | Exception when rules are broken; `CollectedRules` (below threshold), `Entries` (ledger), `Flatten()` yields the leaf results, `ByTag`/`ByCategory` filter them |
 | `RuleTestHelper` | Testing assertions and factories |
 
 ### Extension Methods

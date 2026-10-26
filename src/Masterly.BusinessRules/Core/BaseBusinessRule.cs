@@ -6,7 +6,9 @@ namespace Masterly.BusinessRules
     /// <summary>
     /// Base class for implementing synchronous business rules.
     /// Inherit from this class and override <see cref="Code"/>, <see cref="Message"/>, and <see cref="IsBroken()"/>
-    /// to create custom business rules.
+    /// to create custom business rules. Override <see cref="Describe"/> to attach rich violation details
+    /// (<c>Detail</c>, <c>Actual</c>, <c>Expected</c>, <c>Remediation</c>, <c>Data</c>) to the result; it runs only on
+    /// the broken path and an exception inside it degrades to <see cref="RuleResultDetails.Empty"/>.
     /// </summary>
     /// <example>
     /// <code>
@@ -85,7 +87,9 @@ namespace Masterly.BusinessRules
         public void Check()
         {
             if (IsBroken())
+            {
                 throw new BusinessRuleValidationException(AsEnumerable(Evaluate()));
+            }
         }
 
         /// <summary>
@@ -96,14 +100,42 @@ namespace Masterly.BusinessRules
         public void Check(BusinessRuleContext context)
         {
             if (IsBroken(context))
-                throw new BusinessRuleValidationException(AsEnumerable(Evaluate()));
+            {
+                throw new BusinessRuleValidationException(AsEnumerable(Evaluate(context)));
+            }
         }
 
         /// <summary>
-        /// Creates a <see cref="BusinessRuleResult"/> for this rule.
+        /// Creates the result describing this rule as broken, carrying its metadata and the details returned by
+        /// <see cref="Describe"/> called with a null context. This is a factory, not an evaluation.
         /// </summary>
-        /// <returns>A result containing the rule's code, message, and severity.</returns>
-        public BusinessRuleResult Evaluate() => new BusinessRuleResult(Code, Message, Severity);
+        /// <returns>A result containing the rule's code, message, severity, metadata and details.</returns>
+        public virtual BusinessRuleResult Evaluate() => CreateResult(null);
+
+        /// <summary>
+        /// Creates the result describing this rule as broken, carrying its metadata and the details returned by
+        /// <see cref="Describe"/> called with <paramref name="context"/>. The detail sentence is formatted with
+        /// <see cref="BusinessRuleContext.FormatProvider"/> when set. This is a factory, not an evaluation.
+        /// </summary>
+        /// <param name="context">The context the rule was evaluated with.</param>
+        /// <returns>A result containing the rule's code, message, severity, metadata and details.</returns>
+        public virtual BusinessRuleResult Evaluate(BusinessRuleContext context) => CreateResult(context);
+
+        /// <summary>
+        /// Describes a violation of this rule. Called only when the rule is broken, with the evaluation context or
+        /// null for the parameterless path. Override it to attach <c>Detail</c>, <c>Actual</c>, <c>Expected</c>,
+        /// <c>Remediation</c> and <c>Data</c> to the result. An exception thrown here is swallowed and the result is
+        /// built without details, so a faulty description never masks the violation. Defaults to <see cref="RuleResultDetails.Empty"/>.
+        /// </summary>
+        /// <param name="context">The context the rule was evaluated with, or null.</param>
+        /// <returns>The details to attach to the result.</returns>
+        protected virtual RuleResultDetails Describe(BusinessRuleContext? context) => RuleResultDetails.Empty;
+
+        private BusinessRuleResult CreateResult(BusinessRuleContext? context)
+        {
+            RuleResultDetails details = RuleResultFactory.DescribeGuarded(() => Describe(context));
+            return RuleResultFactory.Create(this, details, context?.FormatProvider);
+        }
 
         /// <summary>
         /// Converts a single result to an enumerable collection.

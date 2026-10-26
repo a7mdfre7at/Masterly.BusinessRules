@@ -90,7 +90,12 @@ namespace Masterly.BusinessRules
         }
 
         /// <inheritdoc />
-        public BusinessRuleResult Evaluate() => new BusinessRuleResult(Code, Message, Severity);
+        /// <remarks>A factory carrying the node's metadata; the broken members are reported by <c>Check</c>, the checkers and <c>Explain</c>.</remarks>
+        public BusinessRuleResult Evaluate() => RuleResultFactory.Create(this);
+
+        /// <inheritdoc />
+        /// <remarks>The context is not used: a structural node attaches no context-aware details of its own.</remarks>
+        public BusinessRuleResult Evaluate(BusinessRuleContext context) => Evaluate();
 
         /// <summary>
         /// Evaluates all child rules and returns results for all broken rules.
@@ -133,7 +138,7 @@ namespace Masterly.BusinessRules
                 trace.Add(BusinessRuleWalker.Evaluated(this, isBroken, RuleExplanationText.AllOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
             }
 
-            return isBroken ? new BusinessRuleResult(Code, Message, Severity, details ?? NoResults) : null;
+            return isBroken ? RuleResultFactory.Create(this, details ?? NoResults) : null;
         }
 
         private static void ThrowIfBroken(BusinessRuleResult? result)

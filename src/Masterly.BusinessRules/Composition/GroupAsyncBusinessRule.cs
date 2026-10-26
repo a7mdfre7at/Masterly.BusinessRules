@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -213,7 +213,7 @@ namespace Masterly.BusinessRules
                 trace.Add(AsyncBusinessRuleWalker.Evaluated(this, isBroken, operatorName, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
             }
 
-            return isBroken ? new BusinessRuleResult(Code, Message, Severity, details ?? NoDetails) : null;
+            return isBroken ? RuleResultFactory.Create(this, details ?? NoDetails) : null;
         }
 
         private async Task<BusinessRuleResult?> EvaluateParallelAsync(BusinessRuleContext context, RuleExplanationTrace? trace, CancellationToken cancellationToken)
@@ -263,7 +263,7 @@ namespace Masterly.BusinessRules
                 trace.Add(AsyncBusinessRuleWalker.Evaluated(this, isBroken, operatorName, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
             }
 
-            return isBroken ? new BusinessRuleResult(Code, Message, Severity, details ?? NoDetails) : null;
+            return isBroken ? RuleResultFactory.Create(this, details ?? NoDetails) : null;
         }
 
         private static async Task<BusinessRuleResult?> EvaluateMemberAsync(

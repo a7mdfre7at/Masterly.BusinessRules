@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 namespace Masterly.BusinessRules
@@ -119,7 +119,12 @@ namespace Masterly.BusinessRules
         public void Check(BusinessRuleContext context) => ThrowIfBroken(EvaluateCore(context, null));
 
         /// <inheritdoc />
-        public BusinessRuleResult Evaluate() => new BusinessRuleResult(Code, Message, Severity);
+        /// <remarks>A factory carrying the node's metadata; the broken members are reported by <c>Check</c>, the checkers and <c>Explain</c>.</remarks>
+        public BusinessRuleResult Evaluate() => RuleResultFactory.Create(this);
+
+        /// <inheritdoc />
+        /// <remarks>The context is not used: a structural node attaches no context-aware details of its own.</remarks>
+        public BusinessRuleResult Evaluate(BusinessRuleContext context) => Evaluate();
 
         BusinessRuleResult? IExplainableBusinessRule.EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
             => EvaluateCore(context, trace);
@@ -165,7 +170,7 @@ namespace Masterly.BusinessRules
                 trace.Add(BusinessRuleWalker.Evaluated(this, isBroken, operatorName, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
             }
 
-            return isBroken ? new BusinessRuleResult(Code, Message, Severity, details ?? NoDetails) : null;
+            return isBroken ? RuleResultFactory.Create(this, details ?? NoDetails) : null;
         }
 
         private static void ThrowIfBroken(BusinessRuleResult? result)

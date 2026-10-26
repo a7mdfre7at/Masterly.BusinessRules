@@ -42,7 +42,9 @@ public class BusinessRuleResultDetailsTests
     [Fact]
     public void Constructor_WithNullDetails_ThrowsArgumentNullException()
     {
-        Assert.Throws<ArgumentNullException>(() => new BusinessRuleResult(GroupCode, "Group", RuleSeverity.Error, null!));
+        IEnumerable<BusinessRuleResult> details = null!; // intentional: exercising the null guard
+
+        Assert.Throws<ArgumentNullException>(() => new BusinessRuleResult(GroupCode, "Group", RuleSeverity.Error, details));
     }
 
     [Fact]
