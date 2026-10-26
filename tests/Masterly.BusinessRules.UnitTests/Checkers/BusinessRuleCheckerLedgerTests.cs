@@ -121,7 +121,7 @@ public class BusinessRuleCheckerLedgerTests
     {
         ContextRecordingRule rule = new ContextRecordingRule();
 
-        BusinessRuleChecker.EvaluateAll(new IBusinessRule[] { rule }, null, new RuleEvaluationOptions());
+        BusinessRuleChecker.EvaluateAll(new IBusinessRule[] { rule }, (BusinessRuleContext?)null, new RuleEvaluationOptions());
 
         Assert.False(rule.ContextOverloadCalled);
         Assert.True(rule.ParameterlessOverloadCalled);
@@ -447,7 +447,7 @@ public class BusinessRuleCheckerLedgerTests
         };
 
         BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(
-            () => BusinessRuleChecker.CheckAll(rules, null, new RuleEvaluationOptions { ThrowOn = RuleSeverity.Warning }));
+            () => BusinessRuleChecker.CheckAll(rules, (BusinessRuleContext?)null, new RuleEvaluationOptions { ThrowOn = RuleSeverity.Warning }));
 
         Assert.Equal(new[] { "WARN", "ERR" }, exception.BrokenRules.Select(r => r.Code));
         Assert.Equal("INFO", Assert.Single(exception.CollectedRules).Code);

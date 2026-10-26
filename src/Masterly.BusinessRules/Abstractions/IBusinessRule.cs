@@ -1,48 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-
-namespace Masterly.BusinessRules
+﻿namespace Masterly.BusinessRules
 {
     /// <summary>
     /// Defines a synchronous business rule that can be evaluated to determine if it is broken.
+    /// The metadata members (<c>Code</c>, <c>Message</c>, <c>Severity</c>, <c>Name</c>, <c>Description</c>,
+    /// <c>Category</c>, <c>Tags</c>) come from <see cref="IBusinessRuleMetadata"/>.
     /// </summary>
-    public interface IBusinessRule
+    public interface IBusinessRule : IBusinessRuleMetadata
     {
-        /// <summary>
-        /// Gets the unique code identifying this rule.
-        /// </summary>
-        string Code { get; }
-
-        /// <summary>
-        /// Gets the human-readable message describing why this rule is broken.
-        /// </summary>
-        string Message { get; }
-
-        /// <summary>
-        /// Gets the severity level of this rule when broken. Defaults to <see cref="RuleSeverity.Error"/>.
-        /// </summary>
-        RuleSeverity Severity => RuleSeverity.Error;
-
-        /// <summary>
-        /// Gets the optional human-readable name for the rule. Defaults to the type name.
-        /// </summary>
-        string Name => GetType().Name;
-
-        /// <summary>
-        /// Gets the optional detailed description of what this rule validates. Defaults to empty string.
-        /// </summary>
-        string Description => string.Empty;
-
-        /// <summary>
-        /// Gets the optional category for grouping related rules. Defaults to empty string.
-        /// </summary>
-        string Category => string.Empty;
-
-        /// <summary>
-        /// Gets the optional tags for filtering and organizing rules. Defaults to empty collection.
-        /// </summary>
-        IReadOnlyList<string> Tags => Array.Empty<string>();
-
         /// <summary>
         /// Evaluates whether the business rule is broken.
         /// </summary>

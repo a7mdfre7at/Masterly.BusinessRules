@@ -14,24 +14,9 @@ namespace Masterly.BusinessRules
         private static readonly IReadOnlyList<string> NoTags = Array.Empty<string>();
 
         /// <summary>
-        /// Creates the stand-in result for a faulted synchronous rule.
+        /// Creates the stand-in result for a faulted rule of either hierarchy.
         /// </summary>
-        public static BusinessRuleResult Create(IBusinessRule rule, Exception fault)
-        {
-            try
-            {
-                return RuleResultFactory.Create(rule);
-            }
-            catch (Exception)
-            {
-                return Fallback(rule.GetType(), fault);
-            }
-        }
-
-        /// <summary>
-        /// Creates the stand-in result for a faulted asynchronous rule.
-        /// </summary>
-        public static BusinessRuleResult Create(IAsyncBusinessRule rule, Exception fault)
+        public static BusinessRuleResult Create(IBusinessRuleMetadata rule, Exception fault)
         {
             try
             {

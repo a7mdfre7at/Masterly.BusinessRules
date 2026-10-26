@@ -10,9 +10,6 @@ namespace Masterly.BusinessRules
     /// </summary>
     public sealed class OrBusinessRule : IComposedBusinessRule, IExplainableBusinessRule
     {
-        private const string CodeSeparator = "|";
-        private const string MessagePrefix = "At least one rule must be satisfied: ";
-        private const string MessageSeparator = " OR ";
         private static readonly IReadOnlyList<string> EmptyTags = Array.Empty<string>();
 
         private readonly IBusinessRule _first;
@@ -35,12 +32,12 @@ namespace Masterly.BusinessRules
         /// <summary>
         /// Gets the synthesised code <c>A|B</c>.
         /// </summary>
-        public string Code => $"{_first.Code}{CodeSeparator}{_second.Code}";
+        public string Code => $"{_first.Code}{RuleCompositionText.OrCodeSeparator}{_second.Code}";
 
         /// <summary>
         /// Gets the synthesised message describing both operands.
         /// </summary>
-        public string Message => $"{MessagePrefix}{_first.Message}{MessageSeparator}{_second.Message}";
+        public string Message => $"{RuleCompositionText.OrMessagePrefix}{_first.Message}{RuleCompositionText.OrMessageSeparator}{_second.Message}";
 
         /// <inheritdoc />
         public RuleSeverity Severity => RuleSeverity.Error;
@@ -49,7 +46,7 @@ namespace Masterly.BusinessRules
         public string Name => GetType().Name;
 
         /// <inheritdoc />
-        public string Description => "Broken when either operand is broken.";
+        public string Description => RuleCompositionText.OrDescription;
 
         /// <inheritdoc />
         public string Category => string.Empty;

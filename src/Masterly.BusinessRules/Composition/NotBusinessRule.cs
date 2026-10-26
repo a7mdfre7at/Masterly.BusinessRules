@@ -9,8 +9,6 @@ namespace Masterly.BusinessRules
     /// </summary>
     public sealed class NotBusinessRule : IComposedBusinessRule, IExplainableBusinessRule
     {
-        private const string CodePrefix = "!";
-        private const string MessagePrefix = "NOT: ";
         private static readonly IReadOnlyList<string> EmptyTags = Array.Empty<string>();
 
         private readonly IBusinessRule _operand;
@@ -30,12 +28,12 @@ namespace Masterly.BusinessRules
         /// <summary>
         /// Gets the synthesised code <c>!A</c>.
         /// </summary>
-        public string Code => $"{CodePrefix}{_operand.Code}";
+        public string Code => $"{RuleCompositionText.NotCodePrefix}{_operand.Code}";
 
         /// <summary>
         /// Gets the synthesised message <c>NOT: ...</c>.
         /// </summary>
-        public string Message => $"{MessagePrefix}{_operand.Message}";
+        public string Message => $"{RuleCompositionText.NotMessagePrefix}{_operand.Message}";
 
         /// <inheritdoc />
         public RuleSeverity Severity => RuleSeverity.Error;
@@ -44,7 +42,7 @@ namespace Masterly.BusinessRules
         public string Name => GetType().Name;
 
         /// <inheritdoc />
-        public string Description => "Broken when the operand passes.";
+        public string Description => RuleCompositionText.NotDescription;
 
         /// <inheritdoc />
         public string Category => string.Empty;

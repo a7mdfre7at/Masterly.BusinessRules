@@ -20,6 +20,7 @@ If you like or are using this project please give it a star. Thanks!
 - [Quick Start](#quick-start)
 - [Creating Rules](#creating-rules)
 - [Fluent Builders](#fluent-builders)
+- [Subject-Typed Rules](#subject-typed-rules)
 - [Rule Metadata](#rule-metadata)
 - [Rule Composition](#rule-composition)
 - [Structural Composition and Explain Trees](#structural-composition-and-explain-trees)
@@ -44,6 +45,7 @@ If you like or are using this project please give it a star. Thanks!
 
 - **Sync & Async Rules** - Full support for both synchronous and asynchronous business rules
 - **Fluent Builders** - Create rules inline without subclassing
+- **Subject-Typed Rules** - `IBusinessRule<T>` / `IAsyncBusinessRule<T>` receive their subject at evaluation time, so one stateless, DI-friendly instance validates any number of subjects; `.For(subject)` binds back to the non-generic world, the checkers take a subject directly (`CheckAll(order, rules)`), `EvaluateEach(orders, rules)` runs a rule set over many subjects, and typed `And`/`Or`/`Not` and `BusinessRuleBuilder<T>` complete the picture
 - **Logical Composition** - Combine rules with `And()`, `Or()`, `Not()` (operators combine the *broken* state of their operands; see the pinned truth table). The operators are real tree nodes that keep their operands and forward the context
 - **Rule Groups** - Unambiguous N-ary quantifiers `RuleGroup.All/Any/AtLeast/Exactly` with opt-in short-circuit and (async) parallel evaluation; member failures travel through `BusinessRuleResult.Details`
 - **Explain Trees** - `rule.Explain(context)` / `await rule.ExplainAsync(context)` return a navigable, printable tree (Passed/Broken/Skipped/CacheHit/NotEvaluated/Faulted per node, with timing) produced by a single evaluation
@@ -234,6 +236,86 @@ IAsyncBusinessRule dataRule = AsyncBusinessRuleBuilder.Create("DATA.INVALID")
     .WithMessage("External data validation failed")
     .WhenAsync(async ctx => await externalService.ValidateAsync(ctx.Get<string>("data")))
     .Build();
+```
+
+---
+
+## Subject-Typed Rules
+
+The rules above capture their subject in the constructor, which welds one instance to one `Order`. A *subject-typed* rule receives the subject when it is evaluated instead: `IBusinessRule<TSubject>` exposes `IsBroken(subject)`, `IsBroken(subject, context)` and the `Evaluate(subject[, context])` factory, and `IAsyncBusinessRule<TSubject>` exposes `IsBrokenAsync(subject, context, ct)` and `EvaluateAsync(subject, context, ct)`. The rule holds no per-subject state, so a single instance can be registered as a singleton (with injected repositories), discovered by assembly scanning and reused for every subject. Value-type subjects are supported.
+
+The typed interfaces do **not** derive from `IBusinessRule` / `IAsyncBusinessRule`, so no member can ever throw for lack of a subject. The only bridge back to the non-generic hierarchy is `.For(subject)`, which returns a `BoundBusinessRule<T>` / `BoundAsyncBusinessRule<T>` that forwards all seven metadata members and works with every decorator (`.Cached()`, `.When()`, `.WithSeverity()`), operator and checker. The checkers also accept the subject directly: every typed overload binds the rules with `.For(subject)` and runs the same core as the non-generic overloads, so the ledger, fault policy, severity threshold and observers behave identically (observers see the bound rules). `EvaluateEach` evaluates a rule set against many subjects and reports them by position.
+
+All four interfaces (`IBusinessRule`, `IAsyncBusinessRule`, `IBusinessRule<T>`, `IAsyncBusinessRule<T>`) extend `IBusinessRuleMetadata`, which declares `Code` and `Message` and gives `Severity`, `Name`, `Description`, `Category` and `Tags` default implementations.
+
+### Subject-Typed Rule Examples
+
+```csharp
+// A stateless rule: the subject arrives at evaluation time
+public sealed class OrderMustHaveItemsRule : BaseBusinessRule<Order>
+{
+    public override string Code => "ORDER.NO_ITEMS";
+    public override string Message => "Order must contain at least one item.";
+    public override bool IsBroken(Order order) => order.Items.Count == 0;
+}
+
+// An async rule with an injected dependency, registered once and reused for every user
+public sealed class EmailMustBeUniqueRule : BaseAsyncBusinessRule<User>
+{
+    private readonly IUserRepository _repository;
+
+    public EmailMustBeUniqueRule(IUserRepository repository)
+    {
+        _repository = repository;
+    }
+
+    public override string Code => "EMAIL.DUPLICATE";
+    public override string Message => "Email address is already in use.";
+
+    public override Task<bool> IsBrokenAsync(User user, BusinessRuleContext context, CancellationToken cancellationToken = default)
+    {
+        return _repository.EmailExistsAsync(user.Email, cancellationToken);
+    }
+}
+
+// Bind to a subject: the bound rule is an ordinary IBusinessRule
+IBusinessRule bound = new OrderMustHaveItemsRule().For(order);
+IBusinessRule cached = bound.Cached(TimeSpan.FromMinutes(1));
+bound.Check();
+
+// Typed checkers: the subject is passed once, the rules are bound for you
+IBusinessRule<Order>[] rules = { new OrderMustHaveItemsRule(), new OrderTotalMustBePositiveRule() };
+BusinessRuleChecker.CheckAll(order, rules, context);
+RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(order, rules);
+BusinessRuleChecker.CheckBySeverity(order, rules, RuleSeverity.Error);
+BusinessRuleChecker.CheckByCategory(order, rules, "Orders");
+BusinessRuleChecker.CheckByTags(order, rules, "checkout");
+
+// Many subjects: one batch per subject, reported by position
+SubjectEvaluationCollection<Order> each = BusinessRuleChecker.EvaluateEach(orders, rules);
+if (each.HasBrokenRules)
+{
+    foreach (SubjectEvaluation<Order> evaluation in each.Broken)
+    {
+        Console.WriteLine($"Order #{evaluation.Index}: {evaluation.BrokenRules.Count} broken rule(s)");
+    }
+}
+
+// Async twins
+await AsyncBusinessRuleChecker.CheckAllAsync(context, user, asyncRules, cancellationToken);
+AsyncSubjectEvaluationCollection<User> eachUser = await AsyncBusinessRuleChecker.EvaluateEachAsync(users, asyncRules, cancellationToken);
+
+// Typed builders share the metadata surface of the non-generic builders and add subject-aware details
+IBusinessRule<Order> big = BusinessRuleBuilder<Order>.Create("ORDER.TOO_LARGE")
+    .WithMessage("Order has too many items.")
+    .WithActual((o, ctx) => o.Items.Count)
+    .WithExpected(100)
+    .When(o => o.Items.Count > 100)
+    .Build();
+
+// Typed And/Or/Not forward the subject and the context to their operands
+IBusinessRule<Order> combined = big.And(new OrderMustHaveItemsRule());
+bool isBroken = combined.IsBroken(order, context);
 ```
 
 ---
@@ -1284,7 +1366,9 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 |-----------|-------------|
 | `IBusinessRule` | Sync rule: `IsBroken()`, `Check()`, `Evaluate()`, `Evaluate(context)` (default member falling back to `Evaluate()`) |
 | `IAsyncBusinessRule` | Async rule: `IsBrokenAsync()`, `CheckAsync()`, `EvaluateAsync()` |
-| `IBusinessRuleMetadata` | Metadata: Name, Description, Category, Tags, Severity |
+| `IBusinessRule<TSubject>` | Subject-typed sync rule: `IsBroken(subject)`, `IsBroken(subject, context)`, `Evaluate(subject[, context])`; bind with `.For(subject)` |
+| `IAsyncBusinessRule<TSubject>` | Subject-typed async rule: `IsBrokenAsync(subject, context, ct)`, `EvaluateAsync(subject, context, ct)`; bind with `.For(subject)` |
+| `IBusinessRuleMetadata` | Base of all four rule interfaces: `Code`, `Message`, and defaulted `Severity`, `Name`, `Description`, `Category`, `Tags` |
 | `IComposedBusinessRule` / `IComposedAsyncBusinessRule` | A rule computed from operands: `Operator`, `Operands` (And/Or/Not nodes, groups, composites) |
 | `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached, conditional and severity-override decorators) |
 | `IRuleExecutionObserver` | Sync execution callbacks plus batch hooks `OnBatchStarted`, `OnAfterEvaluate(rule, isBroken, elapsed)`, `OnRuleFaulted`, `OnBatchCompleted` |
@@ -1298,6 +1382,13 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `BaseAsyncBusinessRule` | Abstract base for async rules; the `protected virtual Describe(context)` hook |
 | `BusinessRuleBuilder` | Fluent builder for sync rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation` |
 | `AsyncBusinessRuleBuilder` | Fluent builder for async rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation` |
+| `BaseBusinessRule<TSubject>` / `BaseAsyncBusinessRule<TSubject>` | Abstract bases for subject-typed rules; `protected virtual Describe(subject, context)` hook |
+| `BusinessRuleBuilder<TSubject>` / `AsyncBusinessRuleBuilder<TSubject>` | Fluent builders for subject-typed rules; `When(subject[, context])` / `WhenAsync(subject[, context[, ct]])` and subject-aware `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation` |
+| `BusinessRuleMetadataBuilder<TBuilder>` | Shared base of the four builders: `WithMessage`, `WithSeverity`, `WithName`, `WithDescription`, `WithCategory`, `WithTags` and the context-only detail methods |
+| `BoundBusinessRule<TSubject>` / `BoundAsyncBusinessRule<TSubject>` | A typed rule bound to one subject (`Rule`, `Subject`); returned by `.For(subject)`, forwards all metadata |
+| `AndBusinessRule<TSubject>` / `OrBusinessRule<TSubject>` / `NotBusinessRule<TSubject>` (+ async twins) | Typed structural nodes returned by the typed `.And()`/`.Or()`/`.Not()`; forward subject and context to their `Operands` |
+| `SubjectEvaluation<TSubject>` / `AsyncSubjectEvaluation<TSubject>` | One subject of an `EvaluateEach` batch: `Index`, `Subject`, `Result`, `AllPassed`, `HasBrokenRules`, `BrokenRules` |
+| `SubjectEvaluationCollection<TSubject>` / `AsyncSubjectEvaluationCollection<TSubject>` | Positional `IReadOnlyList` returned by `EvaluateEach`: `AllPassed`, `HasBrokenRules`, `Broken`, `Passed`, `BrokenRules`, `TotalDuration` |
 | `AndBusinessRule` / `AndAsyncBusinessRule` | Structural node returned by `.And()` (operator `And`) |
 | `OrBusinessRule` / `OrAsyncBusinessRule` | Structural node returned by `.Or()` (operator `Or`) |
 | `NotBusinessRule` / `NotAsyncBusinessRule` | Structural node returned by `.Not()` (operator `Not`) |
@@ -1316,8 +1407,8 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `SeverityOverrideBusinessRule` / `SeverityOverrideAsyncBusinessRule` | Decorator reporting a different severity (`.WithSeverity()`) |
 | `SyncToAsyncRuleAdapter` | Adapts sync rules to async |
 | `AsyncToSyncRuleAdapter` | Adapts async rules to sync (blocking) |
-| `BusinessRuleChecker` | Batch sync validation; options-taking `CheckAll`/`EvaluateAll` overloads |
-| `AsyncBusinessRuleChecker` | Batch async validation; options-taking `CheckAllAsync`/`EvaluateAllAsync` overloads |
+| `BusinessRuleChecker` | Batch sync validation; options-taking `CheckAll`/`EvaluateAll` overloads; subject-typed `CheckAll(subject, rules)`, `EvaluateAll(subject, rules)`, `CheckBySeverity/Category/Tags(subject, rules, ...)` and `EvaluateEach(subjects, rules)` |
+| `AsyncBusinessRuleChecker` | Batch async validation; options-taking `CheckAllAsync`/`EvaluateAllAsync` overloads; `CheckByTagsAsync`; subject-typed `CheckAllAsync([context,] subject, rules)`, `EvaluateAllAsync`, `CheckBySeverity/Category/TagsAsync` and `EvaluateEachAsync` |
 | `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` | `StopOnFirstFailure`, `OnFault`, `ThrowOn`, `Observer` (async: `RunInParallel`) |
 | `FaultPolicy` | `Throw`, `Record`, `TreatAsBroken` |
 | `RuleEvaluationEntry` | Ledger line: `Order`, `Rule`/`AsyncRule`, `Code`, `Outcome`, `Result`, `Fault`, `Duration` |
@@ -1340,6 +1431,8 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `.And(rule)` | Broken only when **both** rules are broken (code `A+B`) |
 | `.Or(rule)` | Broken when **either** rule is broken (code `A\|B`) |
 | `.Not()` | Inverts the rule's broken state (code `!A`) |
+| `.For(subject)` | Bind a subject-typed rule to one subject, returning an ordinary `IBusinessRule` / `IAsyncBusinessRule` |
+| `.And(rule)` / `.Or(rule)` / `.Not()` on `IBusinessRule<T>` / `IAsyncBusinessRule<T>` | Typed composition with the same truth tables and codes; subject and context are forwarded to the operands |
 | `.Explain(context?, captureExceptions?)` | Evaluate once and return the `RuleExplanation` tree (sync) |
 | `.ExplainAsync(context, [captureExceptions], ct)` | Evaluate once and return the `RuleExplanation` tree (async) |
 | `.ToAsyncRule()` | Convert sync to async |

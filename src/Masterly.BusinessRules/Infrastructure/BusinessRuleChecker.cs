@@ -33,7 +33,7 @@ namespace Masterly.BusinessRules
     /// BusinessRuleChecker.CheckAll(rules, ctx, new RuleEvaluationOptions { OnFault = FaultPolicy.Record, ThrowOn = RuleSeverity.Error });
     /// </code>
     /// </example>
-    public static class BusinessRuleChecker
+    public static partial class BusinessRuleChecker
     {
         /// <summary>
         /// Checks all rules and throws if any are broken.

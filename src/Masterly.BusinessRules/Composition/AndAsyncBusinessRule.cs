@@ -12,8 +12,6 @@ namespace Masterly.BusinessRules
     /// </summary>
     public sealed class AndAsyncBusinessRule : IComposedAsyncBusinessRule, IExplainableAsyncBusinessRule
     {
-        private const string CodeSeparator = "+";
-        private const string MessageSeparator = " AND ";
         private static readonly IReadOnlyList<string> EmptyTags = Array.Empty<string>();
 
         private readonly IAsyncBusinessRule _first;
@@ -36,12 +34,12 @@ namespace Masterly.BusinessRules
         /// <summary>
         /// Gets the synthesised code <c>A+B</c>.
         /// </summary>
-        public string Code => $"{_first.Code}{CodeSeparator}{_second.Code}";
+        public string Code => $"{_first.Code}{RuleCompositionText.AndCodeSeparator}{_second.Code}";
 
         /// <summary>
         /// Gets the synthesised message describing both operands.
         /// </summary>
-        public string Message => $"{_first.Message}{MessageSeparator}{_second.Message}";
+        public string Message => $"{_first.Message}{RuleCompositionText.AndMessageSeparator}{_second.Message}";
 
         /// <inheritdoc />
         public RuleSeverity Severity => RuleSeverity.Error;
@@ -50,7 +48,7 @@ namespace Masterly.BusinessRules
         public string Name => GetType().Name;
 
         /// <inheritdoc />
-        public string Description => "Broken only when both operands are broken.";
+        public string Description => RuleCompositionText.AndDescription;
 
         /// <inheritdoc />
         public string Category => string.Empty;

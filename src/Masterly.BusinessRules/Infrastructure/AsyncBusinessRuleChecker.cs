@@ -36,7 +36,7 @@ namespace Masterly.BusinessRules
     ///     new AsyncRuleEvaluationOptions { RunInParallel = true, OnFault = FaultPolicy.Record, Observer = myObserver }, ct);
     /// </code>
     /// </example>
-    public static class AsyncBusinessRuleChecker
+    public static partial class AsyncBusinessRuleChecker
     {
         /// <summary>
         /// Checks all async rules sequentially and throws if any are broken.
@@ -293,6 +293,26 @@ namespace Masterly.BusinessRules
         {
             IEnumerable<IAsyncBusinessRule> filteredRules = rules.Where(r => r.Category == category);
             await CheckAllAsync(context, filteredRules.ToArray());
+        }
+
+        /// <summary>
+        /// Checks only async rules that have any of the specified tags.
+        /// </summary>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="rules">The async rules to filter and check.</param>
+        /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
+        /// <param name="tags">The tags to filter by (case-insensitive).</param>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any matching rules are broken.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static async Task CheckByTagsAsync(
+            BusinessRuleContext context,
+            IEnumerable<IAsyncBusinessRule> rules,
+            CancellationToken cancellationToken = default,
+            params string[] tags)
+        {
+            HashSet<string> tagSet = new HashSet<string>(tags, StringComparer.OrdinalIgnoreCase);
+            IEnumerable<IAsyncBusinessRule> filteredRules = rules.Where(r => r.Tags.Any(t => tagSet.Contains(t)));
+            await CheckAllAsyncCore(context, filteredRules.ToArray(), LegacyOptions(stopOnFirstFailure: false, runInParallel: false, observer: null), cancellationToken);
         }
 
         private static AsyncRuleEvaluationOptions LegacyOptions(bool stopOnFirstFailure, bool runInParallel, IAsyncRuleExecutionObserver? observer)

@@ -1,0 +1,51 @@
+using System;
+using System.Collections.Generic;
+
+namespace Masterly.BusinessRules
+{
+    /// <summary>
+    /// The metadata every business rule carries, independent of how it is evaluated.
+    /// <see cref="IBusinessRule"/>, <see cref="IAsyncBusinessRule"/>, <see cref="IBusinessRule{TSubject}"/> and
+    /// <see cref="IAsyncBusinessRule{TSubject}"/> all extend it, so decorators, adapters, result factories and tooling
+    /// can read a rule's identity without knowing which hierarchy it belongs to.
+    /// Only <see cref="Code"/> and <see cref="Message"/> are required; the remaining members have default
+    /// implementations that implementors may override.
+    /// </summary>
+    public interface IBusinessRuleMetadata
+    {
+        /// <summary>
+        /// Gets the unique code identifying this rule.
+        /// </summary>
+        string Code { get; }
+
+        /// <summary>
+        /// Gets the human-readable message describing why this rule is broken.
+        /// </summary>
+        string Message { get; }
+
+        /// <summary>
+        /// Gets the severity level of this rule when broken. Defaults to <see cref="RuleSeverity.Error"/>.
+        /// </summary>
+        RuleSeverity Severity => RuleSeverity.Error;
+
+        /// <summary>
+        /// Gets the optional human-readable name for the rule. Defaults to the type name.
+        /// </summary>
+        string Name => GetType().Name;
+
+        /// <summary>
+        /// Gets the optional detailed description of what this rule validates. Defaults to empty string.
+        /// </summary>
+        string Description => string.Empty;
+
+        /// <summary>
+        /// Gets the optional category for grouping related rules. Defaults to empty string.
+        /// </summary>
+        string Category => string.Empty;
+
+        /// <summary>
+        /// Gets the optional tags for filtering and organizing rules. Defaults to empty collection.
+        /// </summary>
+        IReadOnlyList<string> Tags => Array.Empty<string>();
+    }
+}
