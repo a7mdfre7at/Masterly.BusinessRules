@@ -8,10 +8,14 @@ namespace Masterly.BusinessRules
     /// site populates <see cref="BusinessRuleResult.Name"/>, <see cref="BusinessRuleResult.Category"/> and
     /// <see cref="BusinessRuleResult.Tags"/> the same way, and guards the <c>Describe</c> hook so that an exception
     /// inside it degrades to <see cref="RuleResultDetails.Empty"/> instead of masking the violation.
+    /// A rule whose <c>Name</c>, <c>Category</c> or <c>Tags</c> getter returns null (a contract violation that older,
+    /// nullable-oblivious rules can commit) is reported with the code as <c>Name</c>, an empty category and no tags
+    /// instead of failing result construction.
     /// </summary>
     internal static class RuleResultFactory
     {
         private static readonly IReadOnlyList<BusinessRuleResult> NoMembers = Array.Empty<BusinessRuleResult>();
+        private static readonly IReadOnlyList<string> NoTags = Array.Empty<string>();
 
         /// <summary>
         /// Creates a result carrying only the metadata of a synchronous rule.
@@ -79,12 +83,32 @@ namespace Masterly.BusinessRules
 
         private static BusinessRuleResult Create(IBusinessRule rule, RuleResultDetails details, IEnumerable<BusinessRuleResult> memberDetails, IFormatProvider? formatProvider)
         {
-            return new BusinessRuleResult(rule.Code, rule.Message, rule.Severity, rule.Name, rule.Category, rule.Tags, details, memberDetails, formatProvider);
+            string code = rule.Code;
+            return new BusinessRuleResult(
+                code,
+                rule.Message,
+                rule.Severity,
+                rule.Name ?? code,
+                rule.Category ?? string.Empty,
+                rule.Tags ?? NoTags,
+                details,
+                memberDetails,
+                formatProvider);
         }
 
         private static BusinessRuleResult Create(IAsyncBusinessRule rule, RuleResultDetails details, IEnumerable<BusinessRuleResult> memberDetails, IFormatProvider? formatProvider)
         {
-            return new BusinessRuleResult(rule.Code, rule.Message, rule.Severity, rule.Name, rule.Category, rule.Tags, details, memberDetails, formatProvider);
+            string code = rule.Code;
+            return new BusinessRuleResult(
+                code,
+                rule.Message,
+                rule.Severity,
+                rule.Name ?? code,
+                rule.Category ?? string.Empty,
+                rule.Tags ?? NoTags,
+                details,
+                memberDetails,
+                formatProvider);
         }
     }
 }

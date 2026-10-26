@@ -336,8 +336,7 @@ public class AsyncRuleGroupTests
         CachedAsyncBusinessRule cached = new CachedAsyncBusinessRule(cancellable, TimeSpan.FromMinutes(5));
         GroupAsyncBusinessRule group = AsyncRuleGroup.All(GroupCode, GroupMessage, cached);
         using CancellationTokenSource cancellation = new CancellationTokenSource();
-        cancellation.CancelAfter(0);
-        await Task.Delay(1, TestContext.Current.CancellationToken);
+        cancellation.Cancel();
         BusinessRuleContext context = RuleTestHelper.CreateContext();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => group.IsBrokenAsync(context, cancellation.Token));

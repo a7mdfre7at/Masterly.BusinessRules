@@ -25,6 +25,17 @@ public class BusinessRuleCheckerRichResultTests
         public override bool IsBroken() => throw new InvalidOperationException("boom");
     }
 
+    private sealed class NullMetadataRule : BaseBusinessRule
+    {
+        public override string Code => "NULL_META";
+        public override string Message => "Null metadata";
+        public override string Name => null!; // intentional: a nullable-oblivious rule violating the contract
+        public override string Category => null!; // intentional: a nullable-oblivious rule violating the contract
+        public override IReadOnlyList<string> Tags => null!; // intentional: a nullable-oblivious rule violating the contract
+
+        public override bool IsBroken() => true;
+    }
+
     private static IBusinessRule Rule(string code, string category, params string[] tags)
         => BusinessRuleBuilder.Create(code).WithName($"{code}-name").WithCategory(category).WithTags(tags).When(() => true).Build();
 
@@ -124,5 +135,32 @@ public class BusinessRuleCheckerRichResultTests
     public void CheckAll_NoBrokenRules_DoesNotThrow()
     {
         BusinessRuleChecker.CheckAll(RuleTestHelper.CreatePassingRule(), RuleTestHelper.CreatePassingRule());
+    }
+
+    [Fact]
+    public void EvaluateAll_RuleWithNullMetadata_ReportsCodeAsNameEmptyCategoryAndNoTags()
+    {
+        NullMetadataRule rule = new NullMetadataRule();
+
+        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(rule);
+
+        BusinessRuleResult broken = Assert.Single(result.BrokenRules);
+        Assert.Equal(rule.Code, broken.Name);
+        Assert.Equal(string.Empty, broken.Category);
+        Assert.Empty(broken.Tags);
+        Assert.Empty(result.ByTag(CustomerFacing));
+        Assert.Equal(broken, Assert.Single(result.ByCategory(string.Empty)));
+    }
+
+    [Fact]
+    public void Evaluate_RuleWithNullMetadata_DoesNotThrow()
+    {
+        NullMetadataRule rule = new NullMetadataRule();
+
+        BusinessRuleResult result = rule.Evaluate();
+
+        Assert.Equal(rule.Code, result.Name);
+        Assert.Empty(result.Tags);
+        Assert.False(result.HasTag(CustomerFacing));
     }
 }
