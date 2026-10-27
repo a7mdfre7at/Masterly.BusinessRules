@@ -8,7 +8,12 @@ namespace Masterly.BusinessRules
     /// Useful for expensive rule evaluations that don't change frequently.
     /// </summary>
     /// <remarks>
-    /// <para>The cache is thread-safe and uses a lock for synchronization.</para>
+    /// <para>The cache is thread-safe. A lock guards only the cache lookups and stores: the inner rule runs outside it,
+    /// so a slow evaluation for one key never blocks cache hits or evaluations for other keys (concurrent misses for
+    /// the same key may each evaluate the inner rule; the last verdict stored wins). A verdict whose evaluation was
+    /// invalidated while it ran is not stored.</para>
+    /// <para>A verdict that rests on a fault captured by <c>Explain(captureExceptions: true)</c> is returned but never
+    /// cached, so a diagnostic explanation cannot poison the verdict later plain evaluations read.</para>
     /// <para>By default one verdict is cached per instance, whatever the context. A <c>cacheKeySelector</c> turns the
     /// cache into one verdict per key (for example per tenant: <c>ctx =&gt; ctx.Get(RuleParameters.ScopeKey).ToString()</c>),
     /// which is required when the inner rule reads scoped parameters or any other per-context value. The parameterless
@@ -46,6 +51,7 @@ namespace Masterly.BusinessRules
         private readonly Dictionary<string, CacheEntry>? _entries;
         private readonly object _lock = new object();
         private CacheEntry? _sharedEntry;
+        private long _generation;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="CachedBusinessRule"/> class caching one verdict per instance.
@@ -150,6 +156,7 @@ namespace Masterly.BusinessRules
             {
                 _sharedEntry = null;
                 _entries?.Clear();
+                _generation++;
             }
         }
 
@@ -169,6 +176,7 @@ namespace Masterly.BusinessRules
             lock (_lock)
             {
                 _entries?.Remove(cacheKey);
+                _generation++;
             }
         }
 
@@ -191,27 +199,47 @@ namespace Masterly.BusinessRules
         private BusinessRuleResult? EvaluateCore(BusinessRuleContext? context, RuleExplanationTrace? trace)
         {
             string? cacheKey = SelectCacheKey(context);
+            bool isHit;
+            bool cachedIsBroken;
+            long generation;
 
             lock (_lock)
             {
-                if (TryGetFresh(cacheKey, out bool cachedIsBroken))
+                isHit = TryGetFresh(cacheKey, out cachedIsBroken);
+                generation = _generation;
+            }
+
+            if (isHit)
+            {
+                trace?.Add(BusinessRuleWalker.CacheHit(this, _innerRule, cachedIsBroken));
+                return cachedIsBroken ? CachedResult(context) : null;
+            }
+
+            RuleExplanationTrace? children = trace?.Branch();
+            long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
+
+            BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(_innerRule, context, children);
+            if (children == null || !children.HasCapturedFault)
+            {
+                StoreIfCurrent(cacheKey, result != null, generation);
+            }
+
+            if (trace != null && children != null)
+            {
+                trace.Add(BusinessRuleWalker.Evaluated(this, result != null, RuleExplanationText.CachedOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
+            }
+
+            return result;
+        }
+
+        private void StoreIfCurrent(string? cacheKey, bool isBroken, long generation)
+        {
+            lock (_lock)
+            {
+                if (generation == _generation)
                 {
-                    trace?.Add(BusinessRuleWalker.CacheHit(this, _innerRule, cachedIsBroken));
-                    return cachedIsBroken ? CachedResult(context) : null;
+                    Store(cacheKey, isBroken);
                 }
-
-                RuleExplanationTrace? children = trace?.Branch();
-                long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
-
-                BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(_innerRule, context, children);
-                Store(cacheKey, result != null);
-
-                if (trace != null && children != null)
-                {
-                    trace.Add(BusinessRuleWalker.Evaluated(this, result != null, RuleExplanationText.CachedOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
-                }
-
-                return result;
             }
         }
 

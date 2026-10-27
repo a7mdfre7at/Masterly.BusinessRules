@@ -111,7 +111,7 @@ public class AsyncBusinessRuleBuilderTests
         Assert.Equal("ASYNC.TEST", rule.Code);
         Assert.Equal("Async test message", rule.Message);
         Assert.Equal(RuleSeverity.Info, rule.Severity);
-        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class AsyncBusinessRuleBuilderTests
             .WhenAsync(ctx => Task.FromResult(false))
             .Build();
 
-        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public class AsyncBusinessRuleBuilderTests
             .Build();
 
         await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => rule.CheckAsync(new BusinessRuleContext()));
+            () => rule.CheckAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -155,7 +155,7 @@ public class AsyncBusinessRuleBuilderTests
             .WhenAsync((ctx, ct) => Task.FromResult(true))
             .Build();
 
-        BusinessRuleResult? result = await rule.EvaluateAsync(new BusinessRuleContext());
+        BusinessRuleResult? result = await rule.EvaluateAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal("ASYNC.EVAL", result.Code);
@@ -169,7 +169,7 @@ public class AsyncBusinessRuleBuilderTests
             .WhenAsync((ctx, ct) => Task.FromResult(false))
             .Build();
 
-        BusinessRuleResult? result = await rule.EvaluateAsync(new BusinessRuleContext());
+        BusinessRuleResult? result = await rule.EvaluateAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.Null(result);
     }

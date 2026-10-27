@@ -66,7 +66,7 @@ public class RuleTestHelperTests
         AsyncRuleA rule = new AsyncRuleA(true);
 
         // Should not throw
-        await RuleTestHelper.AssertBrokenAsync(rule);
+        await RuleTestHelper.AssertBrokenAsync(rule, cancellationToken: TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class RuleTestHelperTests
         AsyncRuleA rule = new AsyncRuleA(false);
 
         await Assert.ThrowsAsync<RuleAssertionException>(
-            () => RuleTestHelper.AssertBrokenAsync(rule));
+            () => RuleTestHelper.AssertBrokenAsync(rule, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public class RuleTestHelperTests
         AsyncRuleA rule = new AsyncRuleA(false);
 
         // Should not throw
-        await RuleTestHelper.AssertNotBrokenAsync(rule);
+        await RuleTestHelper.AssertNotBrokenAsync(rule, cancellationToken: TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class RuleTestHelperTests
         AsyncRuleA rule = new AsyncRuleA(true);
 
         await Assert.ThrowsAsync<RuleAssertionException>(
-            () => RuleTestHelper.AssertNotBrokenAsync(rule));
+            () => RuleTestHelper.AssertNotBrokenAsync(rule, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public class RuleTestHelperTests
     {
         IAsyncBusinessRule rule = RuleTestHelper.CreateBrokenAsyncRule();
 
-        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public class RuleTestHelperTests
     {
         IAsyncBusinessRule rule = RuleTestHelper.CreatePassingAsyncRule();
 
-        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     private class TestData

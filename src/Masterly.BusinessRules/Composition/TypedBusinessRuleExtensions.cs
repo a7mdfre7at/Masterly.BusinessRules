@@ -23,6 +23,20 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Adapts the typed sync rule to the typed async hierarchy without binding a subject, so it can join typed async
+        /// compositions (<c>asyncRule.And(syncRule.ToAsync())</c>) and <c>IEnumerable&lt;IAsyncBusinessRule&lt;T&gt;&gt;</c>
+        /// batches. A specification rule binds to the more specific <see cref="SpecificationRuleExtensions.ToAsync{TSubject}"/>.
+        /// </summary>
+        /// <typeparam name="TSubject">The subject type.</typeparam>
+        /// <param name="rule">The typed sync rule to adapt.</param>
+        /// <returns>A <see cref="SyncToAsyncRuleAdapter{TSubject}"/> over the rule.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="rule"/> is null.</exception>
+        public static IAsyncBusinessRule<TSubject> ToAsync<TSubject>(this IBusinessRule<TSubject> rule)
+        {
+            return new SyncToAsyncRuleAdapter<TSubject>(rule);
+        }
+
+        /// <summary>
         /// Creates a typed rule that is broken only when both rules are broken (logical AND over the broken state).
         /// The returned <see cref="AndBusinessRule{TSubject}"/> forwards the subject and the context to both operands,
         /// short-circuits when the first operand passes and reports the synthesised code <c>A+B</c>.

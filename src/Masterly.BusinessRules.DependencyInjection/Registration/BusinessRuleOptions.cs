@@ -12,8 +12,9 @@ namespace Masterly.BusinessRules.DependencyInjection
     /// Scanning registers every concrete class implementing <see cref="IBusinessRule{TSubject}"/> or
     /// <see cref="IAsyncBusinessRule{TSubject}"/> under each closed rule interface it implements (so
     /// <c>IEnumerable&lt;IBusinessRule&lt;Order&gt;&gt;</c> and <see cref="IRuleRunner{TSubject}"/> see it) and, when
-    /// <see cref="IncludeUntypedRules"/> is true, every concrete class implementing the plain <see cref="IBusinessRule"/>
-    /// or <see cref="IAsyncBusinessRule"/> under that interface. Open generic rule types and abstract classes are skipped.
+    /// <see cref="IncludeUntypedRules"/> is true (it is false by default), every concrete class implementing the plain
+    /// <see cref="IBusinessRule"/> or <see cref="IAsyncBusinessRule"/> under that interface. Open generic rule types and
+    /// abstract classes are skipped.
     /// </summary>
     /// <example>
     /// <code>
@@ -46,10 +47,13 @@ namespace Masterly.BusinessRules.DependencyInjection
 
         /// <summary>
         /// Gets or sets whether classes implementing the plain <see cref="IBusinessRule"/> / <see cref="IAsyncBusinessRule"/>
-        /// are registered under those interfaces. Defaults to true. Rules that capture their subject through the
-        /// constructor cannot be created by the container; exclude them with <see cref="TypeFilter"/> or set this to false.
+        /// are registered under those interfaces. Defaults to false: the usual plain rule captures its subject through the
+        /// constructor (<c>new MinimumAgeRule(age)</c>), which the container cannot create, so registering it would fail
+        /// container validation (<c>ValidateOnBuild</c>) or the first resolution of <c>IEnumerable&lt;IBusinessRule&gt;</c>.
+        /// Opt in when the plain rules of the scanned assemblies take only injectable services, and exclude the rest with
+        /// <see cref="TypeFilter"/>.
         /// </summary>
-        public bool IncludeUntypedRules { get; set; } = true;
+        public bool IncludeUntypedRules { get; set; }
 
         /// <summary>
         /// Gets or sets an additional predicate a candidate type must satisfy to be registered. Null (the default) accepts every candidate.

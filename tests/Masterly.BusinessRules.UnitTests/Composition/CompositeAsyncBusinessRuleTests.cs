@@ -17,7 +17,7 @@ public class CompositeAsyncBusinessRuleTests
         CompositeAsyncBusinessRule composite = new CompositeAsyncBusinessRule(rules);
         BusinessRuleContext context = new BusinessRuleContext();
 
-        Assert.True(await composite.IsBrokenAsync(context));
+        Assert.True(await composite.IsBrokenAsync(context, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -33,7 +33,7 @@ public class CompositeAsyncBusinessRuleTests
         CompositeAsyncBusinessRule composite = new CompositeAsyncBusinessRule(rules);
         BusinessRuleContext context = new BusinessRuleContext();
 
-        Assert.False(await composite.IsBrokenAsync(context));
+        Assert.False(await composite.IsBrokenAsync(context, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class CompositeAsyncBusinessRuleTests
         CompositeAsyncBusinessRule composite = new CompositeAsyncBusinessRule(rules);
         BusinessRuleContext context = new BusinessRuleContext();
 
-        IReadOnlyCollection<BusinessRuleResult> results = await composite.EvaluateAllAsync(context);
+        IReadOnlyCollection<BusinessRuleResult> results = await composite.EvaluateAllAsync(context, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, results.Count);
     }
@@ -64,7 +64,7 @@ public class CompositeAsyncBusinessRuleTests
 
         BusinessRuleContext context = new BusinessRuleContext();
 
-        Assert.True(await composite.IsBrokenAsync(context));
+        Assert.True(await composite.IsBrokenAsync(context, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -101,7 +101,7 @@ public class CompositeAsyncBusinessRuleTests
         BusinessRuleContext context = new BusinessRuleContext();
 
         await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => composite.CheckAsync(context));
+            () => composite.CheckAsync(context, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -111,7 +111,7 @@ public class CompositeAsyncBusinessRuleTests
         CompositeAsyncBusinessRule composite = new CompositeAsyncBusinessRule(rules);
         BusinessRuleContext context = new BusinessRuleContext();
 
-        BusinessRuleResult? result = await composite.EvaluateAsync(context);
+        BusinessRuleResult? result = await composite.EvaluateAsync(context, TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal("CompositeAsyncRule", result.Code);
@@ -126,7 +126,7 @@ public class CompositeAsyncBusinessRuleTests
             "TEST.CODE");
 
         BusinessRuleContext context = new BusinessRuleContext();
-        IReadOnlyCollection<BusinessRuleResult> results = await composite.EvaluateAllAsync(context);
+        IReadOnlyCollection<BusinessRuleResult> results = await composite.EvaluateAllAsync(context, TestContext.Current.CancellationToken);
 
         Assert.Single(results);
         Assert.Equal("TEST.CODE", results.First().Code);
@@ -141,7 +141,7 @@ public class CompositeAsyncBusinessRuleTests
             "TEST.CODE");
 
         BusinessRuleContext context = new BusinessRuleContext();
-        IReadOnlyCollection<BusinessRuleResult> results = await composite.EvaluateAllAsync(context);
+        IReadOnlyCollection<BusinessRuleResult> results = await composite.EvaluateAllAsync(context, TestContext.Current.CancellationToken);
 
         Assert.Empty(results);
     }

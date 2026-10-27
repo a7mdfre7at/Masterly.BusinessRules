@@ -44,7 +44,7 @@ public class AsyncBusinessRuleCheckerEnhancedTests
         try
         {
             await AsyncBusinessRuleChecker.CheckAllAsync(
-                context, rules, stopOnFirstFailure: true);
+                context, rules, stopOnFirstFailure: true, cancellationToken: TestContext.Current.CancellationToken);
         }
         catch (BusinessRuleValidationException ex)
         {
@@ -85,7 +85,7 @@ public class AsyncBusinessRuleCheckerEnhancedTests
         BusinessRuleContext context = new BusinessRuleContext();
 
         await AsyncBusinessRuleChecker.CheckAllAsync(
-            context, rules, runInParallel: true);
+            context, rules, runInParallel: true, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(3, evaluatedRules.Count);
     }
@@ -100,7 +100,7 @@ public class AsyncBusinessRuleCheckerEnhancedTests
         try
         {
             await AsyncBusinessRuleChecker.CheckAllAsync(
-                context, rules, observer: observer);
+                context, rules, observer: observer, cancellationToken: TestContext.Current.CancellationToken);
         }
         catch { }
 
@@ -162,7 +162,7 @@ public class AsyncBusinessRuleCheckerEnhancedTests
         BusinessRuleContext context = new BusinessRuleContext();
 
         AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(
-            context, rules, runInParallel: true);
+            context, rules, runInParallel: true, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.BrokenRules.Count);
         Assert.Single(result.PassedRules);
@@ -188,7 +188,7 @@ public class AsyncBusinessRuleCheckerEnhancedTests
         // Only check errors
         BusinessRuleValidationException ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(
             () => AsyncBusinessRuleChecker.CheckBySeverityAsync(
-                context, [errorRule, warningRule], severities: RuleSeverity.Error));
+                context, [errorRule, warningRule], cancellationToken: TestContext.Current.CancellationToken, severities: RuleSeverity.Error));
 
         Assert.Single(ex.BrokenRules);
         Assert.Equal("ERROR", ex.BrokenRules.First().Code);
@@ -213,7 +213,7 @@ public class AsyncBusinessRuleCheckerEnhancedTests
 
         BusinessRuleValidationException ex = await Assert.ThrowsAsync<BusinessRuleValidationException>(
             () => AsyncBusinessRuleChecker.CheckByCategoryAsync(
-                context, [checkoutRule, userRule], "Checkout"));
+                context, [checkoutRule, userRule], "Checkout", TestContext.Current.CancellationToken));
 
         Assert.Single(ex.BrokenRules);
         Assert.Equal("CHECKOUT", ex.BrokenRules.First().Code);

@@ -33,6 +33,7 @@ namespace Masterly.BusinessRules
             catch (Exception exception) when (trace.ShouldCapture(exception))
             {
                 trace.Add(Faulted(rule, exception, RuleExplanationTrace.ElapsedSince(start)));
+                trace.MarkFaultCaptured();
                 return RuleResultFactory.Create(rule);
             }
         }
@@ -169,7 +170,10 @@ namespace Masterly.BusinessRules
                 NoChildren);
         }
 
-        private static RuleExplanation Faulted(IBusinessRule rule, Exception exception, TimeSpan duration)
+        /// <summary>
+        /// Builds the node for a rule that threw while the walk captured exceptions (or a shadow gate caught the fault).
+        /// </summary>
+        public static RuleExplanation Faulted(IBusinessRule rule, Exception exception, TimeSpan duration)
         {
             return new RuleExplanation(
                 rule,

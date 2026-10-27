@@ -45,34 +45,57 @@ public class SpecificationCombinatorTests
         Assert.Equal(expected, composed.IsBroken(new Order(), new BusinessRuleContext()));
     }
 
-    [Fact]
-    public void AllOf_ThreeOperands_AgreesWithTheOperandsForEverySample()
+    [Theory]
+    [InlineData(false, false, false, false)]
+    [InlineData(true, false, false, true)]
+    [InlineData(false, true, false, true)]
+    [InlineData(false, false, true, true)]
+    [InlineData(true, true, true, true)]
+    public void AllOf_ThreeOperands_IsBrokenWhenAnyOperandIsBroken(bool firstBroken, bool secondBroken, bool thirdBroken, bool expected)
     {
-        OrderIsOverdueRule overdue = new OrderIsOverdueRule();
-        OrderIsBigRule big = new OrderIsBigRule();
-        OrderIsFlaggedRule flagged = new OrderIsFlaggedRule();
-        ISpecificationRule<Order> composed = overdue.AllOf(big, flagged);
+        ISpecificationRule<Order> composed = Fake("A", firstBroken).AllOf(Fake("B", secondBroken), Fake("C", thirdBroken));
 
-        foreach (Order order in SpecificationSamples.All())
-        {
-            bool expected = overdue.IsBroken(order) || big.IsBroken(order) || flagged.IsBroken(order);
-            Assert.Equal(expected, composed.IsBroken(order));
-        }
+        Assert.Equal(expected, composed.IsBroken(new Order()));
+        Assert.Equal(expected, composed.BrokenExpression.Compile()(new Order()));
+    }
+
+    [Theory]
+    [InlineData(true, true, true, true)]
+    [InlineData(true, true, false, false)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, true, true, false)]
+    [InlineData(false, false, false, false)]
+    public void AnyOf_ThreeOperands_IsBrokenOnlyWhenEveryOperandIsBroken(bool firstBroken, bool secondBroken, bool thirdBroken, bool expected)
+    {
+        ISpecificationRule<Order> composed = Fake("A", firstBroken).AnyOf(Fake("B", secondBroken), Fake("C", thirdBroken));
+
+        Assert.Equal(expected, composed.IsBroken(new Order()));
+        Assert.Equal(expected, composed.BrokenExpression.Compile()(new Order()));
     }
 
     [Fact]
-    public void AnyOf_ThreeOperands_AgreesWithTheOperandsForEverySample()
+    public void AnyOf_ThreeOperands_OrderBrokenForEveryOperand_IsBroken()
     {
-        OrderIsOverdueRule overdue = new OrderIsOverdueRule();
-        OrderIsBigRule big = new OrderIsBigRule();
-        OrderIsFlaggedRule flagged = new OrderIsFlaggedRule();
-        ISpecificationRule<Order> composed = overdue.AnyOf(big, flagged);
+        ISpecificationRule<Order> composed = new OrderIsOverdueRule().AnyOf(new OrderIsBigRule(), new OrderIsFlaggedRule());
 
-        foreach (Order order in SpecificationSamples.All())
-        {
-            bool expected = overdue.IsBroken(order) && big.IsBroken(order) && flagged.IsBroken(order);
-            Assert.Equal(expected, composed.IsBroken(order));
-        }
+        Assert.True(composed.IsBroken(SpecificationSamples.OverdueBigFlagged()));
+    }
+
+    [Fact]
+    public void AnyOf_ThreeOperands_OrderSatisfyingOneOperand_IsNotBroken()
+    {
+        ISpecificationRule<Order> composed = new OrderIsOverdueRule().AnyOf(new OrderIsBigRule(), new OrderIsFlaggedRule());
+
+        Assert.False(composed.IsBroken(SpecificationSamples.OverdueBig()));
+    }
+
+    [Fact]
+    public void AllOf_ThreeOperands_OrderSatisfyingEveryOperand_IsNotBroken()
+    {
+        ISpecificationRule<Order> composed = new OrderIsOverdueRule().AllOf(new OrderIsBigRule(), new OrderIsFlaggedRule());
+
+        Assert.False(composed.IsBroken(SpecificationSamples.CurrentSmall()));
+        Assert.True(composed.IsBroken(SpecificationSamples.CurrentSmallFlagged()));
     }
 
     [Fact]

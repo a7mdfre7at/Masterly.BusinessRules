@@ -3,7 +3,6 @@
   <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <Nullable>enable</Nullable>
     <Description>Microsoft.FeatureManagement adapter supplying Masterly.BusinessRules feature-gated rules with their rollout state.</Description>
     <PackageTags>Rule;Business;Engine;FeatureManagement;FeatureFlags;Rollout;Masterly;Csharp;DotNet</PackageTags>
   </PropertyGroup>

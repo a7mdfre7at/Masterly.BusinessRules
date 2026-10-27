@@ -87,7 +87,7 @@ public class DiagnosticsAsyncBusinessRuleTests
         using ActivityCapture capture = new ActivityCapture();
         DiagnosticsAsyncBusinessRule traced = TestRules.Async(BrokenCode, true, RuleSeverity.Warning, onEvaluate: () => Task.Delay(1)).Traced(WithoutMetrics());
 
-        bool isBroken = await traced.IsBrokenAsync(new BusinessRuleContext());
+        bool isBroken = await traced.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.True(isBroken);
         Activity span = capture.SingleRuleSpan();
@@ -104,7 +104,7 @@ public class DiagnosticsAsyncBusinessRuleTests
     {
         using ActivityCapture capture = new ActivityCapture();
 
-        bool isBroken = await TestRules.Async(PassingCode, false).Traced(WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext());
+        bool isBroken = await TestRules.Async(PassingCode, false).Traced(WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.False(isBroken);
         Assert.Equal(RuleOutcomeTags.Passed, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
@@ -116,8 +116,8 @@ public class DiagnosticsAsyncBusinessRuleTests
         IAsyncBusinessRule inner = AsyncBusinessRuleBuilder.Create(BrokenCode).WithMessage("m").WhenAsync(ctx => Task.FromResult(ctx.ContainsKey(ContextKey))).Build();
         DiagnosticsAsyncBusinessRule traced = inner.Traced(WithoutMetrics());
 
-        Assert.True(await traced.IsBrokenAsync(RuleTestHelper.CreateContext((ContextKey, true))));
-        Assert.False(await traced.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await traced.IsBrokenAsync(RuleTestHelper.CreateContext((ContextKey, true)), TestContext.Current.CancellationToken));
+        Assert.False(await traced.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -126,7 +126,7 @@ public class DiagnosticsAsyncBusinessRuleTests
         using ActivityCapture capture = new ActivityCapture();
         DiagnosticsAsyncBusinessRule traced = TestRules.Async(BrokenCode, true, message: "no items").Traced(new TracingRuleObserverOptions { RecordMetrics = false, MessageAsEvent = true });
 
-        BusinessRuleResult? result = await traced.EvaluateAsync(new BusinessRuleContext());
+        BusinessRuleResult? result = await traced.EvaluateAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal(BrokenCode, result!.Code);
@@ -140,7 +140,7 @@ public class DiagnosticsAsyncBusinessRuleTests
     {
         using ActivityCapture capture = new ActivityCapture();
 
-        BusinessRuleResult? result = await TestRules.Async(PassingCode, false).Traced(WithoutMetrics()).EvaluateAsync(new BusinessRuleContext());
+        BusinessRuleResult? result = await TestRules.Async(PassingCode, false).Traced(WithoutMetrics()).EvaluateAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.Null(result);
         Assert.Equal(RuleOutcomeTags.Passed, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
@@ -152,7 +152,7 @@ public class DiagnosticsAsyncBusinessRuleTests
         using ActivityCapture capture = new ActivityCapture();
         DiagnosticsAsyncBusinessRule traced = TestRules.Async(BrokenCode, true).Traced(WithoutMetrics());
 
-        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(() => traced.CheckAsync(new BusinessRuleContext()));
+        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(() => traced.CheckAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
 
         Assert.Equal(BrokenCode, Assert.Single(exception.BrokenRules).Code);
         Assert.Equal(RuleOutcomeTags.Broken, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
@@ -163,7 +163,7 @@ public class DiagnosticsAsyncBusinessRuleTests
     {
         using ActivityCapture capture = new ActivityCapture();
 
-        await TestRules.Async(PassingCode, false).Traced(WithoutMetrics()).CheckAsync(new BusinessRuleContext());
+        await TestRules.Async(PassingCode, false).Traced(WithoutMetrics()).CheckAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.Equal(RuleOutcomeTags.Passed, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
     }
@@ -175,7 +175,7 @@ public class DiagnosticsAsyncBusinessRuleTests
         IAsyncBusinessRule composed = TestRules.Async("A", true, message: "a broke").And(TestRules.Async("B", true, message: "b broke"));
         DiagnosticsAsyncBusinessRule traced = composed.Traced(new TracingRuleObserverOptions { RecordMetrics = false, MessageAsEvent = true });
 
-        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => traced.CheckAsync(new BusinessRuleContext()));
+        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => traced.CheckAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
 
         Activity span = capture.SingleRuleSpan();
         Assert.Null(span.GetTagItem(BusinessRuleSpanAttributes.Code));
@@ -194,7 +194,7 @@ public class DiagnosticsAsyncBusinessRuleTests
             childParent = child.Parent;
         }).Traced(WithoutMetrics());
 
-        await traced.IsBrokenAsync(new BusinessRuleContext());
+        await traced.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.Same(capture.SingleRuleSpan(), childParent);
     }
@@ -205,7 +205,7 @@ public class DiagnosticsAsyncBusinessRuleTests
         using ActivityCapture capture = new ActivityCapture();
         using Activity request = new Activity("http.request").Start();
 
-        await TestRules.Async(PassingCode, false).Traced(WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext());
+        await TestRules.Async(PassingCode, false).Traced(WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.Same(request, capture.SingleRuleSpan().Parent);
         Assert.Same(request, Activity.Current);
@@ -221,7 +221,7 @@ public class DiagnosticsAsyncBusinessRuleTests
         using ActivityCapture capture = new ActivityCapture();
         InvalidOperationException fault = new InvalidOperationException(TestRules.Boom);
 
-        InvalidOperationException thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode, fault).Traced(WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext()));
+        InvalidOperationException thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode, fault).Traced(WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
 
         Assert.Same(fault, thrown);
         Activity span = capture.SingleRuleSpan();
@@ -235,7 +235,7 @@ public class DiagnosticsAsyncBusinessRuleTests
     {
         using ActivityCapture capture = new ActivityCapture();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode).Traced(WithoutMetrics()).EvaluateAsync(new BusinessRuleContext()));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode).Traced(WithoutMetrics()).EvaluateAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
 
         Assert.Equal(RuleOutcomeTags.Faulted, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
     }
@@ -245,7 +245,7 @@ public class DiagnosticsAsyncBusinessRuleTests
     {
         using ActivityCapture capture = new ActivityCapture();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode).Traced(WithoutMetrics()).CheckAsync(new BusinessRuleContext()));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode).Traced(WithoutMetrics()).CheckAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
 
         Assert.Equal(RuleOutcomeTags.Faulted, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
     }
@@ -289,7 +289,7 @@ public class DiagnosticsAsyncBusinessRuleTests
     {
         using MetricsCapture metrics = new MetricsCapture();
 
-        await TestRules.Async(BrokenCode, true).Traced(metrics.TracingOptions()).IsBrokenAsync(new BusinessRuleContext());
+        await TestRules.Async(BrokenCode, true).Traced(metrics.TracingOptions()).IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Measurement evaluation = Assert.Single(metrics.Evaluations);
         Assert.Equal(BrokenCode, evaluation[BusinessRulesMetrics.CodeTag]);
@@ -303,7 +303,7 @@ public class DiagnosticsAsyncBusinessRuleTests
     {
         using MetricsCapture metrics = new MetricsCapture();
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode).Traced(metrics.TracingOptions()).EvaluateAsync(new BusinessRuleContext()));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode).Traced(metrics.TracingOptions()).EvaluateAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
 
         Assert.Equal(RuleOutcomeTags.Faulted, Assert.Single(metrics.Evaluations)[BusinessRulesMetrics.OutcomeTag]);
         Assert.Single(metrics.Durations);
@@ -315,7 +315,7 @@ public class DiagnosticsAsyncBusinessRuleTests
         CapturingLogger logger = new CapturingLogger();
         DiagnosticsAsyncBusinessRule traced = TestRules.Async(BrokenCode, true, RuleSeverity.Info, message: "no items").Traced(logger, WithoutMetrics());
 
-        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => traced.CheckAsync(new BusinessRuleContext()));
+        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => traced.CheckAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
 
         LogEntry entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Debug, entry.Level);
@@ -330,7 +330,7 @@ public class DiagnosticsAsyncBusinessRuleTests
         CapturingLogger logger = new CapturingLogger();
         InvalidOperationException fault = new InvalidOperationException(TestRules.Boom);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode, fault).Traced(logger, WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext()));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => TestRules.AsyncThrowing(ThrowingCode, fault).Traced(logger, WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
 
         LogEntry entry = Assert.Single(logger.Entries);
         Assert.Equal(RuleLogEvents.RuleFaulted, entry.EventId);
@@ -340,9 +340,103 @@ public class DiagnosticsAsyncBusinessRuleTests
     [Fact]
     public async Task IsBrokenAsync_NoListener_StillReturnsVerdict()
     {
-        bool isBroken = await TestRules.Async(BrokenCode, true).Traced(WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext());
+        bool isBroken = await TestRules.Async(BrokenCode, true).Traced(WithoutMetrics()).IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.True(isBroken);
+        Assert.Null(Activity.Current);
+    }
+
+    // ---------------------------------------------------------------------
+    // Walker paths: details and explanation subtree survive the decorator
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task CheckAllAsync_TracedGroup_KeepsTheMemberDetails()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        IAsyncBusinessRule group = AsyncRuleGroup.All("KYC", "KYC failed", TestRules.Async("A", true), TestRules.Async("B", true));
+
+        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
+            () => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), new[] { group.Traced(WithoutMetrics()) }, new AsyncRuleEvaluationOptions(), TestContext.Current.CancellationToken));
+
+        BusinessRuleResult result = Assert.Single(exception.BrokenRules);
+        Assert.Equal(new[] { "A", "B" }, result.Details.Select(detail => detail.Code));
+        Assert.Equal(RuleOutcomeTags.Broken, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+    }
+
+    [Fact]
+    public async Task ExplainAsync_TracedGroup_RecordsTheGroupSubtreeUnderATracedNode()
+    {
+        IAsyncBusinessRule group = AsyncRuleGroup.All("KYC", "KYC failed", TestRules.Async("A", true), TestRules.Async("B", false));
+
+        RuleExplanation explanation = await group.Traced(WithoutMetrics()).ExplainAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(DiagnosticsText.TracedOperator, explanation.Operator);
+        Assert.Equal(RuleOutcome.Broken, explanation.Outcome);
+        RuleExplanation groupNode = Assert.Single(explanation.Children);
+        Assert.Equal("KYC", groupNode.Code);
+        Assert.Equal(new[] { "A", "B" }, groupNode.Children.Select(child => child.Code));
+    }
+
+    [Fact]
+    public void ExplanationOperator_IsTraced()
+    {
+        DiagnosticsAsyncBusinessRule traced = TestRules.Async(BrokenCode, true).Traced();
+
+        Assert.Equal("TRACED", traced.ExplanationOperator);
+        Assert.IsAssignableFrom<IExplainableDecoratedAsyncBusinessRule>(traced);
+    }
+
+    [Fact]
+    public async Task EvaluateDecoratedAsync_NullEvaluation_Throws()
+    {
+        DiagnosticsAsyncBusinessRule traced = TestRules.Async(BrokenCode, true).Traced();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => traced.EvaluateDecoratedAsync(null!, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_TracedRuleThrows_RecordsAFaultedDecoratorSpan()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode).Traced(WithoutMetrics()) }, new AsyncRuleEvaluationOptions(), TestContext.Current.CancellationToken));
+
+        Assert.Equal(RuleOutcomeTags.Faulted, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+        Assert.Null(Activity.Current);
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_TracedRuleCancelled_ClosesTheDecoratorSpanAsCancelledWithoutMetrics()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        using MetricsCapture metrics = new MetricsCapture();
+        IAsyncBusinessRule cancelling = TestRules.AsyncThrowing(BrokenCode, new OperationCanceledException()).Traced(metrics.TracingOptions());
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), new[] { cancelling }, new AsyncRuleEvaluationOptions(), TestContext.Current.CancellationToken));
+
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+        Assert.Empty(metrics.Measurements);
+        Assert.Null(Activity.Current);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_CancelledToken_ClosesSpanAsCancelledWithoutMetricsOrLog()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        using MetricsCapture metrics = new MetricsCapture();
+        CapturingLogger logger = new CapturingLogger();
+        using CancellationTokenSource source = new CancellationTokenSource();
+        source.Cancel();
+        DiagnosticsAsyncBusinessRule traced = TestRules.AsyncCancellable(BrokenCode).Traced(logger, metrics.TracingOptions());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => traced.EvaluateAsync(new BusinessRuleContext(), source.Token));
+
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+        Assert.Empty(metrics.Measurements);
+        Assert.Empty(logger.Entries);
         Assert.Null(Activity.Current);
     }
 

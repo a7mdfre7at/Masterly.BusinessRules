@@ -278,11 +278,13 @@ namespace Masterly.BusinessRules
             List<RuleEvaluationEntry> entries = new List<RuleEvaluationEntry>(batch.Count);
             List<BusinessRuleResult> shadowResults = new List<BusinessRuleResult>();
             ShadowViolationSink? sink = ShadowViolationSink.Attach(context, out bool attachedSink);
+            bool batchOpen = false;
 
             try
             {
                 long batchStart = RuleTiming.Start();
                 observer?.OnBatchStarted(batch.Count);
+                batchOpen = true;
 
                 int index = 0;
                 for (; index < batch.Count; index++)
@@ -304,8 +306,14 @@ namespace Masterly.BusinessRules
                 }
 
                 RuleEvaluationResult result = new RuleEvaluationResult(entries, RuleTiming.ElapsedSince(batchStart), shadowResults);
+                batchOpen = false;
                 observer?.OnBatchCompleted(result);
                 return result;
+            }
+            catch (Exception exception) when (batchOpen && observer != null)
+            {
+                observer!.OnBatchAborted(exception); // the filter guarantees a non-null observer
+                throw;
             }
             finally
             {
@@ -329,7 +337,17 @@ namespace Masterly.BusinessRules
             foreach (ShadowViolation violation in sink.Drain())
             {
                 shadowResults.Add(violation.Result);
-                observer?.OnShadowViolation(violation.AsSyncRule(), violation.Result);
+                if (observer == null)
+                {
+                    continue;
+                }
+
+                IBusinessRule gatedRule = violation.AsSyncRule();
+                observer.OnShadowViolation(gatedRule, violation.Result);
+                if (violation.Fault != null)
+                {
+                    observer.OnShadowFault(gatedRule, violation.Fault);
+                }
             }
         }
 
@@ -337,7 +355,7 @@ namespace Masterly.BusinessRules
         {
             if (rule == null)
             {
-                throw new ArgumentException($"The rule at position {order} is null.", "rules");
+                throw new ArgumentException(CheckerText.NullRuleAt(order), CheckerText.RulesParameterName);
             }
 
             IRuleExecutionObserver? observer = options.Observer;
@@ -349,7 +367,12 @@ namespace Masterly.BusinessRules
             {
                 result = BusinessRuleWalker.EvaluateNode(rule, context, null);
             }
-            catch (Exception exception) when (!(exception is OperationCanceledException))
+            catch (OperationCanceledException cancellation)
+            {
+                observer?.OnRuleCancelled(rule, cancellation);
+                throw;
+            }
+            catch (Exception exception)
             {
                 TimeSpan faultElapsed = RuleTiming.ElapsedSince(start);
                 Exception fault = ContextReadFault.Wrap(rule, exception);
@@ -402,7 +425,7 @@ namespace Masterly.BusinessRules
         {
             if (rule == null)
             {
-                throw new ArgumentException($"The rule at position {order} is null.", "rules");
+                throw new ArgumentException(CheckerText.NullRuleAt(order), CheckerText.RulesParameterName);
             }
 
             return new RuleEvaluationEntry(order, rule, RuleOutcome.NotEvaluated, null, null, TimeSpan.Zero);

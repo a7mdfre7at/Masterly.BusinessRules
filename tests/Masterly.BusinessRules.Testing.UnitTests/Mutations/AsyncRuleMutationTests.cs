@@ -192,6 +192,27 @@ public class AsyncRuleMutationTests
     }
 
     [Fact]
+    public async Task ExplainAsync_InvertedBrokenRule_PassesWithTheBrokenRuleAsChild()
+    {
+        IAsyncBusinessRule mutant = CreateRule(broken: true).Invert();
+
+        RuleExplanation explanation = await mutant.ExplainAsync(new BusinessRuleContext(), TestToken);
+
+        Assert.Equal("INVERTED", explanation.Operator);
+        Assert.False(explanation.IsBroken);
+        Assert.Equal(RuleOutcome.Broken, Assert.Single(explanation.Children).Outcome);
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_InvertedBrokenRule_PassesThroughTheWalker()
+    {
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { CreateRule(broken: true).Invert() }, new AsyncRuleEvaluationOptions(), TestToken);
+
+        Assert.True(result.AllPassed);
+        Assert.Equal(Code, Assert.Single(result.PassedRules).Code);
+    }
+
+    [Fact]
     public async Task ExplainAsync_AlwaysPass_RecordsTheWrappedRuleAsNotEvaluated()
     {
         IAsyncBusinessRule mutant = CreateRule(broken: true).AlwaysPass();

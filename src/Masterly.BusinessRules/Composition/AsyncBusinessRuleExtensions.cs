@@ -66,7 +66,7 @@ namespace Masterly.BusinessRules
         /// <param name="rule">The async rule to cache.</param>
         /// <param name="duration">The duration to cache the result.</param>
         /// <returns>A cached async rule that wraps the original rule.</returns>
-        public static IAsyncBusinessRule Cached(this IAsyncBusinessRule rule, TimeSpan duration)
+        public static CachedAsyncBusinessRule Cached(this IAsyncBusinessRule rule, TimeSpan duration)
         {
             return new CachedAsyncBusinessRule(rule, duration);
         }

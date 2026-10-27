@@ -82,6 +82,20 @@ public class RulePropertiesTests
     }
 
     [Fact]
+    public void Verify_BrokenBelowOnANonMonotoneRule_ReportsBrokenAboveThePassingValue()
+    {
+        RuleProperties<int> properties = RuleProperties.For<int>(value => BrokenInWindow(value, 400, 600), Gen.Int[0, 1_000]).MonotoneIn(Monotonicity.BrokenBelow);
+
+        RuleAssertionException exception = Assert.Throws<RuleAssertionException>(() => properties.Verify(iterations: Iterations, seed: Seed));
+
+        Assert.StartsWith("Property 'MonotoneIn(BrokenBelow)' failed.", exception.Message);
+        Match counterExample = Regex.Match(exception.Message, @"broken at (\d+) but passing at (\d+)");
+        Assert.True(counterExample.Success, exception.Message);
+        Assert.InRange(int.Parse(counterExample.Groups[1].Value, CultureInfo.InvariantCulture), 400, 600);
+        Assert.True(int.Parse(counterExample.Groups[2].Value, CultureInfo.InvariantCulture) < 400, exception.Message);
+    }
+
+    [Fact]
     public void Verify_WithSeed_IsDeterministic()
     {
         Func<RuleProperties<int>> windowed = () => RuleProperties.For<int>(value => BrokenInWindow(value, 40, 60), Gen.Int[0, 1_000]).MonotoneIn(Monotonicity.BrokenAbove);

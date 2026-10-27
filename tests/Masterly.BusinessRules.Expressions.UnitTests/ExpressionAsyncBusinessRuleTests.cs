@@ -111,6 +111,41 @@ public class ExpressionAsyncBusinessRuleTests
     }
 
     [Fact]
+    public async Task IsBrokenAsync_SyncContextProviderMiss_FallsThroughToTheInjectedAsyncProvider()
+    {
+        ExpressionAsyncBusinessRule rule = Expression.ToAsyncRule(Code, Message, RuleTestHelper.CreateParameterProvider(LimitName, 100_000m));
+        BusinessRuleContext context = Context(12_000m, limit: 1m);
+        context.Set(RuleParameters.ContextKey, RuleTestHelper.CreateParameterProvider("otherParameter", 5m));
+
+        bool isBroken = await rule.IsBrokenAsync(context, TestToken);
+
+        Assert.False(isBroken);
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_AsyncContextProviderMiss_FallsThroughToTheSyncContextProvider()
+    {
+        ExpressionAsyncBusinessRule rule = Expression.ToAsyncRule(Code, Message);
+        BusinessRuleContext context = Context(12_000m, limit: 1m);
+        context.Set(RuleParameters.AsyncContextKey, RuleTestHelper.CreateParameterProvider("otherParameter", 5m));
+        context.Set(RuleParameters.ContextKey, RuleTestHelper.CreateParameterProvider(LimitName, 100_000m));
+
+        bool isBroken = await rule.IsBrokenAsync(context, TestToken);
+
+        Assert.False(isBroken);
+    }
+
+    [Fact]
+    public async Task IsBrokenAsync_InjectedSyncProviderMiss_FallsBackToTheContextBag()
+    {
+        ExpressionAsyncBusinessRule rule = Expression.ToAsyncRule(Code, Message, null, RuleTestHelper.CreateParameterProvider("otherParameter", 100_000m));
+
+        bool isBroken = await rule.IsBrokenAsync(Context(12_000m, limit: 1m), TestToken);
+
+        Assert.True(isBroken);
+    }
+
+    [Fact]
     public async Task IsBrokenAsync_CancelledToken_ThrowsOperationCanceledException()
     {
         ExpressionAsyncBusinessRule rule = Expression.ToAsyncRule(Code, Message);

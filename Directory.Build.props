@@ -18,6 +18,11 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!-- Every packed project ships its XML documentation so consumers get IntelliSense; test projects do not need it. -->
+  <PropertyGroup Condition="!$(MSBuildProjectName.EndsWith('.UnitTests'))">
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory)LICENSE.txt" Pack="true" PackagePath="\" Visible="false" />

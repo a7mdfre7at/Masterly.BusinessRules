@@ -63,6 +63,20 @@ public class AsyncRulePropertiesTests
     }
 
     [Fact]
+    public async Task VerifyAsync_BrokenBelowOnANonMonotoneRule_ReportsBrokenAboveThePassingValue()
+    {
+        AsyncRuleProperties<int> properties = RuleProperties.For<int>(value => BrokenInWindow(value, 400, 600), Gen.Int[0, 1_000]).MonotoneIn(Monotonicity.BrokenBelow);
+
+        RuleAssertionException exception = await Assert.ThrowsAsync<RuleAssertionException>(() => properties.VerifyAsync(iterations: Iterations, seed: Seed, cancellationToken: TestToken));
+
+        Assert.StartsWith("Property 'MonotoneIn(BrokenBelow)' failed.", exception.Message);
+        Match counterExample = Regex.Match(exception.Message, @"broken at (\d+) but passing at (\d+)");
+        Assert.True(counterExample.Success, exception.Message);
+        Assert.InRange(int.Parse(counterExample.Groups[1].Value, CultureInfo.InvariantCulture), 400, 600);
+        Assert.True(int.Parse(counterExample.Groups[2].Value, CultureInfo.InvariantCulture) < 400, exception.Message);
+    }
+
+    [Fact]
     public async Task VerifyAsync_MonotoneBrokenBelow_HoldsForMinimumRule()
     {
         await RuleProperties.For<int>(age => MinimumAgeRule(age), Gen.Int[0, 120])

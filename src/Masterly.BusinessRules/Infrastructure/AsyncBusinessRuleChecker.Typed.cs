@@ -13,6 +13,10 @@ namespace Masterly.BusinessRules
     /// parallel evaluation and observer callbacks behave identically; observers receive the
     /// <see cref="BoundAsyncBusinessRule{TSubject}"/> instances. The overloads without a context evaluate against a fresh context.
     /// <c>EvaluateEachAsync</c> runs one batch per subject, subjects sequentially, and reports them by position.
+    /// <para>Argument order: an overload that takes a context puts it first, as every <see cref="AsyncBusinessRuleChecker"/>
+    /// overload does (<c>(context, subject, rules, ...)</c>); the context-less overloads start with the subject. This
+    /// differs from the sync <see cref="BusinessRuleChecker"/> (<c>(subject, rules, context)</c>) and from
+    /// <c>IRuleRunner&lt;T&gt;.CheckAllAsync(subject, context, ...)</c> in the DependencyInjection package.</para>
     /// </summary>
     /// <example>
     /// <code>
@@ -150,6 +154,84 @@ namespace Masterly.BusinessRules
         public static Task<AsyncRuleEvaluationResult> EvaluateAllAsync<TSubject>(BusinessRuleContext context, TSubject subject, IEnumerable<IAsyncBusinessRule<TSubject>> rules, AsyncRuleEvaluationOptions options, CancellationToken cancellationToken = default)
         {
             return EvaluateAllAsyncCore(context, SubjectBinding.Bind(rules, subject), options, RuleSeverity.Info, cancellationToken);
+        }
+
+        /// <summary>
+        /// Checks the listed typed async rules against the subject using context and throws if any are broken. A params
+        /// form for rules of different classes: <c>CheckAllAsync(context, order, new CustomerMustExistRule(r), new StockRule(i))</c>.
+        /// There is no cancellation token; pass the rules as a collection to cancel.
+        /// </summary>
+        /// <typeparam name="TSubject">The subject type.</typeparam>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="subject">The subject to validate.</param>
+        /// <param name="rule">The first typed async rule to check.</param>
+        /// <param name="others">The remaining typed async rules to check.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="context"/> or <paramref name="others"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when a rule is null.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static Task CheckAllAsync<TSubject>(BusinessRuleContext context, TSubject subject, IAsyncBusinessRule<TSubject> rule, params IAsyncBusinessRule<TSubject>[] others)
+        {
+            return CheckAllAsync(context, subject, SubjectBinding.Concat(rule, others), CancellationToken.None);
+        }
+
+        /// <summary>
+        /// Evaluates the listed typed async rules against the subject using context. Never throws for broken rules.
+        /// A params form for rules of different classes; there is no cancellation token.
+        /// </summary>
+        /// <typeparam name="TSubject">The subject type.</typeparam>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="subject">The subject to validate.</param>
+        /// <param name="rule">The first typed async rule to evaluate.</param>
+        /// <param name="others">The remaining typed async rules to evaluate.</param>
+        /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="context"/> or <paramref name="others"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when a rule is null.</exception>
+        public static Task<AsyncRuleEvaluationResult> EvaluateAllAsync<TSubject>(BusinessRuleContext context, TSubject subject, IAsyncBusinessRule<TSubject> rule, params IAsyncBusinessRule<TSubject>[] others)
+        {
+            return EvaluateAllAsync(context, subject, SubjectBinding.Concat(rule, others), CancellationToken.None);
+        }
+
+        /// <summary>
+        /// Checks the typed async rules that match the listed severity levels against the subject, without a
+        /// cancellation token, so the severities follow the rules directly as in the sync <c>CheckBySeverity</c>.
+        /// </summary>
+        /// <typeparam name="TSubject">The subject type.</typeparam>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="subject">The subject to validate.</param>
+        /// <param name="rules">The typed async rules to filter and check.</param>
+        /// <param name="severities">The severity levels to include.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="context"/> or <paramref name="rules"/> is null.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any matching rules are broken.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static Task CheckBySeverityAsync<TSubject>(
+            BusinessRuleContext context,
+            TSubject subject,
+            IEnumerable<IAsyncBusinessRule<TSubject>> rules,
+            params RuleSeverity[] severities)
+        {
+            return CheckBySeverityAsync(context, subject, rules, CancellationToken.None, severities);
+        }
+
+        /// <summary>
+        /// Checks the typed async rules that have any of the listed tags against the subject, without a cancellation
+        /// token, so the tags follow the rules directly as in the sync <c>CheckByTags</c>.
+        /// </summary>
+        /// <typeparam name="TSubject">The subject type.</typeparam>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="subject">The subject to validate.</param>
+        /// <param name="rules">The typed async rules to filter and check.</param>
+        /// <param name="tags">The tags to filter by (case-insensitive).</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="context"/> or <paramref name="rules"/> is null.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any matching rules are broken.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static Task CheckByTagsAsync<TSubject>(
+            BusinessRuleContext context,
+            TSubject subject,
+            IEnumerable<IAsyncBusinessRule<TSubject>> rules,
+            params string[] tags)
+        {
+            return CheckByTagsAsync(context, subject, rules, CancellationToken.None, tags);
         }
 
         /// <summary>

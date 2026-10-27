@@ -96,7 +96,7 @@ public class ConditionalAsyncRuleTests
         AsyncRuleA innerRule = new AsyncRuleA(true);
         ConditionalAsyncBusinessRule conditionalRule = new ConditionalAsyncBusinessRule(innerRule, ctx => true);
 
-        Assert.True(await conditionalRule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await conditionalRule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public class ConditionalAsyncRuleTests
         AsyncRuleA innerRule = new AsyncRuleA(true);
         ConditionalAsyncBusinessRule conditionalRule = new ConditionalAsyncBusinessRule(innerRule, ctx => false);
 
-        Assert.False(await conditionalRule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.False(await conditionalRule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -119,10 +119,10 @@ public class ConditionalAsyncRuleTests
         BusinessRuleContext context = new BusinessRuleContext();
         context.Set("runRule", false);
 
-        Assert.False(await conditionalRule.IsBrokenAsync(context));
+        Assert.False(await conditionalRule.IsBrokenAsync(context, TestContext.Current.CancellationToken));
 
         context.Set("runRule", true);
-        Assert.True(await conditionalRule.IsBrokenAsync(context));
+        Assert.True(await conditionalRule.IsBrokenAsync(context, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -131,7 +131,7 @@ public class ConditionalAsyncRuleTests
         AsyncRuleA innerRule = new AsyncRuleA(true);
         ConditionalAsyncBusinessRule conditionalRule = new ConditionalAsyncBusinessRule(innerRule, ctx => false);
 
-        BusinessRuleResult? result = await conditionalRule.EvaluateAsync(new BusinessRuleContext());
+        BusinessRuleResult? result = await conditionalRule.EvaluateAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.Null(result);
     }
@@ -143,6 +143,6 @@ public class ConditionalAsyncRuleTests
         ConditionalAsyncBusinessRule conditionalRule = new ConditionalAsyncBusinessRule(innerRule, ctx => false);
 
         // Should not throw
-        await conditionalRule.CheckAsync(new BusinessRuleContext());
+        await conditionalRule.CheckAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
     }
 }

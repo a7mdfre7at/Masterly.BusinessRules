@@ -51,7 +51,7 @@ namespace Masterly.BusinessRules.Expressions
 
         public static object Not(object? value, string nodeText) => !RuleExpressionValues.ToBoolean(value, nodeText);
 
-        public static object IsInItems(object? value, object?[] items) => RuleExpressionValues.IsInItems(value, items);
+        public static bool IsItem(object? value, object? item) => RuleExpressionValues.AreEqual(value, item, false);
 
         public static object IsInCollection(object? value, object? collection, string nodeText) => RuleExpressionValues.IsInCollection(value, collection, nodeText);
 

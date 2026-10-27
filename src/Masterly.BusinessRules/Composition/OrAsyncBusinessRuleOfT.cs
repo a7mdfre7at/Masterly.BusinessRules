@@ -38,9 +38,9 @@ namespace Masterly.BusinessRules
         public string Code => $"{_first.Code}{RuleCompositionText.OrCodeSeparator}{_second.Code}";
 
         /// <summary>
-        /// Gets the synthesised message joining both operands.
+        /// Gets the synthesised message describing both operands, prefixed like the sync twin.
         /// </summary>
-        public string Message => $"{_first.Message}{RuleCompositionText.OrMessageSeparator}{_second.Message}";
+        public string Message => $"{RuleCompositionText.OrMessagePrefix}{_first.Message}{RuleCompositionText.OrMessageSeparator}{_second.Message}";
 
         /// <inheritdoc />
         public RuleSeverity Severity => RuleSeverity.Error;

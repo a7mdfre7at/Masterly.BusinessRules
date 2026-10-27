@@ -12,7 +12,24 @@ namespace Masterly.BusinessRules
     /// </summary>
     internal static class SubjectBinding
     {
-        private const string RulesParameterName = "rules";
+        private const string RulesParameterName = CheckerText.RulesParameterName;
+        private const string OthersParameterName = "others";
+
+        /// <summary>
+        /// Builds the rule set of a params overload: <paramref name="rule"/> followed by <paramref name="others"/>.
+        /// Null members are kept so binding reports them by position.
+        /// </summary>
+        public static List<TRule> Concat<TRule>(TRule rule, TRule[] others)
+        {
+            if (others == null)
+            {
+                throw new ArgumentNullException(OthersParameterName);
+            }
+
+            List<TRule> rules = new List<TRule>(others.Length + 1) { rule };
+            rules.AddRange(others);
+            return rules;
+        }
 
         /// <summary>
         /// Binds every sync typed rule to the subject.
@@ -92,7 +109,7 @@ namespace Masterly.BusinessRules
 
         private static ArgumentException NullRule(int position)
         {
-            return new ArgumentException($"The rule at position {position} is null.", RulesParameterName);
+            return new ArgumentException(CheckerText.NullRuleAt(position), RulesParameterName);
         }
     }
 }

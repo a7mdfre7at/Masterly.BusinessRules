@@ -46,27 +46,24 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
-        /// Sets the condition that determines if the rule is broken.
+        /// Sets the condition that determines if the rule is broken. It replaces any condition or factory set before.
         /// </summary>
         /// <param name="isBrokenCondition">A function that returns true when the rule is broken.</param>
         /// <returns>This builder for method chaining.</returns>
         public BusinessRuleBuilder When(Func<bool> isBrokenCondition)
         {
-            _isBrokenFunc = isBrokenCondition;
-            _ruleFactory = null;
-            return this;
+            return SetCondition(isBrokenCondition, null, null);
         }
 
         /// <summary>
-        /// Sets the condition with context that determines if the rule is broken.
+        /// Sets the condition with context that determines if the rule is broken. It replaces any condition or factory
+        /// set before.
         /// </summary>
         /// <param name="isBrokenCondition">A function that receives context and returns true when the rule is broken.</param>
         /// <returns>This builder for method chaining.</returns>
         public BusinessRuleBuilder When(Func<BusinessRuleContext, bool> isBrokenCondition)
         {
-            _isBrokenWithContextFunc = isBrokenCondition;
-            _ruleFactory = null;
-            return this;
+            return SetCondition(null, isBrokenCondition, null);
         }
 
         /// <summary>
@@ -74,20 +71,20 @@ namespace Masterly.BusinessRules
         /// <see cref="RuleParameters"/> hold every parameter declared with <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameter{T}"/>,
         /// resolved on every evaluation through the provider from <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameters"/>
         /// (or <see cref="RuleParameters.ContextKey"/>) for the scope under <see cref="RuleParameters.ScopeKey"/>.
+        /// It replaces any condition or factory set before.
         /// </summary>
         /// <param name="isBrokenCondition">A function that receives the context and the parameters and returns true when the rule is broken.</param>
         /// <returns>This builder for method chaining.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="isBrokenCondition"/> is null.</exception>
         public BusinessRuleBuilder When(Func<BusinessRuleContext, RuleParameters, bool> isBrokenCondition)
         {
-            _isBrokenWithParametersFunc = isBrokenCondition ?? throw new ArgumentNullException(nameof(isBrokenCondition));
-            _ruleFactory = null;
-            return this;
+            return SetCondition(null, null, isBrokenCondition ?? throw new ArgumentNullException(nameof(isBrokenCondition)));
         }
 
         /// <summary>
         /// Sets the condition from a textual expression compiled by <paramref name="compiler"/> (the seam an expression
         /// package implements). The expression is compiled now, so a malformed expression fails here rather than at evaluation time.
+        /// It replaces any condition or factory set before.
         /// </summary>
         /// <param name="compiler">The compiler that turns the expression into a broken-condition delegate.</param>
         /// <param name="expression">The condition text.</param>
@@ -105,9 +102,8 @@ namespace Masterly.BusinessRules
                 throw new ArgumentNullException(nameof(expression));
             }
 
-            _isBrokenWithContextFunc = compiler.Compile(expression) ?? throw new ArgumentNullException(nameof(compiler), "The condition compiler returned a null delegate.");
-            _ruleFactory = null;
-            return this;
+            Func<BusinessRuleContext, bool> compiled = compiler.Compile(expression) ?? throw new ArgumentNullException(nameof(compiler), "The condition compiler returned a null delegate.");
+            return SetCondition(null, compiled, null);
         }
 
         /// <summary>
@@ -146,6 +142,21 @@ namespace Masterly.BusinessRules
             }
 
             return new BuiltBusinessRule(BuildMetadata(), _isBrokenFunc, _isBrokenWithContextFunc, _isBrokenWithParametersFunc, BuildParameterBinding(), BuildDescriptor());
+        }
+
+        /// <summary>
+        /// Makes exactly one condition current (the last <c>When</c> call wins) and drops any rule factory.
+        /// </summary>
+        private BusinessRuleBuilder SetCondition(
+            Func<bool>? isBrokenFunc,
+            Func<BusinessRuleContext, bool>? isBrokenWithContextFunc,
+            Func<BusinessRuleContext, RuleParameters, bool>? isBrokenWithParametersFunc)
+        {
+            _isBrokenFunc = isBrokenFunc;
+            _isBrokenWithContextFunc = isBrokenWithContextFunc;
+            _isBrokenWithParametersFunc = isBrokenWithParametersFunc;
+            _ruleFactory = null;
+            return this;
         }
 
         private sealed class BuiltBusinessRule : IBusinessRule

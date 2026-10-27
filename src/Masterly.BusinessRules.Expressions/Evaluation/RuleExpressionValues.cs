@@ -9,7 +9,8 @@ namespace Masterly.BusinessRules.Expressions
     /// agree by construction. Numbers promote to <see cref="decimal"/> (to <see cref="double"/> when either side is a
     /// float or double); enums compare to strings by name ignoring case and to numbers by their underlying value;
     /// strings compare ordinally (<c>~=</c> ignores case); null-safe paths yield null and every comparison with null is
-    /// false except <c>==</c>/<c>!=</c>; mismatched types are never equal and never ordered.
+    /// false except <c>==</c>/<c>!=</c>; mismatched types are never equal and never ordered. NaN follows IEEE 754: every
+    /// ordering and <c>==</c> with a NaN operand is false and <c>!=</c> is true.
     /// </summary>
     internal static class RuleExpressionValues
     {
@@ -36,6 +37,11 @@ namespace Masterly.BusinessRules.Expressions
 
         public static bool IsFloating(object? value) => value is float || value is double;
 
+        public static bool IsNaN(object? value)
+        {
+            return (value is double number && double.IsNaN(number)) || (value is float single && float.IsNaN(single));
+        }
+
         public static bool AreEqual(object? left, object? right, bool ignoreCase)
         {
             if (left == null || right == null)
@@ -45,7 +51,7 @@ namespace Masterly.BusinessRules.Expressions
 
             if (IsNumeric(left) && IsNumeric(right))
             {
-                return CompareNumbers(left, right) == 0;
+                return !IsNaN(left) && !IsNaN(right) && CompareNumbers(left, right) == 0;
             }
 
             if (left is Enum || right is Enum)
@@ -64,6 +70,11 @@ namespace Masterly.BusinessRules.Expressions
         public static bool Compare(BinaryOperator op, object? left, object? right, string nodeText)
         {
             if (left == null || right == null)
+            {
+                return false;
+            }
+
+            if ((IsNaN(left) || IsNaN(right)) && IsNumeric(left) && IsNumeric(right))
             {
                 return false;
             }
@@ -176,18 +187,6 @@ namespace Masterly.BusinessRules.Expressions
             return false;
         }
 
-        public static bool IsInItems(object? value, object?[] items)
-        {
-            foreach (object? item in items)
-            {
-                if (AreEqual(value, item, false))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
 
         public static bool InvokeFunction(ExpressionFunction function, object? target, object? argument, bool ignoreCase, string nodeText)
         {

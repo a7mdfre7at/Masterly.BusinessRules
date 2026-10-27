@@ -303,6 +303,18 @@ public class LoggingRuleExecutionObserverTests
         Assert.Equal(LoggingRuleObserverOptions.RedactedMessage, entry["Message"]);
     }
 
+    [Fact]
+    public void EvaluateAll_ShadowViolationBelowTheLoggerLevel_LogsNothing()
+    {
+        CapturingLogger logger = new CapturingLogger { MinimumLevel = LogLevel.Error };
+        IBusinessRule gated = TestRules.Sync(BrokenCode, true).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow));
+        LoggingRuleObserverOptions options = new LoggingRuleObserverOptions { LogBatches = false, ShadowViolationLevel = LogLevel.Warning };
+
+        BusinessRuleChecker.EvaluateAll(new[] { gated }, new BusinessRuleContext(), new RuleEvaluationOptions { Observer = new LoggingRuleExecutionObserver(logger, options) });
+
+        Assert.Empty(logger.Entries);
+    }
+
     // ---------------------------------------------------------------------
     // Statelessness
     // ---------------------------------------------------------------------

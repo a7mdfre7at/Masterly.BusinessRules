@@ -42,6 +42,9 @@ internal static class SpecificationSamples
     /// <summary>Not yet due, small, flagged.</summary>
     public static Order CurrentSmallFlagged() => new Order { Id = 5, Total = 10m, DueDate = Today.AddDays(1), IsPaid = false, IsFlagged = true };
 
+    /// <summary>Overdue, unpaid, big and flagged: broken for every sample rule.</summary>
+    public static Order OverdueBigFlagged() => new Order { Id = 6, Total = 5000m, DueDate = Today.AddDays(-1), IsPaid = false, IsFlagged = true };
+
     public static List<Order> All() => new List<Order> { OverdueSmall(), OverdueBig(), CurrentSmall(), PaidBigFlagged(), CurrentSmallFlagged() };
 }
 

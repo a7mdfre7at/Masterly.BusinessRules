@@ -13,6 +13,7 @@ public static class TestRuleCodes
     public const string Internal = "ORDER.INTERNAL";
     public const string ContextFlag = "CONTEXT.FLAG";
     public const string ContextFlagAsync = "CONTEXT.FLAG_ASYNC";
+    public const string MinimumQuantity = "ORDER.MINIMUM_QUANTITY";
     public const string FlagKey = "flag";
     public const int MaxItems = 100;
 }
@@ -97,6 +98,24 @@ public sealed class ContextFlagRule : BaseBusinessRule
     public override bool IsBroken() => false;
 
     public override bool IsBroken(BusinessRuleContext context) => context.TryGet(TestRuleCodes.FlagKey, out bool flag) && flag;
+}
+
+// The documented primary style of a plain rule: the subject arrives through the constructor, so the container
+// cannot create it and untyped scanning must leave it out.
+public sealed class MinimumQuantityRule : BaseBusinessRule
+{
+    private readonly int _quantity;
+
+    public MinimumQuantityRule(int quantity)
+    {
+        _quantity = quantity;
+    }
+
+    public override string Code => TestRuleCodes.MinimumQuantity;
+
+    public override string Message => "At least one item is required.";
+
+    public override bool IsBroken() => _quantity < 1;
 }
 
 public sealed class ContextFlagAsyncRule : BaseAsyncBusinessRule

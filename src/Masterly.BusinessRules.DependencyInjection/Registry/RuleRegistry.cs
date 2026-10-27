@@ -28,6 +28,8 @@ namespace Masterly.BusinessRules.DependencyInjection
     /// </example>
     public sealed class RuleRegistry : IRuleRegistry
     {
+        private const string CodeSeparator = ", ";
+
         private readonly Dictionary<string, RuleSetLayer[]> _sets;
         private readonly ReadOnlyCollection<string> _setNames;
 
@@ -71,7 +73,9 @@ namespace Masterly.BusinessRules.DependencyInjection
         /// <exception cref="InvalidOperationException">Thrown when a factory returns null.</exception>
         public IReadOnlyList<IBusinessRule> Resolve(string setName, RuleScope? scope = null, BusinessRuleContext? context = null)
         {
-            return ResolveRules(setName, scope, PrepareContext(scope, context), layer => layer.Factories);
+            RuleSetLayer[] layers = LayersOf(setName);
+            RuleScope requested = scope ?? RuleScope.Global;
+            return ResolveRules(layers, requested, StampScope(context, requested), layer => layer.Factories);
         }
 
         /// <inheritdoc />
@@ -79,11 +83,14 @@ namespace Masterly.BusinessRules.DependencyInjection
         /// <exception cref="InvalidOperationException">Thrown when a factory returns null.</exception>
         public IReadOnlyList<IAsyncBusinessRule> ResolveAsyncRules(string setName, RuleScope? scope = null, BusinessRuleContext? context = null)
         {
-            return ResolveRules(setName, scope, PrepareContext(scope, context), layer => layer.AsyncFactories);
+            RuleSetLayer[] layers = LayersOf(setName);
+            RuleScope requested = scope ?? RuleScope.Global;
+            return ResolveRules(layers, requested, StampScope(context, requested), layer => layer.AsyncFactories);
         }
 
         /// <inheritdoc />
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="setName"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the resolved set has async rules, or a factory returns null.</exception>
         public void CheckAll(string setName, RuleScope? scope = null, BusinessRuleContext? context = null)
         {
             CheckAll(setName, scope, context, new RuleEvaluationOptions());
@@ -91,15 +98,27 @@ namespace Masterly.BusinessRules.DependencyInjection
 
         /// <inheritdoc />
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="setName"/> or <paramref name="options"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the resolved set has async rules, or a factory returns null.</exception>
         public void CheckAll(string setName, RuleScope? scope, BusinessRuleContext? context, RuleEvaluationOptions options)
         {
             RequireOptions(options);
-            BusinessRuleContext prepared = PrepareContext(scope, context);
-            BusinessRuleChecker.CheckAll(ResolveRules(setName, scope, prepared, layer => layer.Factories), prepared, options);
+            RuleSetLayer[] layers = LayersOf(setName);
+            RuleScope requested = scope ?? RuleScope.Global;
+            BusinessRuleContext prepared = context ?? new BusinessRuleContext();
+            RuleScopeOverride scopeOverride = RuleScopeOverride.Apply(prepared, requested);
+            try
+            {
+                BusinessRuleChecker.CheckAll(ResolveSynchronousOnly(setName, layers, requested, prepared), prepared, options);
+            }
+            finally
+            {
+                scopeOverride.Restore();
+            }
         }
 
         /// <inheritdoc />
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="setName"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the resolved set has async rules, or a factory returns null.</exception>
         public RuleEvaluationResult EvaluateAll(string setName, RuleScope? scope = null, BusinessRuleContext? context = null)
         {
             return EvaluateAll(setName, scope, context, new RuleEvaluationOptions());
@@ -107,11 +126,22 @@ namespace Masterly.BusinessRules.DependencyInjection
 
         /// <inheritdoc />
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="setName"/> or <paramref name="options"/> is null.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when the resolved set has async rules, or a factory returns null.</exception>
         public RuleEvaluationResult EvaluateAll(string setName, RuleScope? scope, BusinessRuleContext? context, RuleEvaluationOptions options)
         {
             RequireOptions(options);
-            BusinessRuleContext prepared = PrepareContext(scope, context);
-            return BusinessRuleChecker.EvaluateAll(ResolveRules(setName, scope, prepared, layer => layer.Factories), prepared, options);
+            RuleSetLayer[] layers = LayersOf(setName);
+            RuleScope requested = scope ?? RuleScope.Global;
+            BusinessRuleContext prepared = context ?? new BusinessRuleContext();
+            RuleScopeOverride scopeOverride = RuleScopeOverride.Apply(prepared, requested);
+            try
+            {
+                return BusinessRuleChecker.EvaluateAll(ResolveSynchronousOnly(setName, layers, requested, prepared), prepared, options);
+            }
+            finally
+            {
+                scopeOverride.Restore();
+            }
         }
 
         /// <inheritdoc />
@@ -123,12 +153,21 @@ namespace Masterly.BusinessRules.DependencyInjection
 
         /// <inheritdoc />
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="setName"/> or <paramref name="options"/> is null.</exception>
-        public Task CheckAllAsync(string setName, RuleScope? scope, BusinessRuleContext? context, AsyncRuleEvaluationOptions options, CancellationToken cancellationToken = default)
+        public async Task CheckAllAsync(string setName, RuleScope? scope, BusinessRuleContext? context, AsyncRuleEvaluationOptions options, CancellationToken cancellationToken = default)
         {
             RequireOptions(options);
-            BusinessRuleContext prepared = PrepareContext(scope, context);
-            IReadOnlyList<IAsyncBusinessRule> rules = ResolveRules(setName, scope, prepared, layer => layer.AsyncFactories);
-            return AsyncBusinessRuleChecker.CheckAllAsync(prepared, rules, options, cancellationToken);
+            RuleSetLayer[] layers = LayersOf(setName);
+            RuleScope requested = scope ?? RuleScope.Global;
+            BusinessRuleContext prepared = context ?? new BusinessRuleContext();
+            RuleScopeOverride scopeOverride = RuleScopeOverride.Apply(prepared, requested);
+            try
+            {
+                await AsyncBusinessRuleChecker.CheckAllAsync(prepared, ResolveAll(layers, requested, prepared), options, cancellationToken);
+            }
+            finally
+            {
+                scopeOverride.Restore();
+            }
         }
 
         /// <inheritdoc />
@@ -140,23 +179,71 @@ namespace Masterly.BusinessRules.DependencyInjection
 
         /// <inheritdoc />
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="setName"/> or <paramref name="options"/> is null.</exception>
-        public Task<AsyncRuleEvaluationResult> EvaluateAllAsync(string setName, RuleScope? scope, BusinessRuleContext? context, AsyncRuleEvaluationOptions options, CancellationToken cancellationToken = default)
+        public async Task<AsyncRuleEvaluationResult> EvaluateAllAsync(string setName, RuleScope? scope, BusinessRuleContext? context, AsyncRuleEvaluationOptions options, CancellationToken cancellationToken = default)
         {
             RequireOptions(options);
-            BusinessRuleContext prepared = PrepareContext(scope, context);
-            IReadOnlyList<IAsyncBusinessRule> rules = ResolveRules(setName, scope, prepared, layer => layer.AsyncFactories);
-            return AsyncBusinessRuleChecker.EvaluateAllAsync(prepared, rules, options, cancellationToken);
+            RuleSetLayer[] layers = LayersOf(setName);
+            RuleScope requested = scope ?? RuleScope.Global;
+            BusinessRuleContext prepared = context ?? new BusinessRuleContext();
+            RuleScopeOverride scopeOverride = RuleScopeOverride.Apply(prepared, requested);
+            try
+            {
+                return await AsyncBusinessRuleChecker.EvaluateAllAsync(prepared, ResolveAll(layers, requested, prepared), options, cancellationToken);
+            }
+            finally
+            {
+                scopeOverride.Restore();
+            }
         }
 
-        private IReadOnlyList<TRule> ResolveRules<TRule>(
-            string setName,
-            RuleScope? scope,
+        /// <summary>
+        /// Stores the requested scope under <see cref="RuleParameters.ScopeKey"/> (replacing any value) so the resolved
+        /// rules, evaluated later with this context, resolve their parameters for the scope their layers were chosen for.
+        /// </summary>
+        private static BusinessRuleContext StampScope(BusinessRuleContext? context, RuleScope requested)
+        {
+            BusinessRuleContext prepared = context ?? new BusinessRuleContext();
+            prepared.Set(RuleParameters.ScopeKey, requested);
+            return prepared;
+        }
+
+        /// <summary>
+        /// Resolves the sync rules of a set for a synchronous batch, refusing a set that also resolves async rules: a
+        /// synchronous batch cannot evaluate them without blocking, and silently dropping them would pass a broken set.
+        /// </summary>
+        private static IReadOnlyList<IBusinessRule> ResolveSynchronousOnly(string setName, RuleSetLayer[] layers, RuleScope requested, BusinessRuleContext context)
+        {
+            IReadOnlyList<IAsyncBusinessRule> asyncRules = ResolveRules(layers, requested, context, layer => layer.AsyncFactories);
+            if (asyncRules.Count > 0)
+            {
+                string codes = string.Join(CodeSeparator, asyncRules.Select(rule => rule.Code));
+                throw new InvalidOperationException(
+                    $"Rule set '{setName}' (scope {requested}) has {asyncRules.Count} asynchronous rule(s) ({codes}) that a synchronous batch cannot evaluate without blocking. Call CheckAllAsync/EvaluateAllAsync, or evaluate Resolve(...) through BusinessRuleChecker directly.");
+            }
+
+            return ResolveRules(layers, requested, context, layer => layer.Factories);
+        }
+
+        /// <summary>
+        /// Resolves the whole set for an asynchronous batch: the sync rules adapted with <c>ToAsync()</c>, then the async rules.
+        /// </summary>
+        private static IReadOnlyList<IAsyncBusinessRule> ResolveAll(RuleSetLayer[] layers, RuleScope requested, BusinessRuleContext context)
+        {
+            IReadOnlyList<IBusinessRule> syncRules = ResolveRules(layers, requested, context, layer => layer.Factories);
+            IReadOnlyList<IAsyncBusinessRule> asyncRules = ResolveRules(layers, requested, context, layer => layer.AsyncFactories);
+            List<IAsyncBusinessRule> rules = new List<IAsyncBusinessRule>(syncRules.Count + asyncRules.Count);
+            rules.AddRange(syncRules.Select(rule => rule.ToAsync()));
+            rules.AddRange(asyncRules);
+            return rules;
+        }
+
+        private static IReadOnlyList<TRule> ResolveRules<TRule>(
+            RuleSetLayer[] layers,
+            RuleScope requested,
             BusinessRuleContext context,
             Func<RuleSetLayer, IReadOnlyList<Func<BusinessRuleContext, TRule>>> factoriesOf)
             where TRule : class, IBusinessRuleMetadata
         {
-            RuleSetLayer[] layers = LayersOf(setName);
-            RuleScope requested = scope ?? RuleScope.Global;
             List<TRule> rules = new List<TRule>();
 
             foreach (RuleSetLayer layer in layers)
@@ -201,17 +288,6 @@ namespace Masterly.BusinessRules.DependencyInjection
             }
 
             return layers;
-        }
-
-        private static BusinessRuleContext PrepareContext(RuleScope? scope, BusinessRuleContext? context)
-        {
-            BusinessRuleContext prepared = context ?? new BusinessRuleContext();
-            if (!prepared.ContainsKey(RuleParameters.ScopeKey))
-            {
-                prepared.Set(RuleParameters.ScopeKey, scope ?? RuleScope.Global);
-            }
-
-            return prepared;
         }
 
         private static void RequireOptions(object options)

@@ -189,6 +189,27 @@ public class RuleMutationTests
     }
 
     [Fact]
+    public void Explain_InvertedBrokenRule_PassesWithTheBrokenRuleAsChild()
+    {
+        IBusinessRule mutant = CreateRule(broken: true).Invert();
+
+        RuleExplanation explanation = mutant.Explain();
+
+        Assert.Equal("INVERTED", explanation.Operator);
+        Assert.False(explanation.IsBroken);
+        Assert.Equal(RuleOutcome.Broken, Assert.Single(explanation.Children).Outcome);
+    }
+
+    [Fact]
+    public void EvaluateAll_InvertedBrokenRule_PassesThroughTheWalker()
+    {
+        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(CreateRule(broken: true).Invert());
+
+        Assert.True(result.AllPassed);
+        Assert.Equal(Code, Assert.Single(result.PassedRules).Code);
+    }
+
+    [Fact]
     public void Explain_AlwaysPass_RecordsTheWrappedRuleAsNotEvaluated()
     {
         IBusinessRule mutant = CreateRule(broken: true).AlwaysPass();

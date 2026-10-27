@@ -347,6 +347,114 @@ public class DiagnosticsBusinessRuleTests
         Assert.Null(Activity.Current);
     }
 
+    // ---------------------------------------------------------------------
+    // Walker paths: details and explanation subtree survive the decorator
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void CheckAll_TracedGroup_KeepsTheMemberDetails()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        IBusinessRule group = RuleGroup.All("KYC", "KYC failed", TestRules.Sync("A", true), TestRules.Sync("B", true));
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.CheckAll(group.Traced(WithoutMetrics())));
+
+        BusinessRuleResult result = Assert.Single(exception.BrokenRules);
+        Assert.Equal(new[] { "A", "B" }, result.Details.Select(detail => detail.Code));
+        Assert.Equal(RuleOutcomeTags.Broken, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+    }
+
+    [Fact]
+    public void EvaluateAll_TracedGroup_DetailsMatchTheUntracedGroup()
+    {
+        IBusinessRule group = RuleGroup.All("KYC", "KYC failed", TestRules.Sync("A", true), TestRules.Sync("B", true));
+
+        RuleEvaluationResult untraced = BusinessRuleChecker.EvaluateAll(group);
+        RuleEvaluationResult traced = BusinessRuleChecker.EvaluateAll(group.Traced(WithoutMetrics()));
+
+        Assert.Equal(2, Assert.Single(traced.BrokenRules).Details.Count);
+        Assert.Equal(Assert.Single(untraced.BrokenRules).Details.Select(d => d.Code), Assert.Single(traced.BrokenRules).Details.Select(d => d.Code));
+    }
+
+    [Fact]
+    public void Explain_TracedGroup_RecordsTheGroupSubtreeUnderATracedNode()
+    {
+        IBusinessRule group = RuleGroup.All("KYC", "KYC failed", TestRules.Sync("A", true), TestRules.Sync("B", false));
+
+        RuleExplanation explanation = group.Traced(WithoutMetrics()).Explain();
+
+        Assert.Equal(DiagnosticsText.TracedOperator, explanation.Operator);
+        Assert.Equal(RuleOutcome.Broken, explanation.Outcome);
+        RuleExplanation groupNode = Assert.Single(explanation.Children);
+        Assert.Equal("KYC", groupNode.Code);
+        Assert.Equal(new[] { "A", "B" }, groupNode.Children.Select(child => child.Code));
+    }
+
+    [Fact]
+    public void Explain_TracedPassingRule_RecordsAPassedSpan()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+
+        RuleExplanation explanation = TestRules.Sync(PassingCode, false).Traced(WithoutMetrics()).Explain();
+
+        Assert.Equal(RuleOutcome.Passed, explanation.Outcome);
+        Assert.Equal(RuleOutcomeTags.Passed, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+    }
+
+    [Fact]
+    public void ExplanationOperator_IsTraced()
+    {
+        DiagnosticsBusinessRule traced = TestRules.Sync(BrokenCode, true).Traced();
+
+        Assert.Equal("TRACED", traced.ExplanationOperator);
+        Assert.IsAssignableFrom<IExplainableDecoratedBusinessRule>(traced);
+    }
+
+    [Fact]
+    public void EvaluateDecorated_NullEvaluation_Throws()
+    {
+        DiagnosticsBusinessRule traced = TestRules.Sync(BrokenCode, true).Traced();
+
+        Assert.Throws<ArgumentNullException>(() => traced.EvaluateDecorated(null!));
+    }
+
+    [Fact]
+    public void CheckAll_TracedRuleThrows_RecordsAFaultedDecoratorSpan()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+
+        Assert.Throws<InvalidOperationException>(() => BusinessRuleChecker.CheckAll(TestRules.SyncThrowing(ThrowingCode).Traced(WithoutMetrics())));
+
+        Assert.Equal(RuleOutcomeTags.Faulted, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+        Assert.Null(Activity.Current);
+    }
+
+    [Fact]
+    public void CheckAll_TracedRuleCancelled_ClosesTheDecoratorSpanAsCancelledWithoutMetrics()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        using MetricsCapture metrics = new MetricsCapture();
+        IBusinessRule cancelling = BusinessRuleBuilder.Create(BrokenCode).WithMessage("m").When(() => throw new OperationCanceledException()).Build();
+
+        Assert.Throws<OperationCanceledException>(() => BusinessRuleChecker.CheckAll(cancelling.Traced(metrics.TracingOptions())));
+
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+        Assert.Empty(metrics.Measurements);
+        Assert.Null(Activity.Current);
+    }
+
+    [Fact]
+    public void Check_CancelledRule_ClosesSpanAsCancelled()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        IBusinessRule cancelling = BusinessRuleBuilder.Create(BrokenCode).WithMessage("m").When(() => throw new OperationCanceledException()).Build();
+
+        Assert.Throws<OperationCanceledException>(() => cancelling.Traced(WithoutMetrics()).Check(new BusinessRuleContext()));
+
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+        Assert.Null(Activity.Current);
+    }
+
     private static TracingRuleObserverOptions WithoutMetrics()
     {
         return new TracingRuleObserverOptions { RecordMetrics = false };

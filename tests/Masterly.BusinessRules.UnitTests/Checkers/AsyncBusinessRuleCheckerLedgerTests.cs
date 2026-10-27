@@ -8,6 +8,9 @@ public class AsyncBusinessRuleCheckerLedgerTests
     private const string FlagKey = "flag";
     private const string Boom = "boom";
 
+    private static readonly TimeSpan SlowRuleDuration = TimeSpan.FromMilliseconds(100);
+    private static readonly TimeSpan ParallelTimeout = TimeSpan.FromSeconds(10);
+
     private static CancellationToken TestToken => TestContext.Current.CancellationToken;
 
     // ---------------------------------------------------------------------
@@ -59,7 +62,7 @@ public class AsyncBusinessRuleCheckerLedgerTests
     [Fact]
     public async Task EvaluateAllAsync_WithOptions_TotalDurationCoversEveryEntry()
     {
-        IAsyncBusinessRule slow = CreateSlowRule("SLOW", TimeSpan.FromMilliseconds(5));
+        IAsyncBusinessRule slow = CreateSlowRule("SLOW", SlowRuleDuration);
         IAsyncBusinessRule fast = CreateRule("FAST", broken: false);
 
         AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new[] { slow, fast }, new AsyncRuleEvaluationOptions(), TestToken);
@@ -72,7 +75,7 @@ public class AsyncBusinessRuleCheckerLedgerTests
     public async Task EvaluateAllAsync_WithOptions_SlowestIsTheSlowRule()
     {
         IAsyncBusinessRule fast = CreateRule("FAST", broken: false);
-        IAsyncBusinessRule slow = CreateSlowRule("SLOW", TimeSpan.FromMilliseconds(10));
+        IAsyncBusinessRule slow = CreateSlowRule("SLOW", SlowRuleDuration);
 
         AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new[] { fast, slow }, new AsyncRuleEvaluationOptions(), TestToken);
 
@@ -133,21 +136,26 @@ public class AsyncBusinessRuleCheckerLedgerTests
     [Fact]
     public async Task EvaluateAllAsync_Parallel_RunsRulesConcurrently()
     {
-        int concurrent = 0;
-        int maxConcurrent = 0;
-        IAsyncBusinessRule[] rules = Enumerable.Range(0, 4).Select(i => AsyncBusinessRuleBuilder.Create($"R{i}").WithMessage("r")
+        const int ruleCount = 4;
+        int started = 0;
+        TaskCompletionSource<bool> allStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        IAsyncBusinessRule[] rules = Enumerable.Range(0, ruleCount).Select(i => AsyncBusinessRuleBuilder.Create($"R{i}").WithMessage("r")
             .WhenAsync(async (ctx, ct) =>
             {
-                int now = Interlocked.Increment(ref concurrent);
-                InterlockedMax(ref maxConcurrent, now);
-                await Task.Delay(30, ct);
-                Interlocked.Decrement(ref concurrent);
+                if (Interlocked.Increment(ref started) == ruleCount)
+                {
+                    allStarted.TrySetResult(true);
+                }
+
+                // Every rule waits until all four have started: a sequential batch would time out here.
+                await allStarted.Task.WaitAsync(ParallelTimeout, ct);
                 return false;
             }).Build()).ToArray();
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(rules, new AsyncRuleEvaluationOptions { RunInParallel = true }, TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(rules, new AsyncRuleEvaluationOptions { RunInParallel = true }, TestToken);
 
-        Assert.True(maxConcurrent > 1);
+        Assert.Equal(ruleCount, started);
+        Assert.True(result.AllPassed);
     }
 
     [Fact]
@@ -642,15 +650,6 @@ public class AsyncBusinessRuleCheckerLedgerTests
     // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
-
-    private static void InterlockedMax(ref int target, int candidate)
-    {
-        int current = Volatile.Read(ref target);
-        while (candidate > current && Interlocked.CompareExchange(ref target, candidate, current) != current)
-        {
-            current = Volatile.Read(ref target);
-        }
-    }
 
     private static IAsyncBusinessRule CreateRule(string code, bool broken, RuleSeverity severity = RuleSeverity.Error)
     {

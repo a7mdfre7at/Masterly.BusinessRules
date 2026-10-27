@@ -77,9 +77,51 @@ public class BusinessRuleServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void AddBusinessRules_Assembly_RegistersUntypedRulesByDefault()
+    public void AddBusinessRules_Assembly_SkipsUntypedRulesByDefault()
     {
         using ServiceProvider provider = BuildProvider(services => services.AddBusinessRules(TestAssembly));
+        using IServiceScope scope = provider.CreateScope();
+
+        Assert.Empty(scope.ServiceProvider.GetRequiredService<IEnumerable<IBusinessRule>>());
+        Assert.Empty(scope.ServiceProvider.GetRequiredService<IEnumerable<IAsyncBusinessRule>>());
+    }
+
+    [Fact]
+    public void AddBusinessRules_DefaultWithAConstructorSubjectRuleInTheAssembly_PassesValidateOnBuild()
+    {
+        ServiceCollection services = new ServiceCollection();
+        services.AddSingleton<IOrderLimitSource>(new FixedOrderLimitSource(Limit));
+        services.AddBusinessRules(TestAssembly);
+
+        Exception? exception = Record.Exception(() => services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true }).Dispose());
+
+        Assert.Null(exception);
+        Assert.DoesNotContain(services, descriptor => descriptor.ImplementationType == typeof(MinimumQuantityRule));
+    }
+
+    [Fact]
+    public void AddBusinessRules_IncludeUntypedRulesWithAConstructorSubjectRule_FailsValidateOnBuild()
+    {
+        ServiceCollection services = new ServiceCollection();
+        services.AddSingleton<IOrderLimitSource>(new FixedOrderLimitSource(Limit));
+        services.AddBusinessRules(options =>
+        {
+            options.IncludeUntypedRules = true;
+            options.AddAssembly(TestAssembly);
+        });
+
+        Assert.Throws<AggregateException>(() => services.BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true }));
+    }
+
+    [Fact]
+    public void AddBusinessRules_IncludeUntypedRulesWithATypeFilter_RegistersTheInjectableUntypedRules()
+    {
+        using ServiceProvider provider = BuildProvider(services => services.AddBusinessRules(options =>
+        {
+            options.IncludeUntypedRules = true;
+            options.TypeFilter = type => type != typeof(MinimumQuantityRule);
+            options.AddAssembly(TestAssembly);
+        }));
         using IServiceScope scope = provider.CreateScope();
 
         IBusinessRule syncRule = Assert.Single(scope.ServiceProvider.GetRequiredService<IEnumerable<IBusinessRule>>());

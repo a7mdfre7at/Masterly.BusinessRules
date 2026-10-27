@@ -14,13 +14,13 @@ public class BusinessRuleOptionsTests
     // ---------------------------------------------------------------------
 
     [Fact]
-    public void Defaults_AreScopedPublicWithUntypedRulesAndNoFilter()
+    public void Defaults_AreScopedPublicWithoutUntypedRulesAndNoFilter()
     {
         BusinessRuleOptions options = new BusinessRuleOptions();
 
         Assert.Equal(ServiceLifetime.Scoped, options.Lifetime);
         Assert.False(options.IncludeNonPublicTypes);
-        Assert.True(options.IncludeUntypedRules);
+        Assert.False(options.IncludeUntypedRules);
         Assert.Null(options.TypeFilter);
         Assert.Empty(options.Assemblies);
         Assert.Equal(0, options.RuleSetCount);

@@ -114,6 +114,39 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Checks the listed typed rules against the subject and throws if any are broken. A params form of
+        /// <see cref="CheckAll{TSubject}(TSubject, IEnumerable{IBusinessRule{TSubject}}, BusinessRuleContext)"/> for rules of
+        /// different classes: <c>BusinessRuleChecker.CheckAll(order, new OrderIsOverdueRule(), new OrderTooLargeRule())</c>.
+        /// </summary>
+        /// <typeparam name="TSubject">The subject type.</typeparam>
+        /// <param name="subject">The subject to validate.</param>
+        /// <param name="rule">The first typed rule to check.</param>
+        /// <param name="others">The remaining typed rules to check.</param>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="others"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when a rule is null.</exception>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any rules are broken.</exception>
+        public static void CheckAll<TSubject>(TSubject subject, IBusinessRule<TSubject> rule, params IBusinessRule<TSubject>[] others)
+        {
+            CheckAll(subject, SubjectBinding.Concat(rule, others), (BusinessRuleContext?)null);
+        }
+
+        /// <summary>
+        /// Evaluates the listed typed rules against the subject. Never throws for broken rules. A params form of
+        /// <see cref="EvaluateAll{TSubject}(TSubject, IEnumerable{IBusinessRule{TSubject}}, BusinessRuleContext)"/>.
+        /// </summary>
+        /// <typeparam name="TSubject">The subject type.</typeparam>
+        /// <param name="subject">The subject to validate.</param>
+        /// <param name="rule">The first typed rule to evaluate.</param>
+        /// <param name="others">The remaining typed rules to evaluate.</param>
+        /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="others"/> is null.</exception>
+        /// <exception cref="ArgumentException">Thrown when a rule is null.</exception>
+        public static RuleEvaluationResult EvaluateAll<TSubject>(TSubject subject, IBusinessRule<TSubject> rule, params IBusinessRule<TSubject>[] others)
+        {
+            return EvaluateAll(subject, SubjectBinding.Concat(rule, others), (BusinessRuleContext?)null);
+        }
+
+        /// <summary>
         /// Checks only the typed rules that match the specified severity levels against the subject.
         /// </summary>
         /// <typeparam name="TSubject">The subject type.</typeparam>

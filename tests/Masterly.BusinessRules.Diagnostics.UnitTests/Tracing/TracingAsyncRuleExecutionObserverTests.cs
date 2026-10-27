@@ -30,13 +30,13 @@ public class TracingAsyncRuleExecutionObserverTests
     {
         TracingAsyncRuleExecutionObserver observer = new TracingAsyncRuleExecutionObserver();
 
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnBeforeEvaluateAsync(null!));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnAfterEvaluateAsync(null!, true, TimeSpan.Zero));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnRuleFaultedAsync(null!, new InvalidOperationException()));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnRuleFaultedAsync(TestRules.Async(BrokenCode, true), null!));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnBatchCompletedAsync(null!));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnShadowViolationAsync(null!, new BusinessRuleResult(BrokenCode, "m", RuleSeverity.Error)));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnShadowViolationAsync(TestRules.Async(BrokenCode, true), null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnBeforeEvaluateAsync(null!, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnAfterEvaluateAsync(null!, true, TimeSpan.Zero, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnRuleFaultedAsync(null!, new InvalidOperationException(), TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnRuleFaultedAsync(TestRules.Async(BrokenCode, true), null!, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnBatchCompletedAsync(null!, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnShadowViolationAsync(null!, new BusinessRuleResult(BrokenCode, "m", RuleSeverity.Error), TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnShadowViolationAsync(TestRules.Async(BrokenCode, true), null!, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class TracingAsyncRuleExecutionObserverTests
         using ActivityCapture capture = new ActivityCapture();
         IAsyncBusinessRule[] rules = { TestRules.Async(BrokenCode, true), TestRules.Async(PassingCode, false) };
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) }, TestContext.Current.CancellationToken);
 
         Activity batch = capture.SingleBatchSpan();
         Assert.Equal(2, capture.RuleSpans.Count);
@@ -89,7 +89,7 @@ public class TracingAsyncRuleExecutionObserverTests
     {
         using ActivityCapture capture = new ActivityCapture();
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true, RuleSeverity.Info) }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true, RuleSeverity.Info) }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) }, TestContext.Current.CancellationToken);
 
         Activity span = capture.SingleRuleSpan();
         Assert.Equal(BrokenCode, span.DisplayName);
@@ -107,7 +107,7 @@ public class TracingAsyncRuleExecutionObserverTests
         using ActivityCapture capture = new ActivityCapture();
         IAsyncBusinessRule composed = TestRules.Async("A", true).Or(TestRules.Async("B", false));
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { composed }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { composed }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) }, TestContext.Current.CancellationToken);
 
         Activity span = capture.SingleRuleSpan();
         Assert.Null(span.GetTagItem(BusinessRuleSpanAttributes.Code));
@@ -125,7 +125,7 @@ public class TracingAsyncRuleExecutionObserverTests
             TestRules.Async("C", true, onEvaluate: () => Task.Delay(5))
         };
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()), RunInParallel = true });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()), RunInParallel = true }, TestContext.Current.CancellationToken);
 
         Activity batch = capture.SingleBatchSpan();
         Assert.Equal(3, capture.RuleSpans.Count);
@@ -151,7 +151,7 @@ public class TracingAsyncRuleExecutionObserverTests
             childParent = child.Parent;
         });
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { rule }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { rule }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) }, TestContext.Current.CancellationToken);
 
         Assert.NotNull(childParent);
         Assert.Same(capture.SingleRuleSpan(), childParent);
@@ -170,7 +170,7 @@ public class TracingAsyncRuleExecutionObserverTests
             parents[code] = child.Parent;
         })).ToArray();
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()), RunInParallel = true });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()), RunInParallel = true }, TestContext.Current.CancellationToken);
 
         Assert.Equal(3, parents.Count);
         foreach (KeyValuePair<string, Activity?> pair in parents)
@@ -192,7 +192,7 @@ public class TracingAsyncRuleExecutionObserverTests
         TracingRuleObserverOptions options = TracingOptionsWithoutMetrics();
         options.MessageAsEvent = true;
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true, message: "no items") }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(options) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true, message: "no items") }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(options) }, TestContext.Current.CancellationToken);
 
         ActivityEvent brokenEvent = Assert.Single(capture.SingleRuleSpan().Events);
         Assert.Equal(BusinessRuleSpanAttributes.BrokenEventName, brokenEvent.Name);
@@ -209,7 +209,7 @@ public class TracingAsyncRuleExecutionObserverTests
         using ActivityCapture capture = new ActivityCapture();
         InvalidOperationException fault = new InvalidOperationException(TestRules.Boom);
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode, fault) }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()), OnFault = FaultPolicy.Record });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode, fault) }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()), OnFault = FaultPolicy.Record }, TestContext.Current.CancellationToken);
 
         Activity span = capture.SingleRuleSpan();
         Assert.Equal(RuleOutcomeTags.Faulted, ActivityCapture.Tag(span, BusinessRuleSpanAttributes.Outcome));
@@ -220,16 +220,96 @@ public class TracingAsyncRuleExecutionObserverTests
     }
 
     [Fact]
-    public async Task CheckAllAsync_FaultPropagates_RuleSpanIsClosedButBatchSpanIsNotStopped()
+    public async Task CheckAllAsync_FaultPropagates_ClosesTheRuleSpanAndTheBatchSpanAsFaulted()
     {
         using ActivityCapture capture = new ActivityCapture();
         AsyncRuleEvaluationOptions options = new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) };
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode) }, options));
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode) }, options, TestContext.Current.CancellationToken));
 
         Assert.Equal(RuleOutcomeTags.Faulted, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
-        Assert.Empty(capture.BatchSpans);
+        Activity batch = capture.SingleBatchSpan();
+        Assert.Equal(RuleOutcomeTags.Faulted, ActivityCapture.Tag(batch, BusinessRuleSpanAttributes.BatchOutcome));
+        Assert.Equal(ActivityStatusCode.Error, batch.Status);
         Assert.Null(Activity.Current);
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_RuleCancelled_ClosesTheRuleAndBatchSpansAsCancelled()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        AsyncRuleEvaluationOptions options = new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()), OnFault = FaultPolicy.Record };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode, new OperationCanceledException()) }, options, TestContext.Current.CancellationToken));
+
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+        Activity batch = capture.SingleBatchSpan();
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(batch, BusinessRuleSpanAttributes.BatchOutcome));
+        Assert.Equal(ActivityStatusCode.Unset, batch.Status);
+        Assert.Null(Activity.Current);
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_ParallelRuleCancelled_ClosesEverySpanItStarted()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        IAsyncBusinessRule[] rules = { TestRules.AsyncThrowing(ThrowingCode, new OperationCanceledException()), TestRules.Async(PassingCode, false) };
+        AsyncRuleEvaluationOptions options = new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()), RunInParallel = true };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, options, TestContext.Current.CancellationToken));
+
+        Assert.Equal(2, capture.RuleSpans.Count);
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(capture.SingleBatchSpan(), BusinessRuleSpanAttributes.BatchOutcome));
+        Assert.Equal(capture.Started.Count, capture.Stopped.Count);
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_CancelledBeforeTheFirstRule_ClosesTheBatchSpanAsCancelled()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        using CancellationTokenSource source = new CancellationTokenSource();
+        source.Cancel();
+        AsyncRuleEvaluationOptions options = new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncCancellable(BrokenCode) }, options, source.Token));
+
+        Assert.Empty(capture.RuleSpans);
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(capture.SingleBatchSpan(), BusinessRuleSpanAttributes.BatchOutcome));
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_RuleCancelledWithMetrics_RecordsNothing()
+    {
+        using MetricsCapture metrics = new MetricsCapture();
+        AsyncRuleEvaluationOptions options = new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(metrics.TracingOptions()) };
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode, new OperationCanceledException()) }, options, TestContext.Current.CancellationToken));
+
+        Assert.Empty(metrics.Measurements);
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_FaultPropagatesWithMetrics_RecordsAFaultedBatch()
+    {
+        using MetricsCapture metrics = new MetricsCapture();
+        AsyncRuleEvaluationOptions options = new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(metrics.TracingOptions()) };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode) }, options, TestContext.Current.CancellationToken));
+
+        Measurement batch = Assert.Single(metrics.Batches);
+        Assert.Equal(RuleOutcomeTags.Faulted, batch[BusinessRulesMetrics.OutcomeTag]);
+    }
+
+    [Fact]
+    public async Task OnBatchAbortedAsync_NullException_Throws()
+    {
+        TracingAsyncRuleExecutionObserver observer = new TracingAsyncRuleExecutionObserver();
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnBatchAbortedAsync(null!, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -256,7 +336,7 @@ public class TracingAsyncRuleExecutionObserverTests
         using ActivityCapture capture = new ActivityCapture();
         IAsyncBusinessRule gated = TestRules.Async(BrokenCode, true).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow));
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { gated }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { gated }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) }, TestContext.Current.CancellationToken);
 
         Assert.Equal(RuleOutcomeTags.Passed, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
         ActivityEvent shadowEvent = Assert.Single(capture.SingleBatchSpan().Events);
@@ -274,7 +354,7 @@ public class TracingAsyncRuleExecutionObserverTests
         using MetricsCapture metrics = new MetricsCapture();
         IAsyncBusinessRule[] rules = { TestRules.Async(BrokenCode, true), TestRules.Async(PassingCode, false), TestRules.AsyncThrowing(ThrowingCode) };
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(metrics.TracingOptions()), RunInParallel = true, OnFault = FaultPolicy.Record });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(metrics.TracingOptions()), RunInParallel = true, OnFault = FaultPolicy.Record }, TestContext.Current.CancellationToken);
 
         Assert.Equal(3, metrics.Evaluations.Count);
         Assert.Equal(RuleOutcomeTags.Broken, Assert.Single(metrics.Evaluations, m => (string?)m[BusinessRulesMetrics.CodeTag] == BrokenCode)[BusinessRulesMetrics.OutcomeTag]);
@@ -289,9 +369,37 @@ public class TracingAsyncRuleExecutionObserverTests
     {
         using MetricsCapture metrics = new MetricsCapture();
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true) }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(metrics.TracingOptions(o => o.RecordMetrics = false)) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true) }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(metrics.TracingOptions(o => o.RecordMetrics = false)) }, TestContext.Current.CancellationToken);
 
         Assert.Empty(metrics.Measurements);
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_ShadowViolationWithMetrics_RecordsShadowOutcomeInAdditionToPassed()
+    {
+        using MetricsCapture metrics = new MetricsCapture();
+        IAsyncBusinessRule gated = TestRules.Async(BrokenCode, true).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow));
+
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { gated }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(metrics.TracingOptions()) }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, metrics.Evaluations.Count);
+        Assert.Single(metrics.Evaluations, m => (string?)m[BusinessRulesMetrics.OutcomeTag] == RuleOutcomeTags.Passed);
+        Measurement shadow = Assert.Single(metrics.Evaluations, m => (string?)m[BusinessRulesMetrics.OutcomeTag] == RuleOutcomeTags.Shadow);
+        Assert.Equal(BrokenCode, shadow[BusinessRulesMetrics.CodeTag]);
+        Assert.Single(metrics.Durations);
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_ShadowViolationWithoutMessageAsEvent_EventCarriesCodeOnly()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        IAsyncBusinessRule gated = TestRules.Async(BrokenCode, true).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow));
+
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { gated }, new AsyncRuleEvaluationOptions { Observer = new TracingAsyncRuleExecutionObserver(TracingOptionsWithoutMetrics()) }, TestContext.Current.CancellationToken);
+
+        ActivityEvent shadowEvent = Assert.Single(capture.SingleBatchSpan().Events);
+        Assert.Equal(BrokenCode, shadowEvent.Tags.Single(tag => tag.Key == BusinessRuleSpanAttributes.Code).Value);
+        Assert.DoesNotContain(shadowEvent.Tags, tag => tag.Key == BusinessRuleSpanAttributes.Message);
     }
 
     private static TracingRuleObserverOptions TracingOptionsWithoutMetrics()

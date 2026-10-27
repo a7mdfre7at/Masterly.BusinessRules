@@ -300,6 +300,27 @@ public class ExplainTests
     }
 
     [Fact]
+    public void Explain_ToText_RendersEveryOutcomeAndOperatorLabel()
+    {
+        IBusinessRule cached = RuleTestHelper.CreatePassingRule("CACHED.RULE").Cached(TimeSpan.FromMinutes(5));
+        cached.IsBroken();
+        IBusinessRule tree = RuleGroup.Exactly(1, "TOP", "Exactly one",
+            RuleTestHelper.CreateBrokenRule("SKIPPED.RULE").When(() => false),
+            cached,
+            BusinessRuleBuilder.Create("FAULTED.RULE").WithMessage("faulted").When(() => throw new InvalidOperationException("boom")).Build(),
+            RuleTestHelper.CreatePassingRule("INVERTED").Not());
+
+        RuleExplanation why = tree.Explain(captureExceptions: true);
+        string[] lines = why.ToText().Split(Environment.NewLine);
+
+        Assert.Contains("] EXACTLY 1  TOP", lines[0]);
+        Assert.Contains(lines, line => line.Contains("[SKIPPED] WHEN  SKIPPED.RULE", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("[CACHE HIT] CACHED  CACHED.RULE", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("[FAULTED]  FAULTED.RULE", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("[BROKEN] NOT  !INVERTED", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Explain_Durations_AreNonNegativeAndZeroForNotEvaluated()
     {
         IBusinessRule group = RuleGroup.All(GroupCode, GroupMessage, RuleTestHelper.CreateBrokenRule(IdCode), RuleTestHelper.CreatePassingRule(AddressCode)).WithShortCircuit();

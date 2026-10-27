@@ -14,6 +14,10 @@ namespace Masterly.BusinessRules.Diagnostics
     /// Created through the <see cref="DiagnosticsBusinessRuleExtensions.Traced(IBusinessRule, TracingRuleObserverOptions?)"/> extensions.
     /// </summary>
     /// <remarks>
+    /// The decorator implements <see cref="IExplainableDecoratedBusinessRule"/>, so on every walker path (checker batches,
+    /// composition operands, groups, <c>Explain</c>) the inner rule is evaluated through the walker: a composed inner rule
+    /// keeps its member <see cref="BusinessRuleResult.Details"/> and its explanation subtree appears under a
+    /// <see cref="DiagnosticsText.TracedOperator"/> node, while the span, metric and log line are recorded around it.
     /// Inside a checker batch observed by a <see cref="TracingRuleExecutionObserver"/> the decorator produces a nested
     /// rule span and a second measurement; use the observer for batches and the decorator for single-rule calls.
     /// Cancellation thrown by the inner rule closes the span with the <see cref="RuleOutcomeTags.Cancelled"/> outcome and
@@ -25,7 +29,7 @@ namespace Masterly.BusinessRules.Diagnostics
     /// traced.Check();   // one span, one evaluations increment, one duration sample
     /// </code>
     /// </example>
-    public sealed class DiagnosticsBusinessRule : IDecoratedBusinessRule
+    public sealed class DiagnosticsBusinessRule : IExplainableDecoratedBusinessRule
     {
         private readonly IBusinessRule _innerRule;
         private readonly RuleDiagnosticsRecorder _recorder;
@@ -57,6 +61,9 @@ namespace Masterly.BusinessRules.Diagnostics
 
         /// <inheritdoc />
         public IBusinessRule InnerRule => _innerRule;
+
+        /// <inheritdoc />
+        public string ExplanationOperator => DiagnosticsText.TracedOperator;
 
         /// <summary>
         /// Gets the tracing options the decorator records with.
@@ -127,6 +134,41 @@ namespace Masterly.BusinessRules.Diagnostics
         public BusinessRuleResult Evaluate(BusinessRuleContext context)
         {
             return _innerRule.Evaluate(context);
+        }
+
+        /// <summary>
+        /// Evaluates the inner rule once through <paramref name="evaluation"/> (the walker path), recording the span,
+        /// metric and log line around it, and forwards the inner result with its member details.
+        /// </summary>
+        /// <param name="evaluation">The one-shot evaluation of the inner rule supplied by the core walker.</param>
+        /// <returns>The inner rule's broken result, or null when it passed.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="evaluation"/> is null.</exception>
+        public BusinessRuleResult? EvaluateDecorated(DecoratedRuleEvaluation evaluation)
+        {
+            if (evaluation == null)
+            {
+                throw new ArgumentNullException(nameof(evaluation));
+            }
+
+            RuleEvaluationScope scope = _recorder.Begin();
+            BusinessRuleResult? result;
+            try
+            {
+                result = evaluation.EvaluateInner();
+            }
+            catch (OperationCanceledException)
+            {
+                _recorder.Cancelled(scope);
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _recorder.Faulted(scope, exception);
+                throw;
+            }
+
+            _recorder.Completed(scope, result != null, result != null ? new[] { result.Message } : null);
+            return result;
         }
 
         private bool Record(Func<bool> evaluate)

@@ -306,7 +306,7 @@ public class RuleRegistryTests
     }
 
     [Fact]
-    public void Resolve_LeavesAnExistingScopeOnTheContextUntouched()
+    public void Resolve_ContextWithAnotherScope_ReplacesItWithTheRequestedScope()
     {
         RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => { }).Build();
         BusinessRuleContext context = new BusinessRuleContext();
@@ -314,7 +314,18 @@ public class RuleRegistryTests
 
         registry.Resolve(CheckoutSet, AcmeScope, context);
 
-        Assert.Equal(EuScope, context.Get(RuleParameters.ScopeKey));
+        Assert.Equal(AcmeScope, context.Get(RuleParameters.ScopeKey));
+    }
+
+    [Fact]
+    public void Resolve_UnknownSet_LeavesTheContextUntouched()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => { }).Build();
+        BusinessRuleContext context = new BusinessRuleContext();
+
+        Assert.Throws<RuleSetNotFoundException>(() => registry.Resolve(RefundSet, AcmeScope, context));
+
+        Assert.False(context.ContainsKey(RuleParameters.ScopeKey));
     }
 
     [Fact]
@@ -532,6 +543,145 @@ public class RuleRegistryTests
         RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => { }).Build();
 
         Assert.Throws<ArgumentNullException>(() => registry.EvaluateAll(CheckoutSet, null, null, null!));
+    }
+
+    // ---------------------------------------------------------------------
+    // Scope on a reused context
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void CheckAll_ContextReusedAcrossTenants_ResolvesParametersForEachRequestedScope()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.Add(ParameterizedLimit())).Build();
+        BusinessRuleContext context = RuleTestHelper.CreateContext((AmountKey, 30m));
+        registry.CheckAll(CheckoutSet, AcmeScope, context);
+
+        Assert.Throws<BusinessRuleValidationException>(() => registry.CheckAll(CheckoutSet, RuleScope.Tenant(Globex), context));
+    }
+
+    [Fact]
+    public void CheckAll_ContextReusedFromAStricterTenant_ResolvesTheLaterTenantsParameters()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.Add(ParameterizedLimit())).Build();
+        BusinessRuleContext context = RuleTestHelper.CreateContext((AmountKey, 30m));
+        Assert.Throws<BusinessRuleValidationException>(() => registry.CheckAll(CheckoutSet, RuleScope.Tenant(Globex), context));
+
+        Exception? exception = Record.Exception(() => registry.CheckAll(CheckoutSet, AcmeScope, context));
+
+        Assert.Null(exception);
+    }
+
+    [Fact]
+    public void CheckAll_NullScopeWithATenantScopeInTheContext_ResolvesGlobalParameters()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.Add(ParameterizedLimit())).Build();
+        BusinessRuleContext context = RuleTestHelper.CreateContext((AmountKey, 30m));
+        context.Set(RuleParameters.ScopeKey, AcmeScope);
+
+        Assert.Throws<BusinessRuleValidationException>(() => registry.CheckAll(CheckoutSet, null, context));
+    }
+
+    [Fact]
+    public void CheckAll_ContextWithAScope_RestoresItAfterTheBatch()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.Add(Passing(LimitCode))).Build();
+        BusinessRuleContext context = new BusinessRuleContext();
+        context.Set(RuleParameters.ScopeKey, EuScope);
+
+        registry.CheckAll(CheckoutSet, AcmeScope, context);
+
+        Assert.Equal(EuScope, context.Get(RuleParameters.ScopeKey));
+    }
+
+    [Fact]
+    public void CheckAll_ContextWithoutAScope_RemovesTheScopeAfterTheBatch()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.Add(Passing(LimitCode))).Build();
+        BusinessRuleContext context = new BusinessRuleContext();
+
+        registry.CheckAll(CheckoutSet, AcmeScope, context);
+
+        Assert.False(context.ContainsKey(RuleParameters.ScopeKey));
+    }
+
+    [Fact]
+    public void CheckAll_BrokenRule_StillRestoresTheContextScope()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.Add(Broken(LimitCode))).Build();
+        BusinessRuleContext context = new BusinessRuleContext();
+        context.Set(RuleParameters.ScopeKey, EuScope);
+
+        Assert.Throws<BusinessRuleValidationException>(() => registry.CheckAll(CheckoutSet, AcmeScope, context));
+
+        Assert.Equal(EuScope, context.Get(RuleParameters.ScopeKey));
+    }
+
+    [Fact]
+    public void EvaluateAll_ContextWithAScope_EvaluatesWithTheRequestedScopeAndRestoresIt()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.Add(ParameterizedLimit())).Build();
+        BusinessRuleContext context = RuleTestHelper.CreateContext((AmountKey, 30m));
+        context.Set(RuleParameters.ScopeKey, AcmeScope);
+
+        RuleEvaluationResult result = registry.EvaluateAll(CheckoutSet, RuleScope.Tenant(Globex), context);
+
+        Assert.Equal(LimitCode, Assert.Single(result.BrokenRules).Code);
+        Assert.Equal(AcmeScope, context.Get(RuleParameters.ScopeKey));
+    }
+
+    // ---------------------------------------------------------------------
+    // Sets with async rules
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void CheckAll_SetWithAsyncRules_ThrowsInvalidOperationExceptionNamingTheCodes()
+    {
+        RuleRegistry registry = RuleRegistry.Create()
+            .AddSet(CheckoutSet, set => set.Add(Passing(CartEmptyCode)).AddAsyncRule(RuleTestHelper.CreatePassingAsyncRule(LimitCode)))
+            .Build();
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => registry.CheckAll(CheckoutSet));
+
+        Assert.Contains(LimitCode, exception.Message);
+        Assert.Contains(CheckoutSet, exception.Message);
+    }
+
+    [Fact]
+    public void EvaluateAll_SetWithAsyncRules_ThrowsInvalidOperationExceptionNamingTheCodes()
+    {
+        RuleRegistry registry = RuleRegistry.Create()
+            .AddSet(CheckoutSet, set => set.AddAsyncRule(RuleTestHelper.CreateBrokenAsyncRule(LimitCode)))
+            .Build();
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => registry.EvaluateAll(CheckoutSet));
+
+        Assert.Contains(LimitCode, exception.Message);
+    }
+
+    [Fact]
+    public void CheckAll_AsyncRuleDisabledByTheTenantLayer_ChecksTheSyncRules()
+    {
+        RuleRegistry registry = RuleRegistry.Create()
+            .AddSet(CheckoutSet, set => set.Add(Broken(CartEmptyCode)).AddAsyncRule(RuleTestHelper.CreatePassingAsyncRule(LimitCode)))
+            .AddSet(CheckoutSet, AcmeScope, set => set.Disable(LimitCode))
+            .Build();
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => registry.CheckAll(CheckoutSet, AcmeScope));
+
+        Assert.Equal(CartEmptyCode, Assert.Single(exception.BrokenRules).Code);
+    }
+
+    [Fact]
+    public void CheckAll_SetWithAsyncRules_RestoresTheContextScope()
+    {
+        RuleRegistry registry = RuleRegistry.Create()
+            .AddSet(CheckoutSet, set => set.AddAsyncRule(RuleTestHelper.CreatePassingAsyncRule(LimitCode)))
+            .Build();
+        BusinessRuleContext context = new BusinessRuleContext();
+
+        Assert.Throws<InvalidOperationException>(() => registry.CheckAll(CheckoutSet, AcmeScope, context));
+
+        Assert.False(context.ContainsKey(RuleParameters.ScopeKey));
     }
 
     // ---------------------------------------------------------------------

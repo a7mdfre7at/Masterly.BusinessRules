@@ -128,13 +128,17 @@ namespace Masterly.BusinessRules.Expressions
                 return Expression.Call(Runtime(nameof(RuleExpressionRuntime.IsInCollection)), value, collection, Expression.Constant(node.Text));
             }
 
-            List<Expression> items = new List<Expression>(node.Items.Count);
-            foreach (RuleExpressionNode item in node.Items)
+            // value == item0 || value == item1 || ...: the value is computed once and the items after a match are never
+            // evaluated, exactly like the interpreter.
+            ParameterExpression local = Expression.Variable(ObjectType);
+            Expression match = Expression.Constant(false);
+            for (int index = node.Items.Count - 1; index >= 0; index--)
             {
-                items.Add(item.Accept(this));
+                Expression isItem = Expression.Call(Runtime(nameof(RuleExpressionRuntime.IsItem)), local, node.Items[index].Accept(this));
+                match = index == node.Items.Count - 1 ? isItem : Expression.OrElse(isItem, match);
             }
 
-            return Expression.Call(Runtime(nameof(RuleExpressionRuntime.IsInItems)), value, Expression.NewArrayInit(ObjectType, items));
+            return Expression.Block(ObjectType, new[] { local }, Expression.Assign(local, value), Expression.Convert(match, ObjectType));
         }
 
         private Expression ToBoolean(Expression value, string nodeText)

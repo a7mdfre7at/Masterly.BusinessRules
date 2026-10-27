@@ -12,7 +12,10 @@ namespace Masterly.BusinessRules
     /// <para><see cref="RuleRolloutMode.Off"/>, or a caller outside the rollout cohort: the inner rule is not evaluated
     /// and the gated rule passes. <see cref="RuleRolloutMode.Shadow"/>: the inner rule is evaluated, the gated rule still
     /// passes, and a violation is handed to the checker's <see cref="IRuleExecutionObserver.OnShadowViolation"/> and
-    /// <see cref="RuleEvaluationResult.ShadowResults"/>. <see cref="RuleRolloutMode.Enforced"/>: the inner verdict is reported as is.</para>
+    /// <see cref="RuleEvaluationResult.ShadowResults"/>. Shadow mode never blocks: an exception the inner rule throws
+    /// (other than cancellation) is caught, a stand-in result goes to <see cref="RuleEvaluationResult.ShadowResults"/>
+    /// and the exception to <see cref="IRuleExecutionObserver.OnShadowFault"/>. <see cref="RuleRolloutMode.Enforced"/>:
+    /// the inner verdict is reported as is and faults propagate.</para>
     /// <para>The cohort is decided by <see cref="RuleRolloutBucket"/> over the stable key selected from the context
     /// (for example a customer id); a rollout at 100% needs no stable key, a partial rollout without one throws
     /// <see cref="RuleConfigurationException"/>.</para>
@@ -199,14 +202,11 @@ namespace Masterly.BusinessRules
         {
             RuleExplanationTrace? children = trace?.Branch();
             long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
+            bool shadow = mode == RuleRolloutMode.Shadow && context != null;
 
-            BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(_innerRule, context, children);
-            bool shadow = mode == RuleRolloutMode.Shadow;
-
-            if (shadow && result != null && context != null)
-            {
-                ShadowViolationSink.Report(context, this, result);
-            }
+            BusinessRuleResult? result = shadow
+                ? EvaluateShadow(context!, children) // shadow is only reached with a context (checked above)
+                : BusinessRuleWalker.EvaluateNode(_innerRule, context, children);
 
             if (trace != null && children != null)
             {
@@ -216,6 +216,33 @@ namespace Masterly.BusinessRules
             }
 
             return shadow ? null : result;
+        }
+
+        /// <summary>
+        /// Evaluates the inner rule in shadow mode and reports what it would have failed. A fault (other than
+        /// cancellation) is caught, recorded as a faulted child node and reported as a shadow fault, so shadow mode never
+        /// blocks; the returned stand-in result is only used to label the explanation node.
+        /// </summary>
+        private BusinessRuleResult? EvaluateShadow(BusinessRuleContext context, RuleExplanationTrace? children)
+        {
+            long start = RuleTiming.Start();
+            try
+            {
+                BusinessRuleResult? result = BusinessRuleWalker.EvaluateNode(_innerRule, context, children);
+                if (result != null)
+                {
+                    ShadowViolationSink.Report(context, this, result);
+                }
+
+                return result;
+            }
+            catch (Exception exception) when (!(exception is OperationCanceledException))
+            {
+                Exception fault = ContextReadFault.Wrap(this, exception);
+                children?.Add(BusinessRuleWalker.Faulted(_innerRule, fault, RuleTiming.ElapsedSince(start)));
+                ShadowViolationSink.ReportFault(context, this, fault);
+                return RuleFaultResult.Create(this, fault);
+            }
         }
     }
 }

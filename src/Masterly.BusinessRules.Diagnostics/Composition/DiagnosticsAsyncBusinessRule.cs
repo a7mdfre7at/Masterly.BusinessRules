@@ -15,6 +15,10 @@ namespace Masterly.BusinessRules.Diagnostics
     /// Created through the <see cref="DiagnosticsAsyncBusinessRuleExtensions.Traced(IAsyncBusinessRule, TracingRuleObserverOptions?)"/> extensions.
     /// </summary>
     /// <remarks>
+    /// The decorator implements <see cref="IExplainableDecoratedAsyncBusinessRule"/>, so on every walker path (checker
+    /// batches, composition operands, groups, <c>ExplainAsync</c>) the inner rule is evaluated through the walker: a
+    /// composed inner rule keeps its member <see cref="BusinessRuleResult.Details"/> and its explanation subtree appears
+    /// under a <see cref="DiagnosticsText.TracedOperator"/> node, while the span, metric and log line are recorded around it.
     /// Inside a checker batch observed by a <see cref="TracingAsyncRuleExecutionObserver"/> the decorator produces a nested
     /// rule span and a second measurement; use the observer for batches and the decorator for single-rule calls.
     /// Cancellation closes the span with the <see cref="RuleOutcomeTags.Cancelled"/> outcome and is neither counted nor logged.
@@ -25,7 +29,7 @@ namespace Masterly.BusinessRules.Diagnostics
     /// await traced.CheckAsync(context, ct);
     /// </code>
     /// </example>
-    public sealed class DiagnosticsAsyncBusinessRule : IDecoratedAsyncBusinessRule
+    public sealed class DiagnosticsAsyncBusinessRule : IExplainableDecoratedAsyncBusinessRule
     {
         private readonly IAsyncBusinessRule _innerRule;
         private readonly RuleDiagnosticsRecorder _recorder;
@@ -57,6 +61,9 @@ namespace Masterly.BusinessRules.Diagnostics
 
         /// <inheritdoc />
         public IAsyncBusinessRule InnerRule => _innerRule;
+
+        /// <inheritdoc />
+        public string ExplanationOperator => DiagnosticsText.TracedOperator;
 
         /// <summary>
         /// Gets the tracing options the decorator records with.
@@ -122,6 +129,42 @@ namespace Masterly.BusinessRules.Diagnostics
             try
             {
                 result = await _innerRule.EvaluateAsync(context, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                _recorder.Cancelled(scope);
+                throw;
+            }
+            catch (Exception exception)
+            {
+                _recorder.Faulted(scope, exception);
+                throw;
+            }
+
+            _recorder.Completed(scope, result != null, result != null ? new[] { result.Message } : null);
+            return result;
+        }
+
+        /// <summary>
+        /// Evaluates the inner rule once through <paramref name="evaluation"/> (the walker path), recording the span,
+        /// metric and log line around it, and forwards the inner result with its member details.
+        /// </summary>
+        /// <param name="evaluation">The one-shot evaluation of the inner rule supplied by the core walker.</param>
+        /// <param name="cancellationToken">A token to cancel the operation.</param>
+        /// <returns>The inner rule's broken result, or null when it passed.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="evaluation"/> is null.</exception>
+        public async Task<BusinessRuleResult?> EvaluateDecoratedAsync(AsyncDecoratedRuleEvaluation evaluation, CancellationToken cancellationToken)
+        {
+            if (evaluation == null)
+            {
+                throw new ArgumentNullException(nameof(evaluation));
+            }
+
+            RuleEvaluationScope scope = _recorder.Begin();
+            BusinessRuleResult? result;
+            try
+            {
+                result = await evaluation.EvaluateInnerAsync(cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

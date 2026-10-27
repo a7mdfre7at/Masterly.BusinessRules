@@ -28,8 +28,8 @@ namespace Masterly.BusinessRules.Diagnostics
         public const string Shadow = "shadow";
 
         /// <summary>
-        /// The evaluation was cancelled before it produced a verdict. Written by the <c>Traced()</c> decorators only;
-        /// the batch checkers never report cancellation to observers.
+        /// The evaluation was cancelled before it produced a verdict. Written by the <c>Traced()</c> decorators and by the
+        /// tracing observers (rule and batch spans) when a checker batch is cancelled; never counted on the metrics.
         /// </summary>
         public const string Cancelled = "cancelled";
 

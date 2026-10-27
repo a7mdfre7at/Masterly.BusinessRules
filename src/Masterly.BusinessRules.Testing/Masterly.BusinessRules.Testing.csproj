@@ -3,7 +3,6 @@
   <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <Nullable>enable</Nullable>
     <Description>Testing utilities for Masterly.BusinessRules: outcome coverage, boundary finder and CsCheck-backed rule properties.</Description>
     <PackageTags>Rule;Business;Engine;Testing;Coverage;PropertyBased;CsCheck;Masterly;Csharp;DotNet</PackageTags>
   </PropertyGroup>

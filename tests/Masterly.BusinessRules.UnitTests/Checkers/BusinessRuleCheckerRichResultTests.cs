@@ -117,7 +117,7 @@ public class BusinessRuleCheckerRichResultTests
         BusinessRuleResult result = Assert.Single(exception.BrokenRules);
         Assert.Equal(nameof(GroupBusinessRule), result.Name);
         Assert.Equal(new[] { "A-name", "B-name" }, result.Details.Select(member => member.Name));
-        Assert.Equal("A", Assert.Single(exception.Flatten().Where(leaf => leaf.HasTag(CustomerFacing))).Code);
+        Assert.Equal("A", Assert.Single(exception.Flatten(), leaf => leaf.HasTag(CustomerFacing)).Code);
     }
 
     [Fact]

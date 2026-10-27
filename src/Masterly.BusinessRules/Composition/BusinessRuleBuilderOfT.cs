@@ -104,24 +104,30 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
-        /// Sets the condition on the subject that determines if the rule is broken.
+        /// Sets the condition on the subject that determines if the rule is broken. It replaces an earlier subject
+        /// condition and any parameters condition; a context condition set with
+        /// <see cref="When(Func{TSubject, BusinessRuleContext, bool})"/> is kept and still decides the context overloads.
         /// </summary>
         /// <param name="isBrokenCondition">A function that receives the subject and returns true when the rule is broken.</param>
         /// <returns>This builder for method chaining.</returns>
         public BusinessRuleBuilder<TSubject> When(Func<TSubject, bool> isBrokenCondition)
         {
             _isBrokenFunc = isBrokenCondition;
+            _isBrokenWithParametersFunc = null;
             return this;
         }
 
         /// <summary>
-        /// Sets the condition on the subject and the context that determines if the rule is broken.
+        /// Sets the condition on the subject and the context that determines if the rule is broken. It replaces an
+        /// earlier context condition and any parameters condition; a subject condition set with
+        /// <see cref="When(Func{TSubject, bool})"/> is kept and still decides the context-less overloads.
         /// </summary>
         /// <param name="isBrokenCondition">A function that receives the subject and the context and returns true when the rule is broken.</param>
         /// <returns>This builder for method chaining.</returns>
         public BusinessRuleBuilder<TSubject> When(Func<TSubject, BusinessRuleContext, bool> isBrokenCondition)
         {
             _isBrokenWithContextFunc = isBrokenCondition;
+            _isBrokenWithParametersFunc = null;
             return this;
         }
 
@@ -130,7 +136,8 @@ namespace Masterly.BusinessRules
         /// broken. The <see cref="RuleParameters"/> hold every parameter declared with
         /// <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameter{T}"/>, resolved on every evaluation through the
         /// provider from <see cref="BusinessRuleMetadataBuilder{TBuilder}.WithParameters"/> (or <see cref="RuleParameters.ContextKey"/>)
-        /// for the scope under <see cref="RuleParameters.ScopeKey"/>.
+        /// for the scope under <see cref="RuleParameters.ScopeKey"/>. It replaces every condition set before, and a
+        /// later <c>When</c> call replaces it.
         /// </summary>
         /// <param name="isBrokenCondition">A function that receives the subject, the context and the parameters and returns true when the rule is broken.</param>
         /// <returns>This builder for method chaining.</returns>
@@ -138,6 +145,8 @@ namespace Masterly.BusinessRules
         public BusinessRuleBuilder<TSubject> When(Func<TSubject, BusinessRuleContext, RuleParameters, bool> isBrokenCondition)
         {
             _isBrokenWithParametersFunc = isBrokenCondition ?? throw new ArgumentNullException(nameof(isBrokenCondition));
+            _isBrokenFunc = null;
+            _isBrokenWithContextFunc = null;
             return this;
         }
 

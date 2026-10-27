@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,6 +25,7 @@ namespace Masterly.BusinessRules.DependencyInjection
         private const string RulesParameterName = "rules";
         private const string AsyncRulesParameterName = "asyncRules";
         private const string CodeSeparator = ", ";
+        private const string NullRuleMessageFormat = "The rule at position {0} is null.";
 
         private readonly ReadOnlyCollection<IBusinessRule<TSubject>> _rules;
         private readonly ReadOnlyCollection<IAsyncBusinessRule<TSubject>> _asyncRules;
@@ -49,10 +51,7 @@ namespace Masterly.BusinessRules.DependencyInjection
         /// <inheritdoc />
         public IReadOnlyList<IAsyncBusinessRule<TSubject>> AsyncRules => _asyncRules;
 
-        /// <summary>
-        /// Gets whether any async rule is registered, in which case the sync <see cref="CheckAll(TSubject, BusinessRuleContext)"/>
-        /// and <see cref="EvaluateAll(TSubject, BusinessRuleContext)"/> throw.
-        /// </summary>
+        /// <inheritdoc />
         public bool HasAsyncRules => _asyncRules.Count > 0;
 
         /// <inheritdoc />
@@ -168,7 +167,7 @@ namespace Masterly.BusinessRules.DependencyInjection
             {
                 if (rule == null)
                 {
-                    throw new ArgumentException($"The rule at position {list.Count} is null.", parameterName);
+                    throw new ArgumentException(string.Format(CultureInfo.InvariantCulture, NullRuleMessageFormat, list.Count), parameterName);
                 }
 
                 list.Add(rule);

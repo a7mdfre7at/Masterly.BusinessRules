@@ -35,12 +35,12 @@ public class LoggingAsyncRuleExecutionObserverTests
     {
         LoggingAsyncRuleExecutionObserver observer = new LoggingAsyncRuleExecutionObserver(new CapturingLogger());
 
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnAfterEvaluateAsync(null!, true, TimeSpan.Zero));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnRuleFaultedAsync(null!, new InvalidOperationException()));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnRuleFaultedAsync(TestRules.Async(BrokenCode, true), null!));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnBatchCompletedAsync(null!));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnShadowViolationAsync(null!, new BusinessRuleResult(BrokenCode, "m", RuleSeverity.Error)));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnShadowViolationAsync(TestRules.Async(BrokenCode, true), null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnAfterEvaluateAsync(null!, true, TimeSpan.Zero, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnRuleFaultedAsync(null!, new InvalidOperationException(), TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnRuleFaultedAsync(TestRules.Async(BrokenCode, true), null!, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnBatchCompletedAsync(null!, TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnShadowViolationAsync(null!, new BusinessRuleResult(BrokenCode, "m", RuleSeverity.Error), TestContext.Current.CancellationToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => observer.OnShadowViolationAsync(TestRules.Async(BrokenCode, true), null!, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class LoggingAsyncRuleExecutionObserverTests
         CapturingLogger logger = new CapturingLogger();
         IAsyncBusinessRule broken = TestRules.Async(BrokenCode, broken: true, message: "Order must contain at least one item.");
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { broken }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { broken }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) }, TestContext.Current.CancellationToken);
 
         LogEntry entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
@@ -97,7 +97,7 @@ public class LoggingAsyncRuleExecutionObserverTests
     {
         CapturingLogger logger = new CapturingLogger();
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true, severity) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true, severity) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) }, TestContext.Current.CancellationToken);
 
         LogEntry entry = Assert.Single(logger.Entries);
         Assert.Equal(expected, entry.Level);
@@ -109,7 +109,7 @@ public class LoggingAsyncRuleExecutionObserverTests
         CapturingLogger logger = new CapturingLogger();
         LoggingRuleObserverOptions options = new LoggingRuleObserverOptions { LogBatches = false, IncludeMessage = false };
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true, message: "customer 42 owes 100") }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, options) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true, message: "customer 42 owes 100") }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, options) }, TestContext.Current.CancellationToken);
 
         LogEntry entry = Assert.Single(logger.Entries);
         Assert.Equal(LoggingRuleObserverOptions.RedactedMessage, entry["Message"]);
@@ -122,7 +122,7 @@ public class LoggingAsyncRuleExecutionObserverTests
         CapturingLogger logger = new CapturingLogger();
         AsyncRuleEvaluationOptions options = new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) };
 
-        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true) }, options));
+        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(BrokenCode, true) }, options, TestContext.Current.CancellationToken));
 
         LogEntry entry = Assert.Single(logger.Entries);
         Assert.Equal(RuleLogEvents.RuleBroken, entry.EventId);
@@ -137,7 +137,7 @@ public class LoggingAsyncRuleExecutionObserverTests
     {
         CapturingLogger logger = new CapturingLogger();
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(PassingCode, false) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(PassingCode, false) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) }, TestContext.Current.CancellationToken);
 
         Assert.Empty(logger.Entries);
     }
@@ -148,7 +148,7 @@ public class LoggingAsyncRuleExecutionObserverTests
         CapturingLogger logger = new CapturingLogger();
         LoggingRuleObserverOptions options = new LoggingRuleObserverOptions { LogBatches = false, LogPassedRules = true, PassedLevel = LogLevel.Information };
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(PassingCode, false) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, options) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.Async(PassingCode, false) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, options) }, TestContext.Current.CancellationToken);
 
         LogEntry entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Information, entry.Level);
@@ -166,7 +166,7 @@ public class LoggingAsyncRuleExecutionObserverTests
         CapturingLogger logger = new CapturingLogger();
         InvalidOperationException fault = new InvalidOperationException(TestRules.Boom);
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode, fault) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }), OnFault = FaultPolicy.Record });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode, fault) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }), OnFault = FaultPolicy.Record }, TestContext.Current.CancellationToken);
 
         LogEntry entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Error, entry.Level);
@@ -181,7 +181,7 @@ public class LoggingAsyncRuleExecutionObserverTests
     {
         CapturingLogger logger = new CapturingLogger();
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }), OnFault = FaultPolicy.TreatAsBroken });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { TestRules.AsyncThrowing(ThrowingCode) }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }), OnFault = FaultPolicy.TreatAsBroken }, TestContext.Current.CancellationToken);
 
         LogEntry entry = Assert.Single(logger.Entries);
         Assert.Equal(RuleLogEvents.RuleFaulted, entry.EventId);
@@ -216,7 +216,7 @@ public class LoggingAsyncRuleExecutionObserverTests
             TestRules.AsyncThrowing("D")
         };
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger), RunInParallel = true, OnFault = FaultPolicy.Record });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), rules, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger), RunInParallel = true, OnFault = FaultPolicy.Record }, TestContext.Current.CancellationToken);
 
         Assert.Equal(RuleLogEvents.BatchStarted, logger.Entries.First().EventId);
         Assert.Equal(4, logger.Entries.First()["RuleCount"]);
@@ -236,7 +236,7 @@ public class LoggingAsyncRuleExecutionObserverTests
     {
         CapturingLogger logger = new CapturingLogger();
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), Array.Empty<IAsyncBusinessRule>(), new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), Array.Empty<IAsyncBusinessRule>(), new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger) }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, logger.Entries.Count);
         Assert.Equal(0, logger.Entries[0]["RuleCount"]);
@@ -253,7 +253,7 @@ public class LoggingAsyncRuleExecutionObserverTests
         CapturingLogger logger = new CapturingLogger();
         IAsyncBusinessRule gated = TestRules.Async(BrokenCode, true, message: "would block").GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow));
 
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { gated }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) });
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { gated }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) }, TestContext.Current.CancellationToken);
 
         Assert.True(result.AllPassed);
         LogEntry entry = Assert.Single(logger.Entries);
@@ -265,12 +265,38 @@ public class LoggingAsyncRuleExecutionObserverTests
     }
 
     [Fact]
+    public async Task EvaluateAllAsync_ShadowViolationWithoutMessage_Redacts()
+    {
+        CapturingLogger logger = new CapturingLogger();
+        IAsyncBusinessRule gated = TestRules.Async(BrokenCode, true).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow));
+        LoggingRuleObserverOptions options = new LoggingRuleObserverOptions { LogBatches = false, IncludeMessage = false, ShadowViolationLevel = LogLevel.Warning };
+
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { gated }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, options) }, TestContext.Current.CancellationToken);
+
+        LogEntry entry = Assert.Single(logger.Entries);
+        Assert.Equal(LogLevel.Warning, entry.Level);
+        Assert.Equal(LoggingRuleObserverOptions.RedactedMessage, entry["Message"]);
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_ShadowViolationBelowTheLoggerLevel_LogsNothing()
+    {
+        CapturingLogger logger = new CapturingLogger { MinimumLevel = LogLevel.Error };
+        IAsyncBusinessRule gated = TestRules.Async(BrokenCode, true).GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow));
+        LoggingRuleObserverOptions options = new LoggingRuleObserverOptions { LogBatches = false, ShadowViolationLevel = LogLevel.Warning };
+
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { gated }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, options) }, TestContext.Current.CancellationToken);
+
+        Assert.Empty(logger.Entries);
+    }
+
+    [Fact]
     public async Task EvaluateAllAsync_SameRuleInstanceTwice_LogsTwoLines()
     {
         CapturingLogger logger = new CapturingLogger();
         IAsyncBusinessRule broken = TestRules.Async(BrokenCode, true);
 
-        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { broken, broken }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) });
+        await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new[] { broken, broken }, new AsyncRuleEvaluationOptions { Observer = new LoggingAsyncRuleExecutionObserver(logger, new LoggingRuleObserverOptions { LogBatches = false }) }, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, logger.Entries.Count);
     }

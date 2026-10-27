@@ -113,7 +113,7 @@ public class SubjectEvaluationTests
 
         IReadOnlyList<SubjectEvaluation<int>> list = collection;
 
-        Assert.Equal(1, list.Count);
+        Assert.Single(list);
         Assert.Equal(1, list[0].Subject);
     }
 

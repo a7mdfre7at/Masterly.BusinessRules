@@ -12,10 +12,12 @@ namespace Masterly.BusinessRules.Diagnostics
     /// The observer holds no per-rule state and can be shared by concurrent batches.
     /// </summary>
     /// <remarks>
-    /// Under <see cref="FaultPolicy.Throw"/> the checker lets the fault propagate without raising
-    /// <see cref="IRuleExecutionObserver.OnBatchCompleted"/>; the rule span is still finished from
-    /// <see cref="OnRuleFaulted"/>, but the batch span stays open and current on the calling thread. Prefer
-    /// <see cref="FaultPolicy.Record"/> or <see cref="FaultPolicy.TreatAsBroken"/> for complete traces.
+    /// Every started span is finished, so none stays <see cref="Activity.Current"/> after the batch. A batch that ends by
+    /// an exception (a cancellation, or a fault propagating under <see cref="FaultPolicy.Throw"/>) is closed from
+    /// <see cref="OnBatchAborted"/>: the rule span from <see cref="OnRuleCancelled"/> (outcome
+    /// <see cref="RuleOutcomeTags.Cancelled"/>) or <see cref="OnRuleFaulted"/>, the batch span with outcome
+    /// <see cref="RuleOutcomeTags.Cancelled"/> or <see cref="RuleOutcomeTags.Faulted"/> (error status). Cancellation is
+    /// never counted on the metrics.
     /// </remarks>
     /// <example>
     /// <code>
@@ -179,6 +181,36 @@ namespace Masterly.BusinessRules.Diagnostics
             if (_options.RecordMetrics)
             {
                 _options.Metrics.RecordEvaluation(RuleMetadataSnapshot.Capture(rule), codeTag, RuleOutcomeTags.Shadow, null);
+            }
+        }
+
+        /// <summary>
+        /// Closes the rule span with the <see cref="RuleOutcomeTags.Cancelled"/> outcome. Cancellation is not counted.
+        /// </summary>
+        /// <param name="rule">The rule whose evaluation was cancelled.</param>
+        /// <param name="exception">The cancellation.</param>
+        public void OnRuleCancelled(IBusinessRule rule, OperationCanceledException exception)
+        {
+            RuleActivities.Complete(RuleActivities.CurrentRule(), RuleOutcomeTags.Cancelled);
+        }
+
+        /// <summary>
+        /// Closes the batch span of a batch that ended by an exception: outcome <see cref="RuleOutcomeTags.Cancelled"/>
+        /// for a cancellation, otherwise <see cref="RuleOutcomeTags.Faulted"/> with an error status, recorded on the batch
+        /// metric.
+        /// </summary>
+        /// <param name="exception">The exception that ends the batch.</param>
+        public void OnBatchAborted(Exception exception)
+        {
+            if (exception == null)
+            {
+                throw new ArgumentNullException(nameof(exception));
+            }
+
+            string outcome = RuleActivities.AbortBatch(RuleActivities.CurrentBatch(), exception);
+            if (_options.RecordMetrics && outcome == RuleOutcomeTags.Faulted)
+            {
+                _options.Metrics.RecordBatch(outcome);
             }
         }
 

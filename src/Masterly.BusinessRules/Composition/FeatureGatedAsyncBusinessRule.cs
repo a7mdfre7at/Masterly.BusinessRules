@@ -15,7 +15,11 @@ namespace Masterly.BusinessRules
     /// <para><see cref="RuleRolloutMode.Off"/>, or a caller outside the rollout cohort: the inner rule is not evaluated
     /// and the gated rule passes. <see cref="RuleRolloutMode.Shadow"/>: the inner rule is evaluated, the gated rule still
     /// passes, and a violation is handed to the checker's <see cref="IAsyncRuleExecutionObserver.OnShadowViolationAsync"/> and
-    /// <see cref="AsyncRuleEvaluationResult.ShadowResults"/>. <see cref="RuleRolloutMode.Enforced"/>: the inner verdict is reported as is.</para>
+    /// <see cref="AsyncRuleEvaluationResult.ShadowResults"/>. Shadow mode never blocks: an exception the inner rule
+    /// throws (other than cancellation) is caught, a stand-in result goes to
+    /// <see cref="AsyncRuleEvaluationResult.ShadowResults"/> and the exception to
+    /// <see cref="IAsyncRuleExecutionObserver.OnShadowFaultAsync"/>. <see cref="RuleRolloutMode.Enforced"/>: the inner
+    /// verdict is reported as is and faults propagate.</para>
     /// <para>The provider is resolved per evaluation: <see cref="RuleFeatureFlags.AsyncContextKey"/>, then
     /// <see cref="RuleFeatureFlags.ContextKey"/>, then the injected async provider, then the injected sync provider; when
     /// none exists the evaluation throws <see cref="RuleConfigurationException"/>. A partial rollout without a stable key
@@ -175,14 +179,11 @@ namespace Masterly.BusinessRules
 
             RuleExplanationTrace? children = trace?.Branch();
             long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
-
-            BusinessRuleResult? result = await AsyncBusinessRuleWalker.EvaluateNodeAsync(_innerRule, context, children, cancellationToken);
             bool shadow = rollout.Mode == RuleRolloutMode.Shadow;
 
-            if (shadow && result != null)
-            {
-                ShadowViolationSink.Report(context, this, result);
-            }
+            BusinessRuleResult? result = shadow
+                ? await EvaluateShadowAsync(context, children, cancellationToken)
+                : await AsyncBusinessRuleWalker.EvaluateNodeAsync(_innerRule, context, children, cancellationToken);
 
             if (trace != null && children != null)
             {
@@ -192,6 +193,33 @@ namespace Masterly.BusinessRules
             }
 
             return shadow ? null : result;
+        }
+
+        /// <summary>
+        /// Evaluates the inner rule in shadow mode and reports what it would have failed. A fault (other than
+        /// cancellation) is caught, recorded as a faulted child node and reported as a shadow fault, so shadow mode never
+        /// blocks; the returned stand-in result is only used to label the explanation node.
+        /// </summary>
+        private async Task<BusinessRuleResult?> EvaluateShadowAsync(BusinessRuleContext context, RuleExplanationTrace? children, CancellationToken cancellationToken)
+        {
+            long start = RuleTiming.Start();
+            try
+            {
+                BusinessRuleResult? result = await AsyncBusinessRuleWalker.EvaluateNodeAsync(_innerRule, context, children, cancellationToken);
+                if (result != null)
+                {
+                    ShadowViolationSink.Report(context, this, result);
+                }
+
+                return result;
+            }
+            catch (Exception exception) when (!(exception is OperationCanceledException))
+            {
+                Exception fault = ContextReadFault.Wrap(this, exception);
+                children?.Add(AsyncBusinessRuleWalker.Faulted(_innerRule, fault, RuleTiming.ElapsedSince(start)));
+                ShadowViolationSink.ReportFault(context, this, fault);
+                return RuleFaultResult.Create(this, fault);
+            }
         }
     }
 }

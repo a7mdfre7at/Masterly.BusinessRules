@@ -10,7 +10,7 @@ public class SyncToAsyncAdapterTests
         RuleA syncRule = new RuleA(true);
         SyncToAsyncRuleAdapter asyncAdapter = new SyncToAsyncRuleAdapter(syncRule);
 
-        Assert.True(await asyncAdapter.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await asyncAdapter.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -43,7 +43,7 @@ public class SyncToAsyncAdapterTests
         RuleA syncRule = new RuleA(true);
         SyncToAsyncRuleAdapter asyncAdapter = new SyncToAsyncRuleAdapter(syncRule);
 
-        BusinessRuleResult? result = await asyncAdapter.EvaluateAsync(new BusinessRuleContext());
+        BusinessRuleResult? result = await asyncAdapter.EvaluateAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
         Assert.Equal("RULE_A", result.Code);
@@ -55,7 +55,7 @@ public class SyncToAsyncAdapterTests
         RuleA syncRule = new RuleA(false);
         SyncToAsyncRuleAdapter asyncAdapter = new SyncToAsyncRuleAdapter(syncRule);
 
-        BusinessRuleResult? result = await asyncAdapter.EvaluateAsync(new BusinessRuleContext());
+        BusinessRuleResult? result = await asyncAdapter.EvaluateAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
 
         Assert.Null(result);
     }
@@ -67,7 +67,7 @@ public class SyncToAsyncAdapterTests
         SyncToAsyncRuleAdapter asyncAdapter = new SyncToAsyncRuleAdapter(syncRule);
 
         await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => asyncAdapter.CheckAsync(new BusinessRuleContext()));
+            () => asyncAdapter.CheckAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public class SyncToAsyncAdapterTests
         BusinessRuleContext context = new BusinessRuleContext();
         context.Set("shouldBeBroken", true);
 
-        Assert.True(await asyncAdapter.IsBrokenAsync(context));
+        Assert.True(await asyncAdapter.IsBrokenAsync(context, TestContext.Current.CancellationToken));
     }
 
     [Fact]

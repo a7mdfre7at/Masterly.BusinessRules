@@ -3,7 +3,6 @@
   <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <Nullable>enable</Nullable>
     <Description>Microsoft.Extensions.DependencyInjection integration for Masterly.BusinessRules: assembly scanning, injectable rule runners and the scoped rule registry.</Description>
     <PackageTags>Rule;Business;Engine;DependencyInjection;DI;Registry;Masterly;Csharp;DotNet</PackageTags>
   </PropertyGroup>

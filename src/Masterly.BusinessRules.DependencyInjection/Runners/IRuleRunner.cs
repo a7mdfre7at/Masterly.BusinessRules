@@ -37,6 +37,12 @@ namespace Masterly.BusinessRules.DependencyInjection
         IReadOnlyList<IAsyncBusinessRule<TSubject>> AsyncRules { get; }
 
         /// <summary>
+        /// Gets whether any async rule is registered, in which case the sync <c>CheckAll</c> and <c>EvaluateAll</c>
+        /// throw <see cref="System.InvalidOperationException"/>; the async methods always evaluate both lists.
+        /// </summary>
+        bool HasAsyncRules { get; }
+
+        /// <summary>
         /// Checks the sync rules against the subject and throws if any are broken.
         /// </summary>
         /// <param name="subject">The subject to validate.</param>

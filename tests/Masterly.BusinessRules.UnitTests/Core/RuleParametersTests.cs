@@ -170,6 +170,84 @@ public class RuleParametersTests
     }
 
     [Fact]
+    public void Resolved_TryGet_DeclaredTypedParameter_ReturnsTrueAndTheFallback()
+    {
+        bool? found = null;
+        decimal value = 0m;
+        IBusinessRule rule = BusinessRuleBuilder.Create(Code)
+            .WithParameter(LimitName, 5m)
+            .When((ctx, p) => { found = p.TryGet(LimitName, out value); return false; })
+            .Build();
+
+        rule.IsBroken(new BusinessRuleContext());
+
+        Assert.True(found);
+        Assert.Equal(5m, value);
+    }
+
+    [Fact]
+    public void Resolved_TryGet_DeclaredParameterFromAProvider_ReturnsTrueAndTheProvidedValue()
+    {
+        bool? found = null;
+        decimal value = 0m;
+        IBusinessRule rule = BusinessRuleBuilder.Create(Code)
+            .WithParameters(RuleTestHelper.CreateParameterProvider(LimitName, 42m))
+            .WithParameter(LimitName, Fallback)
+            .When((ctx, p) => { found = p.TryGet(LimitName, out value); return false; })
+            .Build();
+
+        rule.IsBroken(new BusinessRuleContext());
+
+        Assert.True(found);
+        Assert.Equal(42m, value);
+    }
+
+    [Fact]
+    public void Resolved_TryGet_UndeclaredName_ReturnsFalse()
+    {
+        bool? found = null;
+        IBusinessRule rule = BusinessRuleBuilder.Create(Code)
+            .WithParameter(LimitName, Fallback)
+            .When((ctx, p) => { found = p.TryGet("undeclared", out decimal _); return false; })
+            .Build();
+
+        rule.IsBroken(new BusinessRuleContext());
+
+        Assert.False(found);
+    }
+
+    [Fact]
+    public async Task ResolvedAsync_TryGet_DeclaredTypedParameter_ReturnsTrueAndTheValue()
+    {
+        bool? found = null;
+        decimal value = 0m;
+        IAsyncBusinessRule rule = AsyncBusinessRuleBuilder.Create(Code)
+            .WithParameters(RuleTestHelper.CreateParameterProvider(LimitName, 42m))
+            .WithParameter(LimitName, Fallback)
+            .WhenAsync((ctx, p, ct) => { found = p.TryGet(LimitName, out value); return Task.FromResult(false); })
+            .Build();
+
+        await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
+
+        Assert.True(found);
+        Assert.Equal(42m, value);
+    }
+
+    [Fact]
+    public async Task ResolvedAsync_TryGet_UndeclaredName_ReturnsFalse()
+    {
+        bool? found = null;
+        IAsyncBusinessRule rule = AsyncBusinessRuleBuilder.Create(Code)
+            .WithParameter(LimitName, Fallback)
+            .WhenAsync((ctx, p, ct) => { found = p.TryGet("undeclared", out decimal _); return Task.FromResult(false); })
+            .Build();
+
+        await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken);
+
+        Assert.False(found);
+    }
+
+    [Fact]
     public void Resolved_NullFallback_IsReturnedAsNull()
     {
         string? observed = "not-null";

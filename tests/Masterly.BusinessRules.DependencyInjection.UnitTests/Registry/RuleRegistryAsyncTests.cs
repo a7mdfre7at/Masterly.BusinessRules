@@ -191,11 +191,14 @@ public class RuleRegistryAsyncTests
     }
 
     [Fact]
-    public async Task CheckAllAsync_IgnoresTheSyncRulesOfTheSet()
+    public async Task CheckAllAsync_MixedSet_ChecksTheSyncRulesToo()
     {
         RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.Add(RuleTestHelper.CreateBrokenRule(CartEmptyCode)).AddAsyncRule(Passing(LimitCode))).Build();
 
-        await registry.CheckAllAsync(CheckoutSet, cancellationToken: TestContext.Current.CancellationToken);
+        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
+            () => registry.CheckAllAsync(CheckoutSet, cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal(CartEmptyCode, Assert.Single(exception.BrokenRules).Code);
     }
 
     [Fact]
@@ -342,6 +345,113 @@ public class RuleRegistryAsyncTests
         source.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => registry.EvaluateAllAsync(CheckoutSet, null, null, source.Token));
+    }
+
+    // ---------------------------------------------------------------------
+    // Scope on a reused context
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task CheckAllAsync_ContextReusedAcrossTenants_ResolvesParametersForEachRequestedScope()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.AddAsyncRule(ParameterizedLimit())).Build();
+        BusinessRuleContext context = RuleTestHelper.CreateContext((AmountKey, 30m));
+        await registry.CheckAllAsync(CheckoutSet, AcmeScope, context, TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<BusinessRuleValidationException>(
+            () => registry.CheckAllAsync(CheckoutSet, RuleScope.Tenant(Globex), context, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_NullScopeWithATenantScopeInTheContext_ResolvesGlobalParameters()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.AddAsyncRule(ParameterizedLimit())).Build();
+        BusinessRuleContext context = RuleTestHelper.CreateContext((AmountKey, 30m));
+        context.Set(RuleParameters.ScopeKey, AcmeScope);
+
+        await Assert.ThrowsAsync<BusinessRuleValidationException>(
+            () => registry.CheckAllAsync(CheckoutSet, null, context, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_ContextWithAScope_RestoresItAfterTheBatch()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.AddAsyncRule(Passing(LimitCode))).Build();
+        BusinessRuleContext context = new BusinessRuleContext();
+        context.Set(RuleParameters.ScopeKey, AcmeEuScope);
+
+        await registry.CheckAllAsync(CheckoutSet, AcmeScope, context, TestContext.Current.CancellationToken);
+
+        Assert.Equal(AcmeEuScope, context.Get(RuleParameters.ScopeKey));
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_ContextWithoutAScope_RemovesTheScopeAfterTheBatch()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.AddAsyncRule(Passing(LimitCode))).Build();
+        BusinessRuleContext context = new BusinessRuleContext();
+
+        await registry.CheckAllAsync(CheckoutSet, AcmeScope, context, TestContext.Current.CancellationToken);
+
+        Assert.False(context.ContainsKey(RuleParameters.ScopeKey));
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_CancelledToken_StillRestoresTheContextScope()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.AddAsyncRule(Cancellable())).Build();
+        BusinessRuleContext context = new BusinessRuleContext();
+        context.Set(RuleParameters.ScopeKey, AcmeEuScope);
+        using CancellationTokenSource source = new CancellationTokenSource();
+        source.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => registry.CheckAllAsync(CheckoutSet, AcmeScope, context, source.Token));
+
+        Assert.Equal(AcmeEuScope, context.Get(RuleParameters.ScopeKey));
+    }
+
+    [Fact]
+    public async Task EvaluateAllAsync_ContextWithAScope_EvaluatesWithTheRequestedScopeAndRestoresIt()
+    {
+        RuleRegistry registry = RuleRegistry.Create().AddSet(CheckoutSet, set => set.AddAsyncRule(ParameterizedLimit())).Build();
+        BusinessRuleContext context = RuleTestHelper.CreateContext((AmountKey, 30m));
+        context.Set(RuleParameters.ScopeKey, AcmeScope);
+
+        AsyncRuleEvaluationResult result = await registry.EvaluateAllAsync(CheckoutSet, RuleScope.Tenant(Globex), context, TestContext.Current.CancellationToken);
+
+        Assert.Equal(LimitCode, Assert.Single(result.BrokenRules).Code);
+        Assert.Equal(AcmeScope, context.Get(RuleParameters.ScopeKey));
+    }
+
+    // ---------------------------------------------------------------------
+    // Sets mixing sync and async rules
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public async Task EvaluateAllAsync_MixedSet_EvaluatesTheSyncRulesFirstThenTheAsyncRules()
+    {
+        RuleRegistry registry = RuleRegistry.Create()
+            .AddSet(CheckoutSet, set => set.AddAsyncRule(Passing(LimitCode)).Add(RuleTestHelper.CreateBrokenRule(CartEmptyCode)))
+            .AddSet(CheckoutSet, AcmeScope, set => set.Add(RuleTestHelper.CreatePassingRule(AcmePoCode)))
+            .Build();
+
+        AsyncRuleEvaluationResult result = await registry.EvaluateAllAsync(CheckoutSet, AcmeScope, null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(new[] { CartEmptyCode, AcmePoCode, LimitCode }, result.Entries.Select(entry => entry.AsyncRule!.Code));
+        Assert.Equal(CartEmptyCode, Assert.Single(result.BrokenRules).Code);
+    }
+
+    [Fact]
+    public async Task CheckAllAsync_MixedSet_DisabledSyncCodeIsNotChecked()
+    {
+        RuleRegistry registry = RuleRegistry.Create()
+            .AddSet(CheckoutSet, set => set.Add(RuleTestHelper.CreateBrokenRule(CartEmptyCode)).AddAsyncRule(Passing(LimitCode)))
+            .AddSet(CheckoutSet, AcmeScope, set => set.Disable(CartEmptyCode))
+            .Build();
+
+        Exception? exception = await Record.ExceptionAsync(() => registry.CheckAllAsync(CheckoutSet, AcmeScope, null, TestContext.Current.CancellationToken));
+
+        Assert.Null(exception);
     }
 
     // ---------------------------------------------------------------------

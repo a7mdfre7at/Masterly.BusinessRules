@@ -70,7 +70,7 @@ If you like or are using this project please give it a star. Thanks!
 - **Rich Results** - Every result carries the rule's `Name`, `Category` and `Tags`; a `Describe(context)` hook (or the builders' `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation`) attaches `Detail`, `Actual`, `Expected`, `Remediation` and a `Data` bag on the broken path only, and exceptions and results filter with `ByTag`/`ByCategory`: enough to build an RFC 7807 Problem Details response straight from the engine
 - **Typed Context** - Strongly-typed data passing to rules: `BusinessRuleContext<T>.Data` for one object, `ContextKey<T>` for named values read with `context.Get(OrderKeys.Order)` (no cast, no string literal); a failed read throws `ContextKeyNotFoundException` listing the available keys or `ContextValueTypeMismatchException` naming both types, and the checkers wrap either in a `BusinessRuleContextException` that names the failing rule
 - **Rule Adapters** - Convert between sync and async rules
-- **Observers** - Monitor rule execution with per-rule and batch lifecycle callbacks (`OnBatchStarted`, `OnAfterEvaluate` with elapsed time, `OnRuleFaulted`, `OnBatchCompleted`, `OnShadowViolation`) from `CheckAll` and the options-taking `EvaluateAll`
+- **Observers** - Monitor rule execution with per-rule and batch lifecycle callbacks (`OnBatchStarted`, `OnAfterEvaluate` with elapsed time, `OnRuleFaulted`, `OnRuleCancelled`, `OnBatchCompleted` or `OnBatchAborted`, `OnShadowViolation`, `OnShadowFault`) from `CheckAll` and the options-taking `EvaluateAll`
 - **Testing Utilities** - `RuleTestHelper` assertions and factories for unit testing rules
 - **Rule Expressions** (`Masterly.BusinessRules.Expressions`) - Write a condition as `amount > @maxOrderAmount && customer.Tier != 'VIP'`, parse it once and get an explanation with the bound values (`amount(12000) > @maxOrderAmount(10000) => true`); `WhenExpression(...)` on the builders returns an `ExpressionBusinessRule`, and the `IRuleConditionCompiler` seam keeps the grammar out of the core
 - **Diagnostics** (`Masterly.BusinessRules.Diagnostics`) - Drop-in observers turn every rule evaluation into a structured `ILogger` line, a child span per rule under a batch span from the `Masterly.BusinessRules` `ActivitySource`, and the `business_rules.*` instruments of the `Masterly.BusinessRules` `Meter`; `rule.Traced()` does the same for a single `Check()`
@@ -157,7 +157,7 @@ The library provides two base classes:
 Rules can be checked in three ways:
 - `IsBroken()` / `IsBrokenAsync()`: Returns a boolean indicating if the rule is violated
 - `Check()` / `CheckAsync()`: Throws `BusinessRuleValidationException` if the rule is broken
-- `Evaluate()` / `EvaluateAsync()`: Returns a `BusinessRuleResult` object (or null if not broken)
+- `Evaluate()` / `EvaluateAsync()`: `Evaluate()` (sync) is a pure factory that builds the broken result without evaluating the rule (it never returns null); `EvaluateAsync()` evaluates and returns the result when broken, or null when the rule passes
 
 ### Sync Rule Example
 
@@ -236,6 +236,8 @@ The builders support all rule metadata (name, description, category, tags, sever
 - `AsyncBusinessRuleBuilder`: Creates asynchronous rules with `WhenAsync()` condition
 
 **Rule factory seam.** `BusinessRuleBuilder.WithRuleFactory(IBuiltRuleFactory)` and `AsyncBusinessRuleBuilder.WithRuleFactory(IAsyncBuiltRuleFactory)` let a sibling package decide which rule type `Build()` returns. At `Build()` the factory receives a `BuiltRuleDefinition`: the seven metadata members (the name defaults to the code), `ResolveParameters(context)` / `ResolveParametersAsync(context, ct)` for the `WithParameter<T>` declarations, and `CreateResult(rule, context)` that attaches the `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation` details. A factory replaces any condition set so far and a later `When`/`WhenAsync` replaces the factory; a factory that returns null makes `Build()` throw `InvalidOperationException`. The Expressions package's `WhenExpression` uses it to return an `ExpressionBusinessRule`.
+
+**The last condition wins.** On `BusinessRuleBuilder` and `AsyncBusinessRuleBuilder` every `When(...)` / `WhenAsync(...)` overload (parameterless, context, parameters, compiled text) replaces whatever condition was set before, so `When((ctx, p) => true).When(ctx => false)` builds a rule that never breaks. The subject-typed `BusinessRuleBuilder<T>` keeps its subject-only and context conditions side by side (the subject-only one answers `IsBroken(subject)`, the context one `IsBroken(subject, context)`), but a parameters condition replaces both and is replaced by either.
 
 ### Sync Builder Example
 
@@ -408,7 +410,7 @@ OrderIsOverdueRule overdue = new OrderIsOverdueRule();
 OrderIsBigRule big = new OrderIsBigRule();
 
 // In memory: the typed checker, with the same Code/Message/Severity as everywhere else
-BusinessRuleChecker.CheckAll(order, new ISpecificationRule<Order>[] { overdue, big });
+BusinessRuleChecker.CheckAll(order, overdue, big);
 bool isOverdue = overdue.IsBroken(order);                     // compiled once, reused
 
 // In the database: the same expression becomes the WHERE clause
@@ -546,7 +548,7 @@ await asyncRule.CheckAsync(context);
 
 // Composite container
 CompositeBusinessRule composite = new CompositeBusinessRule(
-    new Rule1(), new Rule2(), new Rule3()
+    new IBusinessRule[] { new Rule1(), new Rule2(), new Rule3() }
 );
 composite.Check();
 ```
@@ -769,6 +771,9 @@ public class TransactionLimitRule : BaseBusinessRule
     public override string Code => "TRANSACTION.LIMIT_EXCEEDED";
     public override string Message => "Transaction amount exceeds limit.";
 
+    // The limit lives in the context, so the context-less overload has nothing to compare against
+    public override bool IsBroken() => throw new InvalidOperationException("TransactionLimitRule needs a context with a 'limit'.");
+
     public override bool IsBroken(BusinessRuleContext context)
     {
         decimal limit = context.Get<decimal>("limit");
@@ -821,6 +826,8 @@ public class TransactionLimitRule : BaseBusinessRule
 {
     public override string Code => "LIMIT.EXCEEDED";
     public override string Message => "Transaction amount exceeds limit.";
+
+    public override bool IsBroken() => throw new InvalidOperationException("TransactionLimitRule reads the order and the limit from the context.");
 
     public override bool IsBroken(BusinessRuleContext context)
     {
@@ -875,7 +882,11 @@ Caching wraps a rule and stores its result for a specified duration. Subsequent 
 
 **Classes:**
 - `CachedBusinessRule`: Wraps sync rules with thread-safe caching
-- `CachedAsyncBusinessRule`: Wraps async rules with async-safe caching (uses SemaphoreSlim)
+- `CachedAsyncBusinessRule`: Wraps async rules with async-safe caching (a `SemaphoreSlim` guards the cache entries)
+
+**Concurrency.** The lock (sync) or semaphore (async) guards only the cache lookups and stores; the inner rule runs outside it, so one slow evaluation never blocks cache hits or evaluations for other keys (other tenants keep being served while tenant A's miss is computed). Concurrent misses for the same key may each evaluate the inner rule; the last verdict stored wins. A verdict whose evaluation overlapped an `InvalidateCache` call is returned but not stored, so an invalidation is never undone by an evaluation that started before it.
+
+**Captured faults are never cached.** `Explain(context, captureExceptions: true)` turns an inner exception into a `Faulted` node and a broken verdict; that verdict is returned to the explanation but never stored, so a diagnostic explain during a transient outage cannot make later `IsBroken`/`Check` calls report the rule as broken for the whole cache duration.
 
 **Per instance or per key.** By default a cached rule holds **one verdict per instance**, whatever the context, so it must never wrap a rule whose verdict depends on the context (scoped parameters, a tenant id, a feature cohort). Pass a `cacheKeySelector` (`Func<BusinessRuleContext, string>`) to cache **one verdict per key** instead: `rule.Cached(ttl, ctx => ctx.Get(RuleParameters.ScopeKey).ToString())` keeps ACME's verdict apart from Globex's. `CachesPerKey` reports which mode an instance is in. The parameterless `IsBroken()` / `Check()` have no context to select a key from and always use a dedicated shared entry. Expired entries are purged whenever a new key is stored, so the cache holds at most one live entry per key seen within the duration; keep the key space bounded (tenants, regions), never per request. A selector that returns null throws `RuleConfigurationException` naming the rule's `Code`.
 
@@ -884,7 +895,7 @@ Caching wraps a rule and stores its result for a specified duration. Subsequent 
 - `InvalidateCache(key)` / `InvalidateCacheAsync(key)`: Clears one key; other keys and the shared entry are untouched
 
 **Extension Methods:**
-- `.Cached(TimeSpan)`: Fluent syntax for adding per-instance caching
+- `.Cached(TimeSpan)`: Fluent syntax for adding per-instance caching; returns the concrete `CachedBusinessRule` / `CachedAsyncBusinessRule`, so `InvalidateCache()` / `InvalidateCacheAsync()` and `CachesPerKey` are reachable on both sides
 - `.Cached(TimeSpan, cacheKeySelector)`: Fluent syntax for adding per-key caching
 
 ### Caching Examples
@@ -975,7 +986,7 @@ Ship a new rule dark and ramp it from your flag provider without touching the ru
 | `RuleRolloutMode` | Inner rule | Gated rule reports | Visible through |
 |-------------------|------------|--------------------|-----------------|
 | `Off` (or the caller is outside the rollout cohort) | not evaluated | passes | a `Skipped` `GATED` node in `Explain` |
-| `Shadow` | evaluated | passes | `observer.OnShadowViolation(rule, result)` and `result.ShadowResults` |
+| `Shadow` | evaluated; an exception it throws is caught (cancellation excepted) | passes, never throws | `observer.OnShadowViolation(rule, result)` and `result.ShadowResults`; a caught exception also `observer.OnShadowFault(rule, exception)` |
 | `Enforced` | evaluated | its own verdict | like any other rule |
 
 **Ramping.** A `RuleRollout` carries a `Percent` (0..100). A partial rollout needs a `stableKey` selector (a customer id, a tenant id) that `RuleRolloutBucket` hashes with in-house 32-bit FNV-1a into buckets 0..99; the caller is inside the cohort when its bucket is below the percent. The flag name is mixed into the hash, so different flags ramp over different customers, and a customer inside a 10% cohort stays inside when the rollout grows to 20%. A rollout at 100% never calls the stable key selector; a partial rollout without one throws `RuleConfigurationException`.
@@ -983,6 +994,8 @@ Ship a new rule dark and ramp it from your flag provider without touching the ru
 **Providers.** Pass the provider to `GatedBy(...)`, or store one on the context under `RuleFeatureFlags.ContextKey` (`RuleFeatureFlags.AsyncContextKey` for async providers): a provider on the context overrides the injected one for that evaluation, which lets a test or a canary pipeline force a rollout. Async gated rules try the async provider first, then the sync one. When no provider can be found anywhere the evaluation throws `RuleConfigurationException` naming the rule's `Code`. `InMemoryRuleFeatureFlagProvider` implements both interfaces, is thread-safe and can be flipped at any time; `RuleTestHelper.CreateFlagProvider(flag, mode, percent)` builds one for tests. The sibling package `Masterly.BusinessRules.FeatureManagement` adapts `Microsoft.FeatureManagement` flags and variants; see [Microsoft.FeatureManagement Adapter](#microsoftfeaturemanagement-adapter).
 
 **Shadow results.** Both checkers collect what shadow-mode rules would have reported on `RuleEvaluationResult.ShadowResults` / `AsyncRuleEvaluationResult.ShadowResults` (`HasShadowResults`), whether the gated rule is a batch member or nested inside a group, a cache or an adapter. These results are not in `BrokenRules`, never make `CheckAll` throw and never affect `AllPassed`. The options-taking overloads additionally raise the observer hook `OnShadowViolation(rule, result)` / `OnShadowViolationAsync(rule, result, ct)` right after the rule's own callbacks (in a parallel async batch, once every rule has completed and before `OnBatchCompletedAsync`); it is a default interface member, so existing observers keep compiling.
+
+**Shadow never blocks.** A dark-launched rule with a bug must not break checkout for its cohort, so in `Shadow` mode the gate catches any exception the inner rule throws (cancellation always propagates). The batch still passes; `ShadowResults` receives a stand-in result carrying the gated rule's metadata, the observer receives `OnShadowViolation` with that stand-in and then `OnShadowFault(rule, exception)` / `OnShadowFaultAsync(rule, exception, ct)` with the exception, and an explanation records the inner rule as a `Faulted` node under the passing `SHADOW` node. `Enforced` rules are unchanged: their faults follow the batch's `FaultPolicy`.
 
 **A gate needs a context.** The sync `IsBroken()` / `Check()` without a context, and therefore a context-less `BusinessRuleChecker` call or an `And`/`Or` composition evaluated without a context, evaluate the inner rule **un-gated** and never consult the provider, so composition can never throw for a missing provider. Pass a context (`CheckAll(context, rules)`) to gate. The async checkers always evaluate with a context.
 
@@ -1104,7 +1117,8 @@ services.AddBusinessRulesFeatureManagement(options =>
 
 // Gate the rules; the rule classes never change
 IAsyncRuleFeatureFlagProvider flags = serviceProvider.GetRequiredService<IAsyncRuleFeatureFlagProvider>();
-IAsyncBusinessRule creditScore = new NewCreditScoreRule(customer)
+IAsyncBusinessRule creditScore = new NewCreditScoreRule(customer)       // the sync rule from the Feature Gate example
+    .ToAsync()
     .GatedBy("credit-score-v2", flags, stableKey: ctx => ctx.Get<string>("customerId"));
 IAsyncBusinessRule sanctions = new SanctionsCheckRule(api).GatedBy("sanctions-check", flags);
 
@@ -1267,7 +1281,7 @@ The root must evaluate to a boolean; anything else throws `RuleExpressionEvaluat
 
 | Operands | Behaviour |
 |----------|-----------|
-| Number and number (any CLR numeric type, literals included) | Promoted to `decimal`; to `double` only when either side is `float` or `double`. Decimal division by zero and overflow throw `RuleExpressionEvaluationException`; `double` follows IEEE (`Infinity`, `NaN`) |
+| Number and number (any CLR numeric type, literals included) | Promoted to `decimal`; to `double` only when either side is `float` or `double`. Decimal division by zero and overflow throw `RuleExpressionEvaluationException`; `double` follows IEEE (`Infinity`, `NaN`): every ordering and `==` with a `NaN` operand is false and `!=` is true, so `x != x` detects a `NaN` and `score < threshold` never fires for one |
 | Enum and string literal | Equal when the literal is the member name, ignoring case (`tier == 'gold'`); ordering an enum against a string throws |
 | Enum and number | Compared and ordered by the underlying value (`tier > 1`) |
 | Enum and enum | Same type: by value; different enum types are never equal and cannot be ordered |
@@ -1347,11 +1361,11 @@ public sealed class Customer
 dotnet add package Masterly.BusinessRules.DependencyInjection
 ```
 
-**Scanning.** `services.AddBusinessRules(assembly, ...)` registers every concrete, closed class that implements `IBusinessRule<T>` or `IAsyncBusinessRule<T>` under each closed rule interface it implements, and every class implementing the plain `IBusinessRule` / `IAsyncBusinessRule` under that interface (`IncludeUntypedRules`, default true; a plain rule that captures its subject through the constructor cannot be created by the container, so exclude it with `TypeFilter` or turn untyped scanning off). Abstract classes and open generics are skipped, non-public types are opt-in (`IncludeNonPublicTypes`), types are visited in ordinal order of their full name so the registration order is deterministic, and registrations use `TryAddEnumerable`, so scanning the same assembly twice registers each rule once. The default lifetime is `Scoped` (it works with dependencies of any lifetime); set `Lifetime = ServiceLifetime.Singleton` when every dependency is a singleton. `IRuleRunner<>` is registered as an open generic with the same lifetime and `IRuleRegistry` as a singleton, both with `TryAdd`, so your own registration made earlier wins.
+**Scanning.** `services.AddBusinessRules(assembly, ...)` registers every concrete, closed class that implements `IBusinessRule<T>` or `IAsyncBusinessRule<T>` under each closed rule interface it implements, and, when you opt in with `IncludeUntypedRules = true` (default false), every class implementing the plain `IBusinessRule` / `IAsyncBusinessRule` under that interface. Untyped scanning is off by default because the usual plain rule captures its subject through the constructor (`new MinimumAgeRule(age)`), which the container cannot create: registering it would fail `ValidateOnBuild` (on by default in ASP.NET Core Development) or the first resolution of `IEnumerable<IBusinessRule>`. Opt in only when the plain rules of the scanned assemblies take injectable services, and exclude the rest with `TypeFilter`. Abstract classes and open generics are skipped, non-public types are opt-in (`IncludeNonPublicTypes`), types are visited in ordinal order of their full name so the registration order is deterministic, and registrations use `TryAddEnumerable`, so scanning the same assembly twice registers each rule once. The default lifetime is `Scoped` (it works with dependencies of any lifetime); set `Lifetime = ServiceLifetime.Singleton` when every dependency is a singleton. `IRuleRunner<>` is registered as an open generic with the same lifetime and `IRuleRegistry` as a singleton, both with `TryAdd`, so your own registration made earlier wins.
 
-**`IRuleRunner<TSubject>`** resolves every `IBusinessRule<T>` and `IAsyncBusinessRule<T>` registered for the subject type (`Rules`, `AsyncRules`, in registration order) and runs them through the typed checker overloads, so the ledger, fault policy, `ThrowOn` threshold and observers behave exactly as for a direct `BusinessRuleChecker` call. `CheckAllAsync` / `EvaluateAllAsync` evaluate **both** lists: the sync rules adapted with `.For(subject).ToAsync()` first, then the async rules bound with `.For(subject)`. The sync `CheckAll` / `EvaluateAll` evaluate the sync rules only and throw `InvalidOperationException` (naming the codes) when async rules are registered for the subject, because a synchronous batch cannot run them without blocking; `HasAsyncRules` tells you in advance. `RuleRunner<T>` has a public constructor taking the two collections for tests and non-container code.
+**`IRuleRunner<TSubject>`** resolves every `IBusinessRule<T>` and `IAsyncBusinessRule<T>` registered for the subject type (`Rules`, `AsyncRules`, in registration order) and runs them through the typed checker overloads, so the ledger, fault policy, `ThrowOn` threshold and observers behave exactly as for a direct `BusinessRuleChecker` call. `CheckAllAsync` / `EvaluateAllAsync` evaluate **both** lists: the sync rules adapted with `.For(subject).ToAsync()` first, then the async rules bound with `.For(subject)`. The sync `CheckAll` / `EvaluateAll` evaluate the sync rules only and throw `InvalidOperationException` (naming the codes) when async rules are registered for the subject, because a synchronous batch cannot run them without blocking; `HasAsyncRules` (on the `IRuleRunner<T>` interface) tells you in advance. `RuleRunner<T>` has a public constructor taking the two collections for tests and non-container code.
 
-**`IRuleRegistry`.** Register rule *factories* under a set name, once for everybody (`RuleScope.Global`) and again for the scopes that need an override: `RuleRegistry.Create().AddSet(name, scope, set => ...)` or, in the container, `services.AddBusinessRules(o => o.AddRuleSet(name, scope, set => ...))` (the `(serviceProvider, set) => ...` overload runs when the registry is first resolved and can capture resolved services). Inside a layer, `set.Add(ctx => new Rule(ctx.Get(OrderKeys.Order)))` / `set.Add(rule)` add sync rules, `set.AddAsyncRule(...)` async rules (the two lists are independent: `Resolve`/`CheckAll` see the sync list, `ResolveAsyncRules`/`CheckAllAsync` the async list; add a sync rule to the async list with `.ToAsync()`), `set.Disable(code)` removes every rule with that code from the layers resolved before this one, and `set.Replace(code, factory)` / `set.ReplaceAsyncRule(code, factory)` are `Disable` plus `Add`. `Build()` freezes the registry; the builder and every `RuleSetBuilder` reject mutation afterwards, so there are no mutation races. Resolution for a request scope (an explicit argument, never ambient state; `null` means `Global`) merges the layers whose scope `AppliesTo` the request from the **least to the most specific**, equally specific layers in **declaration order**; each layer first applies its disables to the rules merged so far and then appends its own rules, so a later or more specific layer always wins and a disable never reaches a layer resolved after it. Factories receive the context (a fresh one when you pass `null`); when the context has no `RuleParameters.ScopeKey` entry the requested scope is stored under it first, so parameterized rules in the set resolve their values for the same scope. Nothing is cached (merging a handful of layers is cheap and a cache keyed by high-cardinality scopes is unbounded), an unknown set throws `RuleSetNotFoundException` (a `KeyNotFoundException` naming the set and listing `AvailableSets`), and a factory returning `null` throws `InvalidOperationException` naming the position, set and scope. `CheckAll` / `EvaluateAll` / `CheckAllAsync` / `EvaluateAllAsync` resolve and run the set in one call, with optional `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions`.
+**`IRuleRegistry`.** Register rule *factories* under a set name, once for everybody (`RuleScope.Global`) and again for the scopes that need an override: `RuleRegistry.Create().AddSet(name, scope, set => ...)` or, in the container, `services.AddBusinessRules(o => o.AddRuleSet(name, scope, set => ...))` (the `(serviceProvider, set) => ...` overload runs when the registry is first resolved and can capture resolved services). Inside a layer, `set.Add(ctx => new Rule(ctx.Get(OrderKeys.Order)))` / `set.Add(rule)` add sync rules, `set.AddAsyncRule(...)` async rules (`Resolve` returns the sync list and `ResolveAsyncRules` the async list; the batch methods follow `IRuleRunner<T>`: `CheckAllAsync`/`EvaluateAllAsync` run the whole set, the sync rules adapted with `.ToAsync()` first and then the async rules, while `CheckAll`/`EvaluateAll` throw `InvalidOperationException` naming the codes when the resolved set has async rules instead of silently skipping them), `set.Disable(code)` removes every rule with that code from the layers resolved before this one, and `set.Replace(code, factory)` / `set.ReplaceAsyncRule(code, factory)` are `Disable` plus `Add`. `Build()` freezes the registry; the builder and every `RuleSetBuilder` reject mutation afterwards, so there are no mutation races. Resolution for a request scope (an explicit argument, never ambient state; `null` means `Global`) merges the layers whose scope `AppliesTo` the request from the **least to the most specific**, equally specific layers in **declaration order**; each layer first applies its disables to the rules merged so far and then appends its own rules, so a later or more specific layer always wins and a disable never reaches a layer resolved after it. Factories receive the context (a fresh one when you pass `null`), and the requested scope is the one parameterized rules resolve their values for: the batch methods store it under `RuleParameters.ScopeKey` for the duration of the call, replacing whatever the context held, and put the previous entry back afterwards, so one context reused for tenant A and then tenant B never resolves A's parameters for B (and a `null` scope with a tenant scope already in the context resolves global parameters, matching the global layers). `Resolve` / `ResolveAsyncRules` store the requested scope and leave it there, because the returned rules are evaluated later against that context. Nothing is cached (merging a handful of layers is cheap and a cache keyed by high-cardinality scopes is unbounded), an unknown set throws `RuleSetNotFoundException` (a `KeyNotFoundException` naming the set and listing `AvailableSets`), and a factory returning `null` throws `InvalidOperationException` naming the position, set and scope. `CheckAll` / `EvaluateAll` / `CheckAllAsync` / `EvaluateAllAsync` resolve and run the set in one call, with optional `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions`.
 
 ### Dependency Injection Examples
 
@@ -1485,11 +1499,14 @@ Observers receive callbacks during rule evaluation, enabling:
     - `OnRuleFaulted(IBusinessRule rule, Exception exception)`: Called when a rule throws, before the `FaultPolicy` is applied
     - `OnBatchCompleted(RuleEvaluationResult result)`: Called once with the result and its ledger, before `CheckAll` throws
     - `OnShadowViolation(IBusinessRule rule, BusinessRuleResult result)`: Called when a shadow-mode gated rule observed a violation it did not report as broken (see [Shadow Rollout and Feature-Gated Rules](#shadow-rollout-and-feature-gated-rules))
+    - `OnShadowFault(IBusinessRule rule, Exception exception)`: Called after `OnShadowViolation` when the shadow-mode rule's inner rule threw (shadow mode never blocks, so the exception does not propagate)
+    - `OnRuleCancelled(IBusinessRule rule, OperationCanceledException exception)`: Called when a rule's evaluation was cancelled, before the cancellation propagates
+    - `OnBatchAborted(Exception exception)`: Called once, in place of `OnBatchCompleted`, when a started batch ends by an exception (a cancellation, a fault under `FaultPolicy.Throw`, a null rule)
 
 - `IAsyncRuleExecutionObserver`: For async rule evaluation
-  - Same methods with async signatures and CancellationToken (`OnBatchStartedAsync`, `OnAfterEvaluateAsync(rule, isBroken, elapsed, ct)`, `OnRuleFaultedAsync`, `OnBatchCompletedAsync`, `OnShadowViolationAsync`)
+  - Same methods with async signatures and CancellationToken (`OnBatchStartedAsync`, `OnAfterEvaluateAsync(rule, isBroken, elapsed, ct)`, `OnRuleFaultedAsync`, `OnBatchCompletedAsync`, `OnShadowViolationAsync`, `OnShadowFaultAsync`, `OnRuleCancelledAsync`, `OnBatchAbortedAsync`); the checker passes `CancellationToken.None` to the cancellation and abort hooks so they can finish their bookkeeping
 
-Per rule the order is `OnBeforeEvaluate`, `OnAfterEvaluate(rule, result)`, `OnAfterEvaluate(rule, isBroken, elapsed)`, then `OnRuleBroken` when broken. A rule that throws gets `OnRuleFaulted` instead of the two `OnAfterEvaluate` calls (plus `OnRuleBroken` under `FaultPolicy.TreatAsBroken`). `OnBatchCompleted` is not raised when a fault propagates under `FaultPolicy.Throw`.
+Per rule the order is `OnBeforeEvaluate`, `OnAfterEvaluate(rule, result)`, `OnAfterEvaluate(rule, isBroken, elapsed)`, then `OnRuleBroken` when broken. A rule that throws gets `OnRuleFaulted` instead of the two `OnAfterEvaluate` calls (plus `OnRuleBroken` under `FaultPolicy.TreatAsBroken`); a cancelled rule gets `OnRuleCancelled` and nothing else (cancellation is never a fault). Every batch that raised `OnBatchStarted` ends with exactly one of `OnBatchCompleted` (raised before `CheckAll` throws its broken rules) or `OnBatchAborted` (the batch itself ended by an exception), so an observer that opens a span or a scope per batch can always close it.
 
 Observers are passed to `BusinessRuleChecker.CheckAll()` / `AsyncBusinessRuleChecker.CheckAllAsync()` via the `observer` parameter, or to any options-taking overload through `RuleEvaluationOptions.Observer` / `AsyncRuleEvaluationOptions.Observer`. Observers fire from `EvaluateAll` / `EvaluateAllAsync` only through the options-taking overloads; the boolean `EvaluateAll` overloads have no observer parameter.
 
@@ -1562,9 +1579,9 @@ dotnet add package Masterly.BusinessRules.Diagnostics
 
 **Metrics.** The same observers record three instruments on the `Meter` named `Masterly.BusinessRules` (`BusinessRulesMetrics.MeterName`): the counter `business_rules.evaluations` tagged `code` (when selected), `category`, `severity`, `outcome`; the histogram `business_rules.evaluation.duration` in milliseconds tagged `outcome` only; and the counter `business_rules.batches` tagged `outcome` (`faulted` when any rule threw, else `broken`, else `passed`). A shadow violation is counted as an extra `outcome=shadow` evaluation beside the gated rule's own `passed` one. Set `RecordMetrics = false` to disable, or `Metrics = new BusinessRulesMetrics(meter)` to record on a meter you own (an `IMeterFactory` meter, a test meter).
 
-**Single-rule path.** Batches are not the only path: a DDD aggregate calls `rule.Check()` directly. `rule.Traced()` wraps any rule in a `DiagnosticsBusinessRule` / `DiagnosticsAsyncBusinessRule` that records every `IsBroken` / `Check` (`IsBrokenAsync` / `EvaluateAsync` / `CheckAsync`) call as a span and a measurement, and `rule.Traced(logger)` adds the log line. The decorator forwards all seven metadata members, implements `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule`, rethrows the inner rule's own `BusinessRuleValidationException`, and leaves the sync `Evaluate()` factory untouched. Use the observer for batches and the decorator for single-rule calls; a traced rule inside a traced batch produces a nested span and a second measurement. Cancellation closes the span with `outcome=cancelled` and is neither counted nor logged.
+**Single-rule path.** Batches are not the only path: a DDD aggregate calls `rule.Check()` directly. `rule.Traced()` wraps any rule in a `DiagnosticsBusinessRule` / `DiagnosticsAsyncBusinessRule` that records every `IsBroken` / `Check` (`IsBrokenAsync` / `EvaluateAsync` / `CheckAsync`) call as a span and a measurement, and `rule.Traced(logger)` adds the log line. The decorator forwards all seven metadata members, implements `IExplainableDecoratedBusinessRule` / `IExplainableDecoratedAsyncBusinessRule`, rethrows the inner rule's own `BusinessRuleValidationException` from `Check`, and leaves the sync `Evaluate()` factory untouched. On every walker path (a checker batch, an `And`/`Or` operand, a group member, `Explain`) it records around the walker's single evaluation of the inner rule, so a traced group keeps its member `Details` and `Explain` shows a `TRACED` node (`DiagnosticsText.TracedOperator`) with the group's subtree beneath it. Use the observer for batches and the decorator for single-rule calls; a traced rule inside a traced batch produces a nested span and a second measurement. Cancellation closes the span with `outcome=cancelled` and is neither counted nor logged.
 
-**Known limitation.** Under `FaultPolicy.Throw` (the default) the checkers let the fault propagate without raising `OnBatchCompleted`, so the batch span is never stopped (and, for the sync checker, stays `Activity.Current` on the calling thread); the rule span is still finished from `OnRuleFaulted`. Use `FaultPolicy.Record` or `FaultPolicy.TreatAsBroken` for complete traces.
+**Aborted batches.** A batch that ends by an exception still closes every span it opened: a cancelled rule's span is finished from `OnRuleCancelled` with `outcome=cancelled`, a faulted rule's from `OnRuleFaulted`, and the batch span from `OnBatchAborted` with `business_rules.batch.outcome` `cancelled`, or `faulted` plus an error status and an `exception` event when a fault propagated under `FaultPolicy.Throw` (that faulted batch is also counted on the batch metric). Nothing stays `Activity.Current` on the caller's flow and no span is left unexported; cancellation is never counted. The span lookups walk past foreign activities a rule started and never stopped, so outcome tags and events still land on the library's own rule and batch spans.
 
 ### Diagnostics Examples
 
@@ -2026,10 +2043,11 @@ using Masterly.BusinessRules.Testing;
 
 // Outcome coverage
 using RuleCoverageSession coverage = RuleCoverage.Begin();
-IBusinessRule adult = new CustomerIsAdultRule(customer).WithCoverage(coverage);
-IBusinessRule active = new CustomerIsActiveRule(customer).WithCoverage(coverage);
+IBusinessRule Checks(Customer customer) =>
+    new CustomerIsAdultRule(customer).WithCoverage(coverage).And(new CustomerIsActiveRule(customer).WithCoverage(coverage));
 
-BusinessRuleChecker.EvaluateAll(adult.And(active));
+BusinessRuleChecker.EvaluateAll(Checks(inactiveMinor));   // both rules broken
+BusinessRuleChecker.EvaluateAll(Checks(activeAdult));     // CUSTOMER.ADULT passes, so the And short-circuits
 
 RuleCoverageReport report = coverage.Report();
 Console.WriteLine(report.ToText());
@@ -2038,9 +2056,21 @@ Console.WriteLine(report.ToText());
 // outcome coverage 75% (3 of 4 outcomes, 1 of 2 rules fully covered)
 report.AssertMinimum(outcomeCoverage: 1.0);   // RuleAssertionException naming CUSTOMER.INACTIVE
 
+// A rule whose verdict depends on the amount alone (the finder and the properties call the parameterless IsBroken)
+public class DailyLimitRule : BaseBusinessRule
+{
+    private readonly decimal _amount;
+
+    public DailyLimitRule(decimal amount) => _amount = amount;
+
+    public override string Code => "DAILY.LIMIT";
+    public override string Message => "The daily limit of 10 000 is exceeded.";
+    public override bool IsBroken() => _amount > 10_000m;
+}
+
 // Boundary finder
 RuleBoundary<decimal> boundary = RuleBoundaryFinder.Find<decimal>(
-    amount => new TransactionLimitRule(amount), from: 0m, to: 1_000_000m, step: 0.01m);
+    amount => new DailyLimitRule(amount), from: 0m, to: 1_000_000m, step: 0.01m);
 // boundary.LastPassing == 10000.00m, boundary.FirstBroken == 10000.01m
 // boundary.ToString() == "passes up to 10000.00, breaks from 10000.01 (… probes)"
 
@@ -2048,7 +2078,7 @@ RuleBoundary<decimal> asyncBoundary = await RuleBoundaryFinder.FindAsync<decimal
     amount => new AsyncLimitRule(amount), 0m, 1_000_000m, 0.01m, cancellationToken);
 
 // Rule properties
-RuleProperties.For<decimal>(amount => new TransactionLimitRule(amount), Gen.Decimal[0.01m, 100_000m])
+RuleProperties.For<decimal>(amount => new DailyLimitRule(amount), Gen.Decimal[0.01m, 100_000m])
     .MonotoneIn(Monotonicity.BrokenAbove)
     .ContextPure()
     .Verify(iterations: 500, seed: 42);
@@ -2212,8 +2242,8 @@ public IReadOnlyList<string> Approve(Order order, string tenantId)
 | `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached, conditional, severity-override and feature-gated decorators) |
 | `IExplainableDecoratedBusinessRule` / `IExplainableDecoratedAsyncBusinessRule` | Public seam for decorators written outside the library: `ExplanationOperator`, `EvaluateDecorated(DecoratedRuleEvaluation)` / `EvaluateDecoratedAsync(AsyncDecoratedRuleEvaluation, ct)`; the walkers and `Explain` treat them as decorator nodes instead of leaves |
 | `IBuiltRuleFactory` / `IAsyncBuiltRuleFactory` | Builder seam: `Create(BuiltRuleDefinition)` decides the rule type `Build()` returns (set with `WithRuleFactory`) |
-| `IRuleExecutionObserver` | Sync execution callbacks plus batch hooks `OnBatchStarted`, `OnAfterEvaluate(rule, isBroken, elapsed)`, `OnRuleFaulted`, `OnBatchCompleted`, `OnShadowViolation` |
-| `IAsyncRuleExecutionObserver` | Async execution callbacks plus the async batch hooks and `OnShadowViolationAsync` |
+| `IRuleExecutionObserver` | Sync execution callbacks plus batch hooks `OnBatchStarted`, `OnAfterEvaluate(rule, isBroken, elapsed)`, `OnRuleFaulted`, `OnRuleCancelled`, `OnBatchCompleted`, `OnBatchAborted`, `OnShadowViolation`, `OnShadowFault` |
+| `IAsyncRuleExecutionObserver` | Async execution callbacks plus the async batch hooks (`OnRuleCancelledAsync`, `OnBatchAbortedAsync` included), `OnShadowViolationAsync` and `OnShadowFaultAsync` |
 | `IRuleFeatureFlagProvider` / `IAsyncRuleFeatureFlagProvider` | Supply a flag's `RuleRollout` to gated rules: `GetRollout(flag, context)` / `GetRolloutAsync(flag, context, ct)` |
 | `IRuleParameterProvider` / `IAsyncRuleParameterProvider` | Supply named, scope-layered parameter values to built rules: `TryGet<T>(name, scope, out value)` / `TryGetAsync<T>(name, scope, ct)` returning `RuleParameterLookup<T>` |
 | `IRuleConditionCompiler` / `IAsyncRuleConditionCompiler` | The Expressions seam: `Compile(expression)` returns the sync / async broken-condition delegate a built rule evaluates (`When(compiler, text)` / `WhenAsync(compiler, text)`) |
@@ -2266,10 +2296,10 @@ public IReadOnlyList<string> Approve(Order order, string tenantId)
 | `RuleFeatureFlags` | Reserved context keys overriding the injected provider: `ContextKey` (sync), `AsyncContextKey` (async) |
 | `InMemoryRuleFeatureFlagProvider` | Thread-safe provider implementing both provider interfaces: `Set(flag, rollout)`, `Set(flag, mode, percent)`, `Remove`, `TryGet`, `DefaultRollout` |
 | `RuleConfigurationException` | Thrown when a gated rule has no provider, a partial rollout has no stable key, or a cache key selector returns null: `RuleCode` |
-| `SyncToAsyncRuleAdapter` | Adapts sync rules to async |
+| `SyncToAsyncRuleAdapter` / `SyncToAsyncRuleAdapter<T>` | Adapts sync rules to async; the generic one bridges `IBusinessRule<T>` to `IAsyncBusinessRule<T>` without binding a subject |
 | `AsyncToSyncRuleAdapter` | Adapts async rules to sync (blocking) |
-| `BusinessRuleChecker` | Batch sync validation; options-taking `CheckAll`/`EvaluateAll` overloads; subject-typed `CheckAll(subject, rules)`, `EvaluateAll(subject, rules)`, `CheckBySeverity/Category/Tags(subject, rules, ...)` and `EvaluateEach(subjects, rules)` |
-| `AsyncBusinessRuleChecker` | Batch async validation; options-taking `CheckAllAsync`/`EvaluateAllAsync` overloads; `CheckByTagsAsync`; subject-typed `CheckAllAsync([context,] subject, rules)`, `EvaluateAllAsync`, `CheckBySeverity/Category/TagsAsync` and `EvaluateEachAsync` |
+| `BusinessRuleChecker` | Batch sync validation; options-taking `CheckAll`/`EvaluateAll` overloads; subject-typed `CheckAll(subject, rules)`, `EvaluateAll(subject, rules)` (also with the rules listed directly: `CheckAll(order, overdue, big)`), `CheckBySeverity/Category/Tags(subject, rules, ...)` and `EvaluateEach(subjects, rules)` |
+| `AsyncBusinessRuleChecker` | Batch async validation; options-taking `CheckAllAsync`/`EvaluateAllAsync` overloads; `CheckByTagsAsync` (also `CheckByTagsAsync(context, rules, "pci", "gdpr")` without a token); subject-typed `CheckAllAsync([context,] subject, rules)`, `EvaluateAllAsync` (also `CheckAllAsync(context, order, ruleA, ruleB)`), `CheckBySeverity/Category/TagsAsync` (tokenless params forms too) and `EvaluateEachAsync`. Argument order: a context, when given, comes first on every async overload; the sync checker takes `(subject, rules, context)` and `IRuleRunner<T>` `(subject, context, ...)` |
 | `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` | `StopOnFirstFailure`, `OnFault`, `ThrowOn`, `Observer` (async: `RunInParallel`) |
 | `FaultPolicy` | `Throw`, `Record`, `TreatAsBroken` |
 | `RuleEvaluationEntry` | Ledger line: `Order`, `Rule`/`AsyncRule`, `Code`, `Outcome`, `Result`, `Fault`, `Duration` |
@@ -2299,7 +2329,7 @@ public IReadOnlyList<string> Approve(Order order, string tenantId)
 | `queryable.WhereBroken(spec)` / `queryable.WhereSatisfies(spec)` | Append one `Where` with the specification's `BrokenExpression` / `SatisfiedExpression`; accept `ISpecificationRule<T>` only |
 | `.Explain(context?, captureExceptions?)` | Evaluate once and return the `RuleExplanation` tree (sync) |
 | `.ExplainAsync(context, [captureExceptions], ct)` | Evaluate once and return the `RuleExplanation` tree (async) |
-| `.ToAsync()` | Convert sync to async (`SyncToAsyncRuleAdapter`); the blocking direction has no extension, construct `AsyncToSyncRuleAdapter` |
+| `.ToAsync()` | Convert sync to async (`SyncToAsyncRuleAdapter`; on an `IBusinessRule<T>`, `SyncToAsyncRuleAdapter<T>` so a typed sync rule joins typed async compositions and batches); the blocking direction has no extension, construct `AsyncToSyncRuleAdapter` |
 | `.Cached(TimeSpan)` | Add per-instance caching |
 | `.Cached(TimeSpan, cacheKeySelector)` | Add per-key caching (one verdict per tenant, region, ...) |
 | `.When(condition)` | Add conditional execution: `Func<bool>` on `IBusinessRule`, `Func<BusinessRuleContext, bool>` on `IAsyncBusinessRule` |
@@ -2324,9 +2354,9 @@ public IReadOnlyList<string> Approve(Order order, string tenantId)
 | Member | Description |
 |--------|-------------|
 | `services.AddBusinessRules(params Assembly[])` / `services.AddBusinessRules(Action<BusinessRuleOptions>)` | Scan assemblies for `IBusinessRule<T>` / `IAsyncBusinessRule<T>` (and plain `IBusinessRule` / `IAsyncBusinessRule`) types and register them (`TryAddEnumerable`), the open generic `IRuleRunner<>` and the `IRuleRegistry` singleton (`TryAdd`) |
-| `BusinessRuleOptions` | `Lifetime` (default `Scoped`), `IncludeNonPublicTypes`, `IncludeUntypedRules` (default true), `TypeFilter`, `AddAssembly` / `AddAssemblies` / `AddAssemblyContaining<T>`, `AddRuleSet(name[, scope], set => ...)` and `AddRuleSet(name[, scope], (serviceProvider, set) => ...)` |
+| `BusinessRuleOptions` | `Lifetime` (default `Scoped`), `IncludeNonPublicTypes`, `IncludeUntypedRules` (default false), `TypeFilter`, `AddAssembly` / `AddAssemblies` / `AddAssemblyContaining<T>`, `AddRuleSet(name[, scope], set => ...)` and `AddRuleSet(name[, scope], (serviceProvider, set) => ...)` |
 | `IRuleRunner<TSubject>` / `RuleRunner<TSubject>` | The registered typed rules of one subject type (`Rules`, `AsyncRules`, `HasAsyncRules`): `CheckAll` / `EvaluateAll` run the sync rules (throw `InvalidOperationException` when async rules exist); `CheckAllAsync` / `EvaluateAllAsync` run the sync rules adapted, then the async rules; options overloads on both sides |
-| `IRuleRegistry` / `RuleRegistry` | Named rule sets layered per `RuleScope`: `SetNames`, `Contains`, `Resolve(name, scope?, context?)`, `ResolveAsyncRules(...)`, `CheckAll` / `EvaluateAll` / `CheckAllAsync` / `EvaluateAllAsync` with options; least specific layer first, declaration order on ties; `RuleRegistry.Create()` starts a builder |
+| `IRuleRegistry` / `RuleRegistry` | Named rule sets layered per `RuleScope`: `SetNames`, `Contains`, `Resolve(name, scope?, context?)`, `ResolveAsyncRules(...)`, `CheckAll` / `EvaluateAll` (throw when the set has async rules) / `CheckAllAsync` / `EvaluateAllAsync` (sync rules adapted, then async rules) with options; the requested scope drives layers and parameters and is restored on the context afterwards; least specific layer first, declaration order on ties; `RuleRegistry.Create()` starts a builder |
 | `RuleRegistryBuilder` | `AddSet(name[, scope], configure)`, `LayerCount`, `Build()`; frozen after `Build` |
 | `RuleSetBuilder` | One layer: `Add(factory)` / `Add(rule)`, `AddAsyncRule(factory)` / `AddAsyncRule(rule)`, `Disable(code)`, `Replace(code, factory)`, `ReplaceAsyncRule(code, factory)`, `Name`, `Scope`, `RuleCount`, `AsyncRuleCount`, `DisabledCodes`; frozen once its `AddSet` call returns |
 | `RuleSetNotFoundException` | Derives from `KeyNotFoundException`; `SetName`, `AvailableSets`; thrown for an unknown set name |
@@ -2344,7 +2374,7 @@ public IReadOnlyList<string> Approve(Order order, string tenantId)
 | `BusinessRuleSpanAttributes` | Attribute and event names: `business_rule.code`/`.name`/`.category`/`.severity`/`.outcome`/`.message`, `business_rule.broken`, `business_rule.shadow_violation`, `exception` (+ `exception.type`, `exception.message`), `business_rules.batch.rule_count`/`.broken_count`/`.faulted_count`/`.outcome` |
 | `BusinessRulesMetrics` | `MeterName` (`Masterly.BusinessRules`), `Default`, `Meter`, the instruments `business_rules.evaluations` (`Counter<long>`; tags `code?`, `category`, `severity`, `outcome`), `business_rules.evaluation.duration` (`Histogram<double>`, ms; tag `outcome`), `business_rules.batches` (`Counter<long>`; tag `outcome`); `RecordEvaluation(rule, code, outcome, duration)`, `RecordBatch(outcome)`; constructor `(Meter)` for an owned meter |
 | `RuleOutcomeTags` / `RuleSeverityTags` | Tag values `passed`, `broken`, `faulted`, `shadow`, `cancelled` (`ForVerdict`, `ForBatch`) and `info`, `warning`, `error` (`From`) |
-| `DiagnosticsBusinessRule` / `DiagnosticsAsyncBusinessRule` | `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` recording every single-rule evaluation as a span, a measurement and (with a logger) a log line; `InnerRule`, `Options`, `IsLogging`; forwards all metadata, rethrows the inner `BusinessRuleValidationException` |
+| `DiagnosticsBusinessRule` / `DiagnosticsAsyncBusinessRule` | `IExplainableDecoratedBusinessRule` / `IExplainableDecoratedAsyncBusinessRule` recording every single-rule evaluation as a span, a measurement and (with a logger) a log line; `InnerRule`, `Options`, `IsLogging`, `ExplanationOperator` (`TRACED`); forwards all metadata, keeps a composed inner rule's `Details` and explanation subtree on walker paths, rethrows the inner `BusinessRuleValidationException` |
 | `.Traced(options?)` / `.Traced(logger, options?, loggingOptions?)` | Extensions wrapping an `IBusinessRule` / `IAsyncBusinessRule` in the diagnostics decorator |
 
 ### Expressions Package

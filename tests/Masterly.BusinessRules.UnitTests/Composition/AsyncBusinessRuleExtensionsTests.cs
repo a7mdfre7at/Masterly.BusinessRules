@@ -18,56 +18,56 @@ public class AsyncBusinessRuleExtensionsTests
     public async Task And_BothBroken_ReturnsBroken()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(true).And(new AsyncRuleA(true));
-        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task And_OneBroken_ReturnsNotBroken()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(true).And(new AsyncRuleA(false));
-        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task And_NeitherBroken_ReturnsNotBroken()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(false).And(new AsyncRuleA(false));
-        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Or_BothBroken_ReturnsBroken()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(true).Or(new AsyncRuleA(true));
-        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Or_OneBroken_ReturnsBroken()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(true).Or(new AsyncRuleA(false));
-        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Or_NeitherBroken_ReturnsNotBroken()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(false).Or(new AsyncRuleA(false));
-        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Not_Broken_ReturnsNotBroken()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(true).Not();
-        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task Not_NotBroken_ReturnsBroken()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(false).Not();
-        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public class AsyncBusinessRuleExtensionsTests
             .And(new AsyncRuleA(true))
             .Or(new AsyncRuleA(false));
 
-        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -87,7 +87,7 @@ public class AsyncBusinessRuleExtensionsTests
         RuleA syncRule = new RuleA(true);
         IAsyncBusinessRule asyncRule = syncRule.ToAsync();
 
-        Assert.True(await asyncRule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await asyncRule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
         Assert.Equal(syncRule.Code, asyncRule.Code);
         Assert.Equal(syncRule.Message, asyncRule.Message);
     }
@@ -96,14 +96,14 @@ public class AsyncBusinessRuleExtensionsTests
     public async Task When_ConditionTrue_EvaluatesRule()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(true).When(ctx => true);
-        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.True(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
     public async Task When_ConditionFalse_SkipsRule()
     {
         IAsyncBusinessRule rule = new AsyncRuleA(true).When(ctx => false);
-        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext()));
+        Assert.False(await rule.IsBrokenAsync(new BusinessRuleContext(), TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -122,9 +122,9 @@ public class AsyncBusinessRuleExtensionsTests
         IAsyncBusinessRule cachedRule = innerRule.Cached(TimeSpan.FromMinutes(5));
         BusinessRuleContext context = new BusinessRuleContext();
 
-        await cachedRule.IsBrokenAsync(context);
-        await cachedRule.IsBrokenAsync(context);
-        await cachedRule.IsBrokenAsync(context);
+        await cachedRule.IsBrokenAsync(context, TestContext.Current.CancellationToken);
+        await cachedRule.IsBrokenAsync(context, TestContext.Current.CancellationToken);
+        await cachedRule.IsBrokenAsync(context, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, evaluationCount);
     }

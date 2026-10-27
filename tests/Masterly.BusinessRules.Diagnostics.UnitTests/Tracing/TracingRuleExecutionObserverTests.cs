@@ -250,7 +250,7 @@ public class TracingRuleExecutionObserverTests
     }
 
     [Fact]
-    public void CheckAll_FaultPropagates_RuleSpanIsClosedButBatchSpanStaysOpen()
+    public void CheckAll_FaultPropagates_ClosesTheRuleSpanAndTheBatchSpanAsFaulted()
     {
         using ActivityCapture capture = new ActivityCapture();
         RuleEvaluationOptions options = new RuleEvaluationOptions { Observer = new TracingRuleExecutionObserver(TracingOptionsWithoutMetrics()) };
@@ -258,8 +258,118 @@ public class TracingRuleExecutionObserverTests
         Assert.Throws<InvalidOperationException>(() => BusinessRuleChecker.CheckAll(new[] { TestRules.SyncThrowing(ThrowingCode) }, options));
 
         Assert.Equal(RuleOutcomeTags.Faulted, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
-        Assert.Single(capture.Started, activity => activity.OperationName == BusinessRulesActivitySource.BatchActivityName);
-        Assert.Empty(capture.BatchSpans);
+        Activity batch = capture.SingleBatchSpan();
+        Assert.Equal(RuleOutcomeTags.Faulted, ActivityCapture.Tag(batch, BusinessRuleSpanAttributes.BatchOutcome));
+        Assert.Equal(ActivityStatusCode.Error, batch.Status);
+        Assert.Null(Activity.Current);
+    }
+
+    [Fact]
+    public void CheckAll_RuleCancelled_ClosesTheRuleAndBatchSpansAsCancelled()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        RuleEvaluationOptions options = new RuleEvaluationOptions { Observer = new TracingRuleExecutionObserver(TracingOptionsWithoutMetrics()), OnFault = FaultPolicy.Record };
+
+        Assert.Throws<OperationCanceledException>(
+            () => BusinessRuleChecker.CheckAll(new[] { TestRules.SyncThrowing(ThrowingCode, new OperationCanceledException()) }, new BusinessRuleContext(), options));
+
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(capture.SingleRuleSpan(), BusinessRuleSpanAttributes.Outcome));
+        Activity batch = capture.SingleBatchSpan();
+        Assert.Equal(RuleOutcomeTags.Cancelled, ActivityCapture.Tag(batch, BusinessRuleSpanAttributes.BatchOutcome));
+        Assert.Equal(ActivityStatusCode.Unset, batch.Status);
+        Assert.Null(Activity.Current);
+    }
+
+    [Fact]
+    public void CheckAll_SecondRuleCancelled_ClosesEverySpanItStarted()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        IBusinessRule[] rules = { TestRules.Sync(PassingCode, false), TestRules.SyncThrowing(ThrowingCode, new OperationCanceledException()) };
+
+        Assert.Throws<OperationCanceledException>(() => BusinessRuleChecker.CheckAll(rules, new RuleEvaluationOptions { Observer = new TracingRuleExecutionObserver(TracingOptionsWithoutMetrics()) }));
+
+        Assert.Equal(capture.Started.Count, capture.Stopped.Count);
+        Assert.Equal(new[] { RuleOutcomeTags.Passed, RuleOutcomeTags.Cancelled }, capture.RuleSpans.Select(span => ActivityCapture.Tag(span, BusinessRuleSpanAttributes.Outcome)));
+    }
+
+    [Fact]
+    public void CheckAll_RuleCancelledWithMetrics_RecordsNothing()
+    {
+        using MetricsCapture metrics = new MetricsCapture();
+        RuleEvaluationOptions options = new RuleEvaluationOptions { Observer = new TracingRuleExecutionObserver(metrics.TracingOptions()) };
+
+        Assert.Throws<OperationCanceledException>(() => BusinessRuleChecker.CheckAll(new[] { TestRules.SyncThrowing(ThrowingCode, new OperationCanceledException()) }, options));
+
+        Assert.Empty(metrics.Measurements);
+    }
+
+    [Fact]
+    public void CheckAll_FaultPropagatesWithMetrics_RecordsAFaultedBatch()
+    {
+        using MetricsCapture metrics = new MetricsCapture();
+        RuleEvaluationOptions options = new RuleEvaluationOptions { Observer = new TracingRuleExecutionObserver(metrics.TracingOptions()) };
+
+        Assert.Throws<InvalidOperationException>(() => BusinessRuleChecker.CheckAll(new[] { TestRules.SyncThrowing(ThrowingCode) }, options));
+
+        Measurement batch = Assert.Single(metrics.Batches);
+        Assert.Equal(RuleOutcomeTags.Faulted, batch[BusinessRulesMetrics.OutcomeTag]);
+    }
+
+    [Fact]
+    public void OnBatchAborted_NullException_Throws()
+    {
+        TracingRuleExecutionObserver observer = new TracingRuleExecutionObserver();
+
+        Assert.Throws<ArgumentNullException>(() => observer.OnBatchAborted(null!));
+    }
+
+    [Fact]
+    public void OnBatchAborted_NoBatchSpan_DoesNotThrow()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        TracingRuleExecutionObserver observer = new TracingRuleExecutionObserver(TracingOptionsWithoutMetrics());
+
+        Exception? exception = Record.Exception(() => observer.OnBatchAborted(new InvalidOperationException(TestRules.Boom)));
+
+        Assert.Null(exception);
+        Assert.Empty(capture.Stopped);
+    }
+
+    // ---------------------------------------------------------------------
+    // Foreign activities left open by a rule
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void EvaluateAll_RuleLeavesAForeignActivityOpen_OutcomeAndBrokenEventStillLandOnTheRuleSpan()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        TracingRuleObserverOptions options = TracingOptionsWithoutMetrics();
+        options.MessageAsEvent = true;
+        Activity? foreign = null;
+        IBusinessRule rule = TestRules.Sync(BrokenCode, true, message: "broke", onEvaluate: () => foreign = new Activity("app").Start());
+
+        BusinessRuleChecker.EvaluateAll(new[] { rule }, new RuleEvaluationOptions { Observer = new TracingRuleExecutionObserver(options) });
+        foreign!.Stop(); // started by the rule above, so it is never null here
+
+        Activity span = capture.SingleRuleSpan();
+        Assert.Equal(RuleOutcomeTags.Broken, ActivityCapture.Tag(span, BusinessRuleSpanAttributes.Outcome));
+        Assert.Equal(BusinessRuleSpanAttributes.BrokenEventName, Assert.Single(span.Events).Name);
+        Assert.Single(capture.BatchSpans);
+    }
+
+    [Fact]
+    public void EvaluateAll_ShadowRuleLeavesAForeignActivityOpen_ShadowEventLandsOnTheBatchSpan()
+    {
+        using ActivityCapture capture = new ActivityCapture();
+        Activity? foreign = null;
+        IBusinessRule gated = TestRules.Sync(BrokenCode, true, onEvaluate: () => foreign = new Activity("app").Start())
+            .GatedBy(Flag, RuleTestHelper.CreateFlagProvider(Flag, RuleRolloutMode.Shadow));
+
+        BusinessRuleChecker.EvaluateAll(new[] { gated }, new BusinessRuleContext(), new RuleEvaluationOptions { Observer = new TracingRuleExecutionObserver(TracingOptionsWithoutMetrics()) });
+        foreign!.Stop(); // started by the rule above, so it is never null here
+
+        Assert.Empty(capture.SingleRuleSpan().Events);
+        Assert.Equal(BusinessRuleSpanAttributes.ShadowViolationEventName, Assert.Single(capture.SingleBatchSpan().Events).Name);
     }
 
     // ---------------------------------------------------------------------

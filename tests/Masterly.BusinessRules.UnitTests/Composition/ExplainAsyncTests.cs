@@ -313,6 +313,102 @@ public class ExplainAsyncTests
         Assert.Equal(" └─ [NOT EVALUATED]  KYC.SANCTIONS  reason: short-circuit", lines[3]);
     }
 
+    [Fact]
+    public async Task ExplainAsync_ConditionalWithTruePrecondition_ReportsInnerOutcome()
+    {
+        IAsyncBusinessRule conditional = RuleTestHelper.CreateBrokenAsyncRule(IdCode).When(ctx => true);
+
+        RuleExplanation why = await conditional.ExplainAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(RuleOutcome.Broken, why.Outcome);
+        Assert.Equal("WHEN", why.Operator);
+        Assert.Equal(RuleOutcome.Broken, Assert.Single(why.Children).Outcome);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_OrWhenFirstBroken_SecondIsNotEvaluated()
+    {
+        int secondEvaluations = 0;
+        IAsyncBusinessRule composed = RuleTestHelper.CreateBrokenAsyncRule(IdCode).Or(CreateCountingRule(AddressCode, broken: true, () => secondEvaluations++));
+
+        RuleExplanation why = await composed.ExplainAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken);
+
+        Assert.Equal("OR", why.Operator);
+        Assert.True(why.IsBroken);
+        Assert.Equal(RuleOutcome.NotEvaluated, why.Children[1].Outcome);
+        Assert.Equal(0, secondEvaluations);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_AtLeastGroup_RendersThresholdInOperator()
+    {
+        IAsyncBusinessRule tier = AsyncRuleGroup.AtLeast(2, "TIER.INSUFFICIENT", "Need two of three signals",
+            RuleTestHelper.CreatePassingAsyncRule("S1"), RuleTestHelper.CreateBrokenAsyncRule("S2"), RuleTestHelper.CreateBrokenAsyncRule("S3"));
+
+        RuleExplanation why = await tier.ExplainAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken);
+
+        Assert.Equal("AT LEAST 2", why.Operator);
+        Assert.True(why.IsBroken);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_CachedPassingRule_CacheHitIsNotBroken()
+    {
+        IAsyncBusinessRule cached = RuleTestHelper.CreatePassingAsyncRule(IdCode).Cached(TimeSpan.FromMinutes(5));
+        await cached.ExplainAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken);
+
+        RuleExplanation second = await cached.ExplainAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(RuleOutcome.CacheHit, second.Outcome);
+        Assert.False(second.IsBroken);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_CheckAfterExplain_ProducesSameVerdictWithoutExtraEvaluationOfExplain()
+    {
+        int evaluations = 0;
+        IAsyncBusinessRule group = AsyncRuleGroup.All(GroupCode, GroupMessage, CreateCountingRule(IdCode, broken: true, () => evaluations++));
+
+        RuleExplanation why = await group.ExplainAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken);
+        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => group.CheckAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken));
+
+        Assert.True(why.IsBroken);
+        Assert.Equal(2, evaluations);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_Durations_AreNonNegativeAndZeroForNotEvaluated()
+    {
+        IAsyncBusinessRule group = AsyncRuleGroup.All(GroupCode, GroupMessage, RuleTestHelper.CreateBrokenAsyncRule(IdCode), RuleTestHelper.CreatePassingAsyncRule(AddressCode)).WithShortCircuit();
+
+        RuleExplanation why = await group.ExplainAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken);
+
+        Assert.True(why.Duration >= TimeSpan.Zero);
+        Assert.True(why.Children[0].Duration >= TimeSpan.Zero);
+        Assert.Equal(TimeSpan.Zero, why.Children[1].Duration);
+    }
+
+    [Fact]
+    public async Task ExplainAsync_ToText_RendersEveryOutcomeAndOperatorLabel()
+    {
+        IAsyncBusinessRule cached = RuleTestHelper.CreatePassingAsyncRule("CACHED.RULE").Cached(TimeSpan.FromMinutes(5));
+        await cached.IsBrokenAsync(RuleTestHelper.CreateContext(), TestContext.Current.CancellationToken);
+        IAsyncBusinessRule tree = AsyncRuleGroup.Exactly(1, "TOP", "Exactly one",
+            RuleTestHelper.CreateBrokenAsyncRule("SKIPPED.RULE").When(ctx => false),
+            cached,
+            CreateThrowingRule("FAULTED.RULE"),
+            RuleTestHelper.CreatePassingAsyncRule("INVERTED").Not());
+
+        RuleExplanation why = await tree.ExplainAsync(RuleTestHelper.CreateContext(), captureExceptions: true, TestContext.Current.CancellationToken);
+        string[] lines = why.ToText().Split(Environment.NewLine);
+
+        Assert.Contains("] EXACTLY 1  TOP", lines[0]);
+        Assert.Contains(lines, line => line.Contains("[SKIPPED] WHEN  SKIPPED.RULE", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("[CACHE HIT] CACHED  CACHED.RULE", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("[FAULTED]  FAULTED.RULE", StringComparison.Ordinal));
+        Assert.Contains(lines, line => line.Contains("[BROKEN] NOT  !INVERTED", StringComparison.Ordinal));
+    }
+
     private static IAsyncBusinessRule CreateCountingRule(string code, bool broken, Action onEvaluated)
     {
         return AsyncBusinessRuleBuilder.Create(code)

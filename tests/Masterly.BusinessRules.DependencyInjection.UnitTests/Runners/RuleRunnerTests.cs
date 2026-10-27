@@ -156,6 +156,16 @@ public class RuleRunnerTests
     }
 
     [Fact]
+    public void HasAsyncRules_ThroughTheInterface_ReportsWhetherAsyncRulesAreRegistered()
+    {
+        IRuleRunner<Order> withAsync = new RuleRunner<Order>(Rules(), new[] { PassingAsync() });
+        IRuleRunner<Order> syncOnly = new RuleRunner<Order>(Rules(), NoAsyncRules);
+
+        Assert.True(withAsync.HasAsyncRules);
+        Assert.False(syncOnly.HasAsyncRules);
+    }
+
+    [Fact]
     public void CheckAll_WithOptions_WhenAsyncRulesAreRegistered_ThrowsInvalidOperationException()
     {
         RuleRunner<Order> runner = new RuleRunner<Order>(Rules(), new[] { PassingAsync() });

@@ -3,7 +3,6 @@
   <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <Nullable>enable</Nullable>
     <Description>Structured ILogger observer plus OpenTelemetry ActivitySource spans and Meter instruments for Masterly.BusinessRules rule evaluation.</Description>
     <PackageTags>Rule;Business;Engine;Diagnostics;Logging;OpenTelemetry;Tracing;Metrics;Masterly;Csharp;DotNet</PackageTags>
   </PropertyGroup>

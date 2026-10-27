@@ -134,9 +134,9 @@ public class CachedAsyncRuleTests
         CachedAsyncBusinessRule cachedRule = new CachedAsyncBusinessRule(innerRule, TimeSpan.FromMinutes(5));
         BusinessRuleContext context = new BusinessRuleContext();
 
-        await cachedRule.IsBrokenAsync(context);
-        await cachedRule.IsBrokenAsync(context);
-        await cachedRule.IsBrokenAsync(context);
+        await cachedRule.IsBrokenAsync(context, TestContext.Current.CancellationToken);
+        await cachedRule.IsBrokenAsync(context, TestContext.Current.CancellationToken);
+        await cachedRule.IsBrokenAsync(context, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, evaluationCount);
     }
@@ -157,9 +157,9 @@ public class CachedAsyncRuleTests
         CachedAsyncBusinessRule cachedRule = new CachedAsyncBusinessRule(innerRule, TimeSpan.FromMinutes(5));
         BusinessRuleContext context = new BusinessRuleContext();
 
-        await cachedRule.IsBrokenAsync(context);
-        await cachedRule.InvalidateCacheAsync();
-        await cachedRule.IsBrokenAsync(context);
+        await cachedRule.IsBrokenAsync(context, TestContext.Current.CancellationToken);
+        await cachedRule.InvalidateCacheAsync(TestContext.Current.CancellationToken);
+        await cachedRule.IsBrokenAsync(context, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, evaluationCount);
     }
@@ -180,8 +180,8 @@ public class CachedAsyncRuleTests
         CachedAsyncBusinessRule cachedRule = new CachedAsyncBusinessRule(innerRule, TimeSpan.FromMinutes(5));
         BusinessRuleContext context = new BusinessRuleContext();
 
-        await cachedRule.EvaluateAsync(context);
-        await cachedRule.EvaluateAsync(context);
+        await cachedRule.EvaluateAsync(context, TestContext.Current.CancellationToken);
+        await cachedRule.EvaluateAsync(context, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, evaluationCount);
     }

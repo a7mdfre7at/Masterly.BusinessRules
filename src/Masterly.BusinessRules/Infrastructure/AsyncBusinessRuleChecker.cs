@@ -317,6 +317,23 @@ namespace Masterly.BusinessRules
             await CheckAllAsyncCore(context, filteredRules.ToArray(), LegacyOptions(stopOnFirstFailure: false, runInParallel: false, observer: null), cancellationToken);
         }
 
+        /// <summary>
+        /// Checks only async rules that have any of the listed tags, without a cancellation token, so the tags follow
+        /// the rules directly as in the sync <c>CheckByTags</c>.
+        /// </summary>
+        /// <param name="context">The context containing data for rule evaluation.</param>
+        /// <param name="rules">The async rules to filter and check.</param>
+        /// <param name="tags">The tags to filter by (case-insensitive).</param>
+        /// <exception cref="BusinessRuleValidationException">Thrown when any matching rules are broken.</exception>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public static Task CheckByTagsAsync(
+            BusinessRuleContext context,
+            IEnumerable<IAsyncBusinessRule> rules,
+            params string[] tags)
+        {
+            return CheckByTagsAsync(context, rules, CancellationToken.None, tags);
+        }
+
         private static AsyncRuleEvaluationOptions LegacyOptions(bool stopOnFirstFailure, bool runInParallel, IAsyncRuleExecutionObserver? observer)
         {
             return new AsyncRuleEvaluationOptions
@@ -374,6 +391,7 @@ namespace Masterly.BusinessRules
             IAsyncRuleExecutionObserver? observer = options.Observer;
             List<BusinessRuleResult> shadowResults = new List<BusinessRuleResult>();
             ShadowViolationSink? sink = ShadowViolationSink.Attach(context, out bool attachedSink);
+            bool batchOpen = false;
 
             try
             {
@@ -383,11 +401,14 @@ namespace Masterly.BusinessRules
                     await observer.OnBatchStartedAsync(batch.Count, cancellationToken);
                 }
 
+                batchOpen = true;
+
                 List<RuleEvaluationEntry> entries = options.EffectiveParallel
                     ? await EvaluateParallelAsync(context, batch, options, sink, shadowResults, cancellationToken)
                     : await EvaluateSequentialAsync(context, batch, options, stopThreshold, sink, shadowResults, cancellationToken);
 
                 AsyncRuleEvaluationResult result = new AsyncRuleEvaluationResult(entries, RuleTiming.ElapsedSince(batchStart), shadowResults);
+                batchOpen = false;
 
                 if (observer != null)
                 {
@@ -395,6 +416,11 @@ namespace Masterly.BusinessRules
                 }
 
                 return result;
+            }
+            catch (Exception exception) when (batchOpen && observer != null)
+            {
+                await observer!.OnBatchAbortedAsync(exception, CancellationToken.None); // the filter guarantees a non-null observer
+                throw;
             }
             finally
             {
@@ -474,9 +500,16 @@ namespace Masterly.BusinessRules
             foreach (ShadowViolation violation in sink.Drain())
             {
                 shadowResults.Add(violation.Result);
-                if (observer != null)
+                if (observer == null)
                 {
-                    await observer.OnShadowViolationAsync(violation.AsAsyncRule(), violation.Result, cancellationToken);
+                    continue;
+                }
+
+                IAsyncBusinessRule gatedRule = violation.AsAsyncRule();
+                await observer.OnShadowViolationAsync(gatedRule, violation.Result, cancellationToken);
+                if (violation.Fault != null)
+                {
+                    await observer.OnShadowFaultAsync(gatedRule, violation.Fault, cancellationToken);
                 }
             }
         }
@@ -490,7 +523,7 @@ namespace Masterly.BusinessRules
         {
             if (rule == null)
             {
-                throw new ArgumentException($"The rule at position {order} is null.", "rules");
+                throw new ArgumentException(CheckerText.NullRuleAt(order), CheckerText.RulesParameterName);
             }
 
             cancellationToken.ThrowIfCancellationRequested();
@@ -507,7 +540,16 @@ namespace Masterly.BusinessRules
             {
                 result = await AsyncBusinessRuleWalker.EvaluateNodeAsync(rule, context, null, cancellationToken);
             }
-            catch (Exception exception) when (!(exception is OperationCanceledException))
+            catch (OperationCanceledException cancellation)
+            {
+                if (observer != null)
+                {
+                    await observer.OnRuleCancelledAsync(rule, cancellation, CancellationToken.None);
+                }
+
+                throw;
+            }
+            catch (Exception exception)
             {
                 TimeSpan faultElapsed = RuleTiming.ElapsedSince(start);
                 Exception fault = ContextReadFault.Wrap(rule, exception);
@@ -572,7 +614,7 @@ namespace Masterly.BusinessRules
         {
             if (rule == null)
             {
-                throw new ArgumentException($"The rule at position {order} is null.", "rules");
+                throw new ArgumentException(CheckerText.NullRuleAt(order), CheckerText.RulesParameterName);
             }
 
             return new RuleEvaluationEntry(order, rule, RuleOutcome.NotEvaluated, null, null, TimeSpan.Zero);

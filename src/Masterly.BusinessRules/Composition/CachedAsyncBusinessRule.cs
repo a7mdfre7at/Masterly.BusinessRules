@@ -10,7 +10,12 @@ namespace Masterly.BusinessRules
     /// Useful for expensive async rule evaluations that don't change frequently.
     /// </summary>
     /// <remarks>
-    /// <para>The cache is thread-safe and uses a semaphore for async synchronization.</para>
+    /// <para>The cache is thread-safe. A semaphore guards only the cache lookups and stores: the inner rule is awaited
+    /// outside it, so a slow evaluation for one key never blocks cache hits or evaluations for other keys (concurrent
+    /// misses for the same key may each evaluate the inner rule; the last verdict stored wins). A verdict whose
+    /// evaluation was invalidated while it ran is not stored.</para>
+    /// <para>A verdict that rests on a fault captured by <c>ExplainAsync(captureExceptions: true)</c> is returned but
+    /// never cached, so a diagnostic explanation cannot poison the verdict later plain evaluations read.</para>
     /// <para>By default one verdict is cached per instance, whatever the context. A <c>cacheKeySelector</c> turns the
     /// cache into one verdict per key (for example per tenant: <c>ctx =&gt; ctx.Get(RuleParameters.ScopeKey).ToString()</c>),
     /// which is required when the inner rule reads scoped parameters or any other per-context value. Expired entries
@@ -46,6 +51,7 @@ namespace Masterly.BusinessRules
         private readonly Dictionary<string, CacheEntry>? _entries;
         private readonly SemaphoreSlim _semaphore = new SemaphoreSlim(1, 1);
         private CacheEntry? _sharedEntry;
+        private long _generation;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="CachedAsyncBusinessRule"/> class caching one verdict per instance.
@@ -146,6 +152,7 @@ namespace Masterly.BusinessRules
             {
                 _sharedEntry = null;
                 _entries?.Clear();
+                _generation++;
             }
             finally
             {
@@ -172,6 +179,7 @@ namespace Masterly.BusinessRules
             try
             {
                 _entries?.Remove(cacheKey);
+                _generation++;
             }
             finally
             {
@@ -185,28 +193,54 @@ namespace Masterly.BusinessRules
         private async Task<BusinessRuleResult?> EvaluateCoreAsync(BusinessRuleContext context, RuleExplanationTrace? trace, CancellationToken cancellationToken)
         {
             string? cacheKey = SelectCacheKey(context);
+            bool isHit;
+            bool cachedIsBroken;
+            long generation;
 
             await _semaphore.WaitAsync(cancellationToken);
             try
             {
-                if (TryGetFresh(cacheKey, out bool cachedIsBroken))
+                isHit = TryGetFresh(cacheKey, out cachedIsBroken);
+                generation = _generation;
+            }
+            finally
+            {
+                _semaphore.Release();
+            }
+
+            if (isHit)
+            {
+                trace?.Add(AsyncBusinessRuleWalker.CacheHit(this, _innerRule, cachedIsBroken));
+                return cachedIsBroken ? RuleResultFactory.Create(this) : null;
+            }
+
+            RuleExplanationTrace? children = trace?.Branch();
+            long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
+
+            BusinessRuleResult? result = await AsyncBusinessRuleWalker.EvaluateNodeAsync(_innerRule, context, children, cancellationToken);
+            if (children == null || !children.HasCapturedFault)
+            {
+                await StoreIfCurrentAsync(cacheKey, result != null, generation);
+            }
+
+            if (trace != null && children != null)
+            {
+                trace.Add(AsyncBusinessRuleWalker.Evaluated(this, result != null, RuleExplanationText.CachedOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
+            }
+
+            return result;
+        }
+
+        private async Task StoreIfCurrentAsync(string? cacheKey, bool isBroken, long generation)
+        {
+            // The verdict is already computed: storing it is not cancellable, so a late cancellation cannot lose it.
+            await _semaphore.WaitAsync(CancellationToken.None);
+            try
+            {
+                if (generation == _generation)
                 {
-                    trace?.Add(AsyncBusinessRuleWalker.CacheHit(this, _innerRule, cachedIsBroken));
-                    return cachedIsBroken ? RuleResultFactory.Create(this) : null;
+                    Store(cacheKey, isBroken);
                 }
-
-                RuleExplanationTrace? children = trace?.Branch();
-                long start = trace != null ? RuleExplanationTrace.StartTiming() : 0L;
-
-                BusinessRuleResult? result = await AsyncBusinessRuleWalker.EvaluateNodeAsync(_innerRule, context, children, cancellationToken);
-                Store(cacheKey, result != null);
-
-                if (trace != null && children != null)
-                {
-                    trace.Add(AsyncBusinessRuleWalker.Evaluated(this, result != null, RuleExplanationText.CachedOperator, RuleExplanationTrace.ElapsedSince(start), children.Nodes));
-                }
-
-                return result;
             }
             finally
             {

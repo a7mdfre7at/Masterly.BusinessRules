@@ -16,10 +16,14 @@ namespace Masterly.BusinessRules
     /// <see cref="OnAfterEvaluate(IBusinessRule, BusinessRuleResult)"/> followed by
     /// <see cref="OnAfterEvaluate(IBusinessRule, bool, TimeSpan)"/> (and <see cref="OnRuleBroken"/> when broken), or
     /// <see cref="OnRuleFaulted"/> when the rule threw (followed by <see cref="OnRuleBroken"/> under
-    /// <see cref="FaultPolicy.TreatAsBroken"/>). <see cref="OnBatchCompleted"/> is raised before a batch throws;
-    /// it is not raised when a fault propagates under <see cref="FaultPolicy.Throw"/>.
+    /// <see cref="FaultPolicy.TreatAsBroken"/>), or <see cref="OnRuleCancelled"/> when the rule was cancelled.
+    /// <see cref="OnBatchCompleted"/> is raised before a batch throws its broken rules. A batch that ends by an
+    /// exception instead (a cancellation, or a fault propagating under <see cref="FaultPolicy.Throw"/>) raises
+    /// <see cref="OnBatchAborted"/> in place of <see cref="OnBatchCompleted"/>, so every started batch is closed.
     /// A <see cref="RuleRolloutMode.Shadow"/> gated rule that would have failed is reported as passed by the callbacks
-    /// above and additionally through <see cref="OnShadowViolation"/>, raised after the rule's own callbacks.
+    /// above and additionally through <see cref="OnShadowViolation"/>, raised after the rule's own callbacks; a shadow
+    /// rule that threw is reported through <see cref="OnShadowViolation"/> with a stand-in result and then
+    /// <see cref="OnShadowFault"/>.
     /// </remarks>
     public interface IRuleExecutionObserver
     {
@@ -89,6 +93,38 @@ namespace Masterly.BusinessRules
         void OnShadowViolation(IBusinessRule rule, BusinessRuleResult result)
         {
         }
+
+        /// <summary>
+        /// Called when a rule's evaluation was cancelled (it threw <see cref="OperationCanceledException"/>), before the
+        /// cancellation propagates. Cancellation is never a fault: neither <see cref="OnRuleFaulted"/> nor the
+        /// <c>OnAfterEvaluate</c> callbacks are raised for it.
+        /// </summary>
+        /// <param name="rule">The rule whose evaluation was cancelled.</param>
+        /// <param name="exception">The cancellation.</param>
+        void OnRuleCancelled(IBusinessRule rule, OperationCanceledException exception)
+        {
+        }
+
+        /// <summary>
+        /// Called once, in place of <see cref="OnBatchCompleted"/>, when a started batch ends by an exception: a
+        /// cancellation, a fault propagating under <see cref="FaultPolicy.Throw"/> (after <see cref="OnRuleFaulted"/>)
+        /// or an invalid batch (a null rule). The exception propagates after the callback returns.
+        /// </summary>
+        /// <param name="exception">The exception that ends the batch.</param>
+        void OnBatchAborted(Exception exception)
+        {
+        }
+
+        /// <summary>
+        /// Called when a <see cref="FeatureGatedBusinessRule"/> in <see cref="RuleRolloutMode.Shadow"/> mode caught an
+        /// exception from its inner rule. Shadow mode never blocks, so the fault does not propagate; it is reported
+        /// through <see cref="OnShadowViolation"/> with a stand-in result first, then here with the exception.
+        /// </summary>
+        /// <param name="rule">The gated rule whose inner rule threw; an async gated rule reached through an adapter is wrapped in an <see cref="AsyncToSyncRuleAdapter"/>.</param>
+        /// <param name="exception">The exception the inner rule threw.</param>
+        void OnShadowFault(IBusinessRule rule, Exception exception)
+        {
+        }
     }
 
     /// <summary>
@@ -99,7 +135,9 @@ namespace Masterly.BusinessRules
     /// <see cref="OnBatchCompletedAsync"/>) have completed-task default implementations, so existing observers keep compiling.
     /// </summary>
     /// <remarks>
-    /// The callback order per rule mirrors <see cref="IRuleExecutionObserver"/>. In a parallel batch the callbacks of
+    /// The callback order per rule mirrors <see cref="IRuleExecutionObserver"/>, including
+    /// <see cref="OnRuleCancelledAsync"/> for a cancelled rule and <see cref="OnBatchAbortedAsync"/> in place of
+    /// <see cref="OnBatchCompletedAsync"/> for a batch that ends by an exception. In a parallel batch the callbacks of
     /// different rules interleave; the ledger handed to <see cref="OnBatchCompletedAsync"/> is in submission order.
     /// </remarks>
     public interface IAsyncRuleExecutionObserver
@@ -189,6 +227,49 @@ namespace Masterly.BusinessRules
         /// <param name="cancellationToken">A token to cancel the operation.</param>
         /// <returns>A task representing the asynchronous operation.</returns>
         Task OnShadowViolationAsync(IAsyncBusinessRule rule, BusinessRuleResult result, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Called when a rule's evaluation was cancelled (it threw <see cref="OperationCanceledException"/>), before the
+        /// cancellation propagates. Cancellation is never a fault: neither <see cref="OnRuleFaultedAsync"/> nor the
+        /// <c>OnAfterEvaluateAsync</c> callbacks are raised for it. The checker passes <see cref="CancellationToken.None"/>
+        /// so the callback can finish its bookkeeping.
+        /// </summary>
+        /// <param name="rule">The rule whose evaluation was cancelled.</param>
+        /// <param name="exception">The cancellation.</param>
+        /// <param name="cancellationToken">A token to cancel the operation.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        Task OnRuleCancelledAsync(IAsyncBusinessRule rule, OperationCanceledException exception, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Called once, in place of <see cref="OnBatchCompletedAsync"/>, when a started batch ends by an exception: a
+        /// cancellation, a fault propagating under <see cref="FaultPolicy.Throw"/> (after <see cref="OnRuleFaultedAsync"/>)
+        /// or an invalid batch (a null rule). The exception propagates after the callback completes. The checker passes
+        /// <see cref="CancellationToken.None"/> so the callback can finish its bookkeeping.
+        /// </summary>
+        /// <param name="exception">The exception that ends the batch.</param>
+        /// <param name="cancellationToken">A token to cancel the operation.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        Task OnBatchAbortedAsync(Exception exception, CancellationToken cancellationToken = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Called when a <see cref="FeatureGatedAsyncBusinessRule"/> in <see cref="RuleRolloutMode.Shadow"/> mode caught
+        /// an exception from its inner rule. Shadow mode never blocks, so the fault does not propagate; it is reported
+        /// through <see cref="OnShadowViolationAsync"/> with a stand-in result first, then here with the exception.
+        /// </summary>
+        /// <param name="rule">The gated rule whose inner rule threw; a sync gated rule reached through an adapter is wrapped in a <see cref="SyncToAsyncRuleAdapter"/>.</param>
+        /// <param name="exception">The exception the inner rule threw.</param>
+        /// <param name="cancellationToken">A token to cancel the operation.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        Task OnShadowFaultAsync(IAsyncBusinessRule rule, Exception exception, CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;
         }

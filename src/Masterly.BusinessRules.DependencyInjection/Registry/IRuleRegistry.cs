@@ -12,6 +12,16 @@ namespace Masterly.BusinessRules.DependencyInjection
     /// declaration order, so the result is deterministic. Nothing is cached: merging a handful of layers is cheap and a
     /// cache keyed by high-cardinality scopes would be unbounded. Build one with <see cref="RuleRegistry.Create"/> or
     /// let <c>services.AddBusinessRules(o =&gt; o.AddRuleSet(...))</c> register it as a singleton.
+    /// <para>Scope and context: the requested scope (null meaning <see cref="RuleScope.Global"/>) chooses the layers and is
+    /// the scope parameterized rules resolve their values for. The batch methods store it under
+    /// <see cref="RuleParameters.ScopeKey"/> for the duration of the call, replacing whatever the context held, and put
+    /// the previous entry back afterwards, so one context can be reused across scopes without leaking a scope.
+    /// <see cref="Resolve"/> and <see cref="ResolveAsyncRules"/> store it and leave it there, because the returned rules
+    /// are evaluated later against that context.</para>
+    /// <para>Sync and async rules: <c>CheckAllAsync</c>/<c>EvaluateAllAsync</c> evaluate the whole set, the sync rules
+    /// (adapted with <c>ToAsync()</c>) followed by the async ones, like <c>IRuleRunner&lt;T&gt;</c>. <c>CheckAll</c>/<c>EvaluateAll</c>
+    /// throw <see cref="System.InvalidOperationException"/> naming the codes when the resolved set has async rules, rather
+    /// than silently skipping them.</para>
     /// </summary>
     /// <example>
     /// <code>
@@ -37,8 +47,9 @@ namespace Masterly.BusinessRules.DependencyInjection
         /// <summary>
         /// Creates the sync rules of a set for a scope: the applicable layers are merged (least specific first, declaration
         /// order on ties), each layer removing the codes it disables from the rules merged so far and appending its own.
-        /// Every factory receives <paramref name="context"/>; when the context has no <see cref="RuleParameters.ScopeKey"/>
-        /// entry the requested scope is stored under it first, so parameterized rules resolve their values for the same scope.
+        /// Every factory receives <paramref name="context"/>; the requested scope is stored under
+        /// <see cref="RuleParameters.ScopeKey"/> first (replacing any value), so the rules, evaluated later with this
+        /// context, resolve their parameters for the same scope their layers were chosen for.
         /// </summary>
         /// <param name="setName">The set name.</param>
         /// <param name="scope">The scope of the request, or null for <see cref="RuleScope.Global"/>.</param>
@@ -48,7 +59,7 @@ namespace Masterly.BusinessRules.DependencyInjection
         IReadOnlyList<IBusinessRule> Resolve(string setName, RuleScope? scope = null, BusinessRuleContext? context = null);
 
         /// <summary>
-        /// Creates the async rules of a set for a scope, with the same merge semantics as <see cref="Resolve"/>.
+        /// Creates the async rules of a set for a scope, with the same merge and scope semantics as <see cref="Resolve"/>.
         /// </summary>
         /// <param name="setName">The set name.</param>
         /// <param name="scope">The scope of the request, or null for <see cref="RuleScope.Global"/>.</param>
@@ -64,6 +75,7 @@ namespace Masterly.BusinessRules.DependencyInjection
         /// <param name="scope">The scope of the request, or null for <see cref="RuleScope.Global"/>.</param>
         /// <param name="context">The evaluation context, or null for a fresh context.</param>
         /// <exception cref="RuleSetNotFoundException">Thrown when the set was never registered.</exception>
+        /// <exception cref="System.InvalidOperationException">Thrown when the resolved set also has async rules; call <c>CheckAllAsync</c>.</exception>
         /// <exception cref="BusinessRuleValidationException">Thrown when any resolved rule is broken.</exception>
         void CheckAll(string setName, RuleScope? scope = null, BusinessRuleContext? context = null);
 
@@ -100,7 +112,8 @@ namespace Masterly.BusinessRules.DependencyInjection
         RuleEvaluationResult EvaluateAll(string setName, RuleScope? scope, BusinessRuleContext? context, RuleEvaluationOptions options);
 
         /// <summary>
-        /// Resolves the async rules of the set and checks them with <see cref="AsyncBusinessRuleChecker"/>, throwing if any are broken.
+        /// Resolves the whole set (sync rules adapted with <c>ToAsync()</c>, then async rules) and checks it with
+        /// <see cref="AsyncBusinessRuleChecker"/>, throwing if any are broken.
         /// </summary>
         /// <param name="setName">The set name.</param>
         /// <param name="scope">The scope of the request, or null for <see cref="RuleScope.Global"/>.</param>
@@ -112,7 +125,7 @@ namespace Masterly.BusinessRules.DependencyInjection
         Task CheckAllAsync(string setName, RuleScope? scope = null, BusinessRuleContext? context = null, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Resolves the async rules of the set and checks them with the supplied options.
+        /// Resolves the whole set (sync rules adapted with <c>ToAsync()</c>, then async rules) and checks it with the supplied options.
         /// </summary>
         /// <param name="setName">The set name.</param>
         /// <param name="scope">The scope of the request, or null for <see cref="RuleScope.Global"/>.</param>
@@ -125,7 +138,8 @@ namespace Masterly.BusinessRules.DependencyInjection
         Task CheckAllAsync(string setName, RuleScope? scope, BusinessRuleContext? context, AsyncRuleEvaluationOptions options, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Resolves the async rules of the set and evaluates them without throwing for broken rules.
+        /// Resolves the whole set (sync rules adapted with <c>ToAsync()</c>, then async rules) and evaluates it without
+        /// throwing for broken rules.
         /// </summary>
         /// <param name="setName">The set name.</param>
         /// <param name="scope">The scope of the request, or null for <see cref="RuleScope.Global"/>.</param>
@@ -136,7 +150,7 @@ namespace Masterly.BusinessRules.DependencyInjection
         Task<AsyncRuleEvaluationResult> EvaluateAllAsync(string setName, RuleScope? scope = null, BusinessRuleContext? context = null, CancellationToken cancellationToken = default);
 
         /// <summary>
-        /// Resolves the async rules of the set and evaluates them with the supplied options.
+        /// Resolves the whole set (sync rules adapted with <c>ToAsync()</c>, then async rules) and evaluates it with the supplied options.
         /// </summary>
         /// <param name="setName">The set name.</param>
         /// <param name="scope">The scope of the request, or null for <see cref="RuleScope.Global"/>.</param>

@@ -8,7 +8,7 @@ namespace Masterly.BusinessRules
     /// evaluation (<see cref="IsBroken(TSubject)"/>, the typed checkers, <c>.For(subject)</c>) and handed to a LINQ
     /// provider by <see cref="SpecificationQueryableExtensions.WhereBroken{TSubject}"/> /
     /// <see cref="SpecificationQueryableExtensions.WhereSatisfies{TSubject}"/>. Inherit from this class and override
-    /// <see cref="Code"/>, <see cref="Message"/> and <see cref="BrokenWhen"/>.
+    /// <see cref="BaseBusinessRule{TSubject}.Code"/>, <see cref="BaseBusinessRule{TSubject}.Message"/> and <see cref="BrokenWhen"/>.
     /// </summary>
     /// <remarks>
     /// <see cref="BrokenWhen"/> is read once and cached; the delegate behind <see cref="IsBroken(TSubject)"/> is compiled

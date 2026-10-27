@@ -13,24 +13,28 @@ public class SeverityThresholdCheckTests
     // ---------------------------------------------------------------------
 
     [Theory]
-    [InlineData(RuleSeverity.Warning, RuleSeverity.Error, false)]
-    [InlineData(RuleSeverity.Error, RuleSeverity.Error, true)]
-    [InlineData(RuleSeverity.Info, RuleSeverity.Warning, false)]
-    [InlineData(RuleSeverity.Warning, RuleSeverity.Warning, true)]
-    [InlineData(RuleSeverity.Error, RuleSeverity.Info, true)]
-    [InlineData(RuleSeverity.Info, RuleSeverity.Info, true)]
-    public void Check_ThrowOn_ThrowsOnlyAtOrAboveThreshold(RuleSeverity ruleSeverity, RuleSeverity throwOn, bool expectThrow)
+    [InlineData(RuleSeverity.Error, RuleSeverity.Error)]
+    [InlineData(RuleSeverity.Warning, RuleSeverity.Warning)]
+    [InlineData(RuleSeverity.Error, RuleSeverity.Info)]
+    [InlineData(RuleSeverity.Info, RuleSeverity.Info)]
+    public void Check_ThrowOn_AtOrAboveThreshold_Throws(RuleSeverity ruleSeverity, RuleSeverity throwOn)
     {
         IBusinessRule rule = CreateSyncRule(broken: true, ruleSeverity);
 
-        if (expectThrow)
-        {
-            Assert.Throws<BusinessRuleValidationException>(() => rule.Check(throwOn));
-        }
-        else
-        {
-            rule.Check(throwOn);
-        }
+        Assert.Throws<BusinessRuleValidationException>(() => rule.Check(throwOn));
+    }
+
+    [Theory]
+    [InlineData(RuleSeverity.Warning, RuleSeverity.Error)]
+    [InlineData(RuleSeverity.Info, RuleSeverity.Warning)]
+    [InlineData(RuleSeverity.Info, RuleSeverity.Error)]
+    public void Check_ThrowOn_BelowThreshold_DoesNotThrow(RuleSeverity ruleSeverity, RuleSeverity throwOn)
+    {
+        IBusinessRule rule = CreateSyncRule(broken: true, ruleSeverity);
+
+        Exception? exception = Record.Exception(() => rule.Check(throwOn));
+
+        Assert.Null(exception);
     }
 
     [Fact]
@@ -113,25 +117,28 @@ public class SeverityThresholdCheckTests
     // ---------------------------------------------------------------------
 
     [Theory]
-    [InlineData(RuleSeverity.Warning, RuleSeverity.Error, false)]
-    [InlineData(RuleSeverity.Error, RuleSeverity.Error, true)]
-    [InlineData(RuleSeverity.Info, RuleSeverity.Warning, false)]
-    [InlineData(RuleSeverity.Warning, RuleSeverity.Warning, true)]
-    [InlineData(RuleSeverity.Error, RuleSeverity.Info, true)]
-    [InlineData(RuleSeverity.Info, RuleSeverity.Info, true)]
-    public async Task CheckAsync_ThrowOn_ThrowsOnlyAtOrAboveThreshold(RuleSeverity ruleSeverity, RuleSeverity throwOn, bool expectThrow)
+    [InlineData(RuleSeverity.Error, RuleSeverity.Error)]
+    [InlineData(RuleSeverity.Warning, RuleSeverity.Warning)]
+    [InlineData(RuleSeverity.Error, RuleSeverity.Info)]
+    [InlineData(RuleSeverity.Info, RuleSeverity.Info)]
+    public async Task CheckAsync_ThrowOn_AtOrAboveThreshold_Throws(RuleSeverity ruleSeverity, RuleSeverity throwOn)
     {
         IAsyncBusinessRule rule = CreateAsyncRule(broken: true, ruleSeverity);
-        BusinessRuleContext context = new BusinessRuleContext();
 
-        if (expectThrow)
-        {
-            await Assert.ThrowsAsync<BusinessRuleValidationException>(() => rule.CheckAsync(context, throwOn, TestToken));
-        }
-        else
-        {
-            await rule.CheckAsync(context, throwOn, TestToken);
-        }
+        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => rule.CheckAsync(new BusinessRuleContext(), throwOn, TestToken));
+    }
+
+    [Theory]
+    [InlineData(RuleSeverity.Warning, RuleSeverity.Error)]
+    [InlineData(RuleSeverity.Info, RuleSeverity.Warning)]
+    [InlineData(RuleSeverity.Info, RuleSeverity.Error)]
+    public async Task CheckAsync_ThrowOn_BelowThreshold_DoesNotThrow(RuleSeverity ruleSeverity, RuleSeverity throwOn)
+    {
+        IAsyncBusinessRule rule = CreateAsyncRule(broken: true, ruleSeverity);
+
+        Exception? exception = await Record.ExceptionAsync(() => rule.CheckAsync(new BusinessRuleContext(), throwOn, TestToken));
+
+        Assert.Null(exception);
     }
 
     [Fact]

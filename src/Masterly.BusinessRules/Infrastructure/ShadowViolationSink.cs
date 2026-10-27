@@ -76,6 +76,24 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Records the fault a sync gated rule in shadow mode caught from its inner rule, with the stand-in result the
+        /// batch reports in <c>ShadowResults</c>, when a sink is attached to the context.
+        /// </summary>
+        public static void ReportFault(BusinessRuleContext context, IBusinessRule rule, Exception fault)
+        {
+            context.ShadowSink?.Add(new ShadowViolation(rule, RuleFaultResult.Create(rule, fault), fault));
+        }
+
+        /// <summary>
+        /// Records the fault an async gated rule in shadow mode caught from its inner rule, with the stand-in result the
+        /// batch reports in <c>ShadowResults</c>, when a sink is attached to the context.
+        /// </summary>
+        public static void ReportFault(BusinessRuleContext context, IAsyncBusinessRule rule, Exception fault)
+        {
+            context.ShadowSink?.Add(new ShadowViolation(rule, RuleFaultResult.Create(rule, fault), fault));
+        }
+
+        /// <summary>
         /// Removes and returns every violation recorded so far, in reporting order.
         /// </summary>
         public IReadOnlyList<ShadowViolation> Drain()
@@ -116,19 +134,42 @@ namespace Masterly.BusinessRules
         /// Initializes a violation of a sync gated rule.
         /// </summary>
         public ShadowViolation(IBusinessRule rule, BusinessRuleResult result)
+            : this(rule, result, null)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a violation of a sync gated rule, carrying the fault its inner rule threw when there was one.
+        /// </summary>
+        public ShadowViolation(IBusinessRule rule, BusinessRuleResult result, Exception? fault)
         {
             _rule = rule ?? throw new ArgumentNullException(nameof(rule));
             Result = result ?? throw new ArgumentNullException(nameof(result));
+            Fault = fault;
         }
 
         /// <summary>
         /// Initializes a violation of an async gated rule.
         /// </summary>
         public ShadowViolation(IAsyncBusinessRule rule, BusinessRuleResult result)
+            : this(rule, result, null)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a violation of an async gated rule, carrying the fault its inner rule threw when there was one.
+        /// </summary>
+        public ShadowViolation(IAsyncBusinessRule rule, BusinessRuleResult result, Exception? fault)
         {
             _asyncRule = rule ?? throw new ArgumentNullException(nameof(rule));
             Result = result ?? throw new ArgumentNullException(nameof(result));
+            Fault = fault;
         }
+
+        /// <summary>
+        /// Gets the exception the inner rule threw, or null for a plain violation (the inner rule was broken).
+        /// </summary>
+        public Exception? Fault { get; }
 
         /// <summary>
         /// Gets the result the inner rule produced: what would have failed had the gate been enforced.
@@ -163,12 +204,12 @@ namespace Masterly.BusinessRules
 
         private IBusinessRule RequireSyncRule()
         {
-            return _rule ?? throw new InvalidOperationException("The shadow violation carries no rule.");
+            return _rule ?? throw new InvalidOperationException(CheckerText.ShadowViolationWithoutRule);
         }
 
         private IAsyncBusinessRule RequireAsyncRule()
         {
-            return _asyncRule ?? throw new InvalidOperationException("The shadow violation carries no rule.");
+            return _asyncRule ?? throw new InvalidOperationException(CheckerText.ShadowViolationWithoutRule);
         }
     }
 }

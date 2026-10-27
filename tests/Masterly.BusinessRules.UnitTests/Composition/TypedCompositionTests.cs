@@ -196,10 +196,13 @@ public class TypedCompositionTests
         OrBusinessRule<int> node = Assert.IsType<OrBusinessRule<int>>(composed);
         Assert.Equal("A|B", node.Code);
         Assert.Equal("At least one rule must be satisfied: msg A OR msg B", node.Message);
+        Assert.Equal(RuleSeverity.Error, node.Severity);
         Assert.Equal("OrBusinessRule", node.Name);
         Assert.Equal("Broken when either operand is broken.", node.Description);
+        Assert.Equal(string.Empty, node.Category);
+        Assert.Empty(node.Tags);
         Assert.Equal(RuleOperator.Or, node.Operator);
-        Assert.Equal(2, node.Operands.Count);
+        Assert.Equal(new[] { "A", "B" }, node.Operands.Select(operand => operand.Code));
     }
 
     [Fact]
@@ -212,6 +215,9 @@ public class TypedCompositionTests
         NotBusinessRule<int> node = Assert.IsType<NotBusinessRule<int>>(composed);
         Assert.Equal("!A", node.Code);
         Assert.Equal("NOT: msg A", node.Message);
+        Assert.Equal(RuleSeverity.Error, node.Severity);
+        Assert.Equal(string.Empty, node.Category);
+        Assert.Empty(node.Tags);
         Assert.Equal("NotBusinessRule", node.Name);
         Assert.Equal("Broken when the operand passes.", node.Description);
         Assert.Equal(RuleOperator.Not, node.Operator);
@@ -240,6 +246,36 @@ public class TypedCompositionTests
         Assert.Equal("A+B", result.Code);
         Assert.Equal("A+B", contextResult.Code);
         Assert.Equal("AndBusinessRule", result.Name);
+    }
+
+    [Fact]
+    public void Evaluate_OrNode_IsAPureFactoryCarryingTheNodeMetadata()
+    {
+        int calls = 0;
+        IBusinessRule<int> composed = Counting("A", false, () => calls++).Or(Counting("B", false, () => calls++));
+
+        BusinessRuleResult result = composed.Evaluate(1);
+        BusinessRuleResult contextResult = composed.Evaluate(1, new BusinessRuleContext());
+
+        Assert.Equal(0, calls);
+        Assert.Equal("A|B", result.Code);
+        Assert.Equal("A|B", contextResult.Code);
+        Assert.Equal("OrBusinessRule", result.Name);
+    }
+
+    [Fact]
+    public void Evaluate_NotNode_IsAPureFactoryCarryingTheNodeMetadata()
+    {
+        int calls = 0;
+        IBusinessRule<int> composed = Counting("A", true, () => calls++).Not();
+
+        BusinessRuleResult result = composed.Evaluate(1);
+        BusinessRuleResult contextResult = composed.Evaluate(1, new BusinessRuleContext());
+
+        Assert.Equal(0, calls);
+        Assert.Equal("!A", result.Code);
+        Assert.Equal("!A", contextResult.Code);
+        Assert.Equal("NotBusinessRule", result.Name);
     }
 
     [Fact]

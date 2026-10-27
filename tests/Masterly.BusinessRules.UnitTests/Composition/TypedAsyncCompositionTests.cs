@@ -192,7 +192,7 @@ public class TypedAsyncCompositionTests
 
         AndAsyncBusinessRule<int> node = Assert.IsType<AndAsyncBusinessRule<int>>(composed);
         Assert.Equal("A+B", node.Code);
-        Assert.Equal("msg A AND msg B", node.Message);
+        Assert.Equal("Both rules must be satisfied: msg A AND msg B", node.Message);
         Assert.Equal(RuleSeverity.Error, node.Severity);
         Assert.Equal("AndAsyncBusinessRule", node.Name);
         Assert.Equal("Broken only when both operands are broken.", node.Description);
@@ -209,10 +209,14 @@ public class TypedAsyncCompositionTests
 
         OrAsyncBusinessRule<int> node = Assert.IsType<OrAsyncBusinessRule<int>>(composed);
         Assert.Equal("A|B", node.Code);
-        Assert.Equal("msg A OR msg B", node.Message);
+        Assert.Equal("At least one rule must be satisfied: msg A OR msg B", node.Message);
+        Assert.Equal(RuleSeverity.Error, node.Severity);
         Assert.Equal("OrAsyncBusinessRule", node.Name);
         Assert.Equal("Broken when either operand is broken.", node.Description);
+        Assert.Equal(string.Empty, node.Category);
+        Assert.Empty(node.Tags);
         Assert.Equal(RuleOperator.Or, node.Operator);
+        Assert.Equal(new[] { "A", "B" }, node.Operands.Select(operand => operand.Code));
     }
 
     [Fact]
@@ -225,6 +229,9 @@ public class TypedAsyncCompositionTests
         NotAsyncBusinessRule<int> node = Assert.IsType<NotAsyncBusinessRule<int>>(composed);
         Assert.Equal("!A", node.Code);
         Assert.Equal("NOT: msg A", node.Message);
+        Assert.Equal(RuleSeverity.Error, node.Severity);
+        Assert.Equal(string.Empty, node.Category);
+        Assert.Empty(node.Tags);
         Assert.Equal("NotAsyncBusinessRule", node.Name);
         Assert.Equal("Broken when the operand passes.", node.Description);
         Assert.Equal(RuleOperator.Not, node.Operator);
@@ -232,13 +239,150 @@ public class TypedAsyncCompositionTests
     }
 
     [Fact]
-    public void TypedNodes_ReportTheSameCodesAndMessagesAsTheNonGenericAsyncNodes()
+    public void TypedNodes_ReportTheSameCodesAsTheNonGenericAsyncNodes()
     {
         IAsyncBusinessRule<int> typed = Rule("A", true).And(Rule("B", true)).Or(Rule("C", true).Not());
         IAsyncBusinessRule plain = PlainRule("A").And(PlainRule("B")).Or(PlainRule("C").Not());
 
         Assert.Equal(plain.Code, typed.Code);
-        Assert.Equal(plain.Message, typed.Message);
+    }
+
+    [Fact]
+    public void TypedNodes_ReportTheSameCodesAndMessagesAsTheTypedSyncNodes()
+    {
+        IAsyncBusinessRule<int> asyncTyped = Rule("A", true).And(Rule("B", true)).Or(Rule("C", true).Not());
+        IBusinessRule<int> syncTyped = SyncRule("A").And(SyncRule("B")).Or(SyncRule("C").Not());
+
+        Assert.Equal(syncTyped.Code, asyncTyped.Code);
+        Assert.Equal(syncTyped.Message, asyncTyped.Message);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_OrNode_ReturnsNodeResultWhenBrokenAndNullOtherwise()
+    {
+        IAsyncBusinessRule<int> broken = Rule("A", false).Or(Rule("B", true));
+        IAsyncBusinessRule<int> passing = Rule("A", false).Or(Rule("B", false));
+
+        BusinessRuleResult? brokenResult = await broken.EvaluateAsync(0, new BusinessRuleContext(), TestToken);
+        BusinessRuleResult? passingResult = await passing.EvaluateAsync(0, new BusinessRuleContext(), TestToken);
+
+        Assert.NotNull(brokenResult);
+        Assert.Equal("A|B", brokenResult.Code);
+        Assert.Equal("OrAsyncBusinessRule", brokenResult.Name);
+        Assert.Null(passingResult);
+    }
+
+    [Fact]
+    public async Task EvaluateAsync_NotNode_ReturnsNodeResultWhenBrokenAndNullOtherwise()
+    {
+        IAsyncBusinessRule<int> broken = Rule("A", false).Not();
+        IAsyncBusinessRule<int> passing = Rule("A", true).Not();
+
+        BusinessRuleResult? brokenResult = await broken.EvaluateAsync(0, new BusinessRuleContext(), TestToken);
+        BusinessRuleResult? passingResult = await passing.EvaluateAsync(0, new BusinessRuleContext(), TestToken);
+
+        Assert.NotNull(brokenResult);
+        Assert.Equal("!A", brokenResult.Code);
+        Assert.Equal("NotAsyncBusinessRule", brokenResult.Name);
+        Assert.Null(passingResult);
+    }
+
+    // ---------------------------------------------------------------------
+    // ToAsync bridge from the typed sync hierarchy
+    // ---------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, false)]
+    public async Task ToAsync_TypedSyncRule_JoinsATypedAsyncComposition(bool asyncBroken, bool syncBroken, bool expected)
+    {
+        IAsyncBusinessRule<int> combined = Rule("A", asyncBroken).And(SyncRule("B", syncBroken).ToAsync());
+
+        Assert.Equal(expected, await combined.IsBrokenAsync(0, new BusinessRuleContext(), TestToken));
+    }
+
+    [Fact]
+    public void ToAsync_TypedSyncRule_ForwardsAllSevenMetadataMembers()
+    {
+        IBusinessRule<int> inner = BusinessRuleBuilder<int>.Create("SYNC")
+            .WithMessage("sync message")
+            .WithSeverity(RuleSeverity.Warning)
+            .WithName("sync name")
+            .WithDescription("sync description")
+            .WithCategory("sync category")
+            .WithTags("t1", "t2")
+            .When(_ => true)
+            .Build();
+
+        SyncToAsyncRuleAdapter<int> adapter = Assert.IsType<SyncToAsyncRuleAdapter<int>>(inner.ToAsync());
+
+        Assert.Same(inner, adapter.InnerRule);
+        Assert.Equal("SYNC", adapter.Code);
+        Assert.Equal("sync message", adapter.Message);
+        Assert.Equal(RuleSeverity.Warning, adapter.Severity);
+        Assert.Equal("sync name", adapter.Name);
+        Assert.Equal("sync description", adapter.Description);
+        Assert.Equal("sync category", adapter.Category);
+        Assert.Equal(new[] { "t1", "t2" }, adapter.Tags);
+    }
+
+    [Fact]
+    public async Task ToAsync_EvaluateAsync_ReturnsTheSyncResultWhenBrokenAndNullOtherwise()
+    {
+        IAsyncBusinessRule<int> threshold = BusinessRuleBuilder<int>.Create("LIMIT").WithMessage("over").When(value => value > 5).Build().ToAsync();
+
+        BusinessRuleResult? broken = await threshold.EvaluateAsync(9, new BusinessRuleContext(), TestToken);
+        BusinessRuleResult? passing = await threshold.EvaluateAsync(1, new BusinessRuleContext(), TestToken);
+
+        Assert.NotNull(broken);
+        Assert.Equal("LIMIT", broken.Code);
+        Assert.Null(passing);
+    }
+
+    [Fact]
+    public async Task ToAsync_ForwardsTheSubjectAndTheContext()
+    {
+        IAsyncBusinessRule<int> adapter = BusinessRuleBuilder<int>.Create("CTX").WithMessage("m").When((value, ctx) => value == 3 && ctx.Get<bool>(FlagKey)).Build().ToAsync();
+
+        bool isBroken = await adapter.IsBrokenAsync(3, RuleTestHelper.CreateContext((FlagKey, true)), TestToken);
+
+        Assert.True(isBroken);
+    }
+
+    [Fact]
+    public async Task ToAsync_TypedBatch_RunsThroughTheTypedAsyncChecker()
+    {
+        IAsyncBusinessRule<int>[] rules = { SyncRule("S", true).ToAsync(), Rule("A", false) };
+
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(7, rules, TestToken);
+
+        Assert.Equal("S", Assert.Single(result.BrokenRules).Code);
+    }
+
+    [Fact]
+    public async Task ToAsync_CancelledToken_ThrowsBeforeEvaluating()
+    {
+        int calls = 0;
+        IAsyncBusinessRule<int> adapter = BusinessRuleBuilder<int>.Create("C").WithMessage("m").When(_ => ++calls > 0).Build().ToAsync();
+        using CancellationTokenSource source = new CancellationTokenSource();
+        source.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => adapter.IsBrokenAsync(0, new BusinessRuleContext(), source.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => adapter.EvaluateAsync(0, new BusinessRuleContext(), source.Token));
+
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public async Task ToAsync_NullArguments_Throw()
+    {
+        IBusinessRule<int> missing = null!;
+        IAsyncBusinessRule<int> adapter = SyncRule("A").ToAsync();
+
+        Assert.Throws<ArgumentNullException>(() => missing.ToAsync());
+        await Assert.ThrowsAsync<ArgumentNullException>(() => adapter.IsBrokenAsync(0, null!, TestToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => adapter.EvaluateAsync(0, null!, TestToken));
     }
 
     [Fact]
@@ -300,6 +444,11 @@ public class TypedAsyncCompositionTests
     private static IAsyncBusinessRule<int> Rule(string code, bool broken)
     {
         return AsyncBusinessRuleBuilder<int>.Create(code).WithMessage($"msg {code}").WhenAsync(_ => Task.FromResult(broken)).Build();
+    }
+
+    private static IBusinessRule<int> SyncRule(string code, bool broken = true)
+    {
+        return BusinessRuleBuilder<int>.Create(code).WithMessage($"msg {code}").When(_ => broken).Build();
     }
 
     private static IAsyncBusinessRule PlainRule(string code)

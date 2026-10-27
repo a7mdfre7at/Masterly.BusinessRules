@@ -8,6 +8,8 @@ public class BusinessRuleCheckerLedgerTests
     private const string FlagKey = "flag";
     private const string Boom = "boom";
 
+    private static readonly TimeSpan SlowRuleDuration = TimeSpan.FromMilliseconds(100);
+
     // ---------------------------------------------------------------------
     // Ledger shape
     // ---------------------------------------------------------------------
@@ -58,7 +60,7 @@ public class BusinessRuleCheckerLedgerTests
     [Fact]
     public void EvaluateAll_WithOptions_TotalDurationCoversEveryEntry()
     {
-        IBusinessRule slow = CreateSlowRule("SLOW", TimeSpan.FromMilliseconds(5));
+        IBusinessRule slow = CreateSlowRule("SLOW", SlowRuleDuration);
         IBusinessRule fast = CreateRule("FAST", broken: false);
 
         RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new[] { slow, fast }, new RuleEvaluationOptions());
@@ -72,7 +74,7 @@ public class BusinessRuleCheckerLedgerTests
     public void EvaluateAll_WithOptions_SlowestIsTheSlowRule()
     {
         IBusinessRule fast = CreateRule("FAST", broken: false);
-        IBusinessRule slow = CreateSlowRule("SLOW", TimeSpan.FromMilliseconds(10));
+        IBusinessRule slow = CreateSlowRule("SLOW", SlowRuleDuration);
 
         RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new[] { fast, slow }, new RuleEvaluationOptions());
 
