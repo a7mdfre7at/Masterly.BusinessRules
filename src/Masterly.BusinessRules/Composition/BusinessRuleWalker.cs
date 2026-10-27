@@ -5,7 +5,8 @@ namespace Masterly.BusinessRules
 {
     /// <summary>
     /// Evaluates a synchronous rule node exactly once and, when a trace is supplied, records its explanation.
-    /// In-library composed and decorated rules are routed through <see cref="IExplainableBusinessRule.EvaluateCore"/>;
+    /// In-library composed and decorated rules are routed through <see cref="IExplainableBusinessRule.EvaluateCore"/>,
+    /// decorators from outside the library through <see cref="IExplainableDecoratedBusinessRule.EvaluateDecorated"/>;
     /// every other rule is treated as a leaf and evaluated with <see cref="IBusinessRule.IsBroken(BusinessRuleContext)"/>
     /// followed by <see cref="IBusinessRule.Evaluate(BusinessRuleContext)"/> (or the parameterless overloads when no
     /// context is supplied), so context-aware <c>Describe</c> details reach the result.
@@ -104,6 +105,11 @@ namespace Masterly.BusinessRules
                 return explainable.EvaluateCore(context, null);
             }
 
+            if (rule is IExplainableDecoratedBusinessRule decorated)
+            {
+                return decorated.EvaluateDecorated(new DecoratedRuleEvaluation(decorated.InnerRule, context, null));
+            }
+
             return EvaluateLeaf(rule, context);
         }
 
@@ -114,9 +120,28 @@ namespace Masterly.BusinessRules
                 return explainable.EvaluateCore(context, trace);
             }
 
+            if (rule is IExplainableDecoratedBusinessRule decorated)
+            {
+                return EvaluateDecoratedTraced(decorated, context, trace);
+            }
+
             long start = RuleExplanationTrace.StartTiming();
             BusinessRuleResult? result = EvaluateLeaf(rule, context);
             trace.Add(Leaf(rule, result, RuleExplanationTrace.ElapsedSince(start)));
+            return result;
+        }
+
+        private static BusinessRuleResult? EvaluateDecoratedTraced(IExplainableDecoratedBusinessRule rule, BusinessRuleContext? context, RuleExplanationTrace trace)
+        {
+            RuleExplanationTrace children = trace.Branch();
+            long start = RuleExplanationTrace.StartTiming();
+            DecoratedRuleEvaluation evaluation = new DecoratedRuleEvaluation(rule.InnerRule, context, children);
+            BusinessRuleResult? result = rule.EvaluateDecorated(evaluation);
+
+            IReadOnlyList<RuleExplanation> innerNodes = evaluation.IsInnerEvaluated
+                ? children.Nodes
+                : new[] { NotEvaluated(evaluation.InnerRule, RuleExplanationText.DecoratorSkippedReason) };
+            trace.Add(Evaluated(rule, result != null, rule.ExplanationOperator, RuleExplanationTrace.ElapsedSince(start), innerNodes));
             return result;
         }
 

@@ -29,6 +29,7 @@ namespace Masterly.BusinessRules
         public const string CacheHitReason = "cache hit";
         public const string ShadowViolationReason = "shadow violation";
         public const string UngatedReason = "no context: evaluated un-gated";
+        public const string DecoratorSkippedReason = "not evaluated by decorator";
 
         /// <summary>
         /// Builds the reason recorded on a gate closed because the flag is off.

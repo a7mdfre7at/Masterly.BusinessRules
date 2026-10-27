@@ -32,13 +32,18 @@ If you like or are using this project please give it a star. Thanks!
 - [Caching](#caching)
 - [Conditional Execution](#conditional-execution)
 - [Shadow Rollout and Feature-Gated Rules](#shadow-rollout-and-feature-gated-rules)
+- [Microsoft.FeatureManagement Adapter](#microsoftfeaturemanagement-adapter)
 - [Rule Scopes and Externalized Parameters](#rule-scopes-and-externalized-parameters)
+- [Rule Expressions](#rule-expressions)
+- [Dependency Injection](#dependency-injection)
 - [Rule Adapters](#rule-adapters)
 - [Observers](#observers)
+- [Diagnostics: Logging, Tracing and Metrics](#diagnostics-logging-tracing-and-metrics)
 - [Evaluation Results](#evaluation-results)
 - [Evaluation Ledger, Options and Fault Policy](#evaluation-ledger-options-and-fault-policy)
 - [Rich Results](#rich-results)
 - [Testing Utilities](#testing-utilities)
+- [Testing Package: Coverage, Boundaries and Properties](#testing-package-coverage-boundaries-and-properties)
 - [Real-World Examples](#real-world-examples)
 - [API Reference](#api-reference)
 - [License](#license)
@@ -47,39 +52,49 @@ If you like or are using this project please give it a star. Thanks!
 
 ## Features
 
-- **Sync & Async Rules** - Full support for both synchronous and asynchronous business rules
-- **Fluent Builders** - Create rules inline without subclassing
+- **Sync & Async Rules** - Full support for both synchronous and asynchronous business rules, with every feature mirrored on both sides (specifications are the one documented exception)
+- **Fluent Builders** - Create rules inline without subclassing; `WithRuleFactory` lets a companion package choose the rule type `Build()` returns
 - **Subject-Typed Rules** - `IBusinessRule<T>` / `IAsyncBusinessRule<T>` receive their subject at evaluation time, so one stateless, DI-friendly instance validates any number of subjects; `.For(subject)` binds back to the non-generic world, the checkers take a subject directly (`CheckAll(order, rules)`), `EvaluateEach(orders, rules)` runs a rule set over many subjects, and typed `And`/`Or`/`Not` and `BusinessRuleBuilder<T>` complete the picture
 - **Specification Rules** - Write a rule once as an expression (`SpecificationBusinessRule<T>.BrokenWhen`), check it in memory with the typed checkers and ask the database for every violating row with `db.Orders.WhereBroken(rule)` / `WhereSatisfies(rule)`; `AllOf`/`AnyOf`/`Not` combine specifications into one translatable lambda (no `Invoke` nodes) and `.ToAsync()` is the async mirror
-- **Logical Composition** - Combine rules with `And()`, `Or()`, `Not()` (operators combine the *broken* state of their operands; see the pinned truth table). The operators are real tree nodes that keep their operands and forward the context
-- **Rule Groups** - Unambiguous N-ary quantifiers `RuleGroup.All/Any/AtLeast/Exactly` with opt-in short-circuit and (async) parallel evaluation; member failures travel through `BusinessRuleResult.Details`
-- **Explain Trees** - `rule.Explain(context)` / `await rule.ExplainAsync(context)` return a navigable, printable tree (Passed/Broken/Skipped/CacheHit/NotEvaluated/Faulted per node, with timing) produced by a single evaluation
+- **Logical Composition** - Combine rules with `And()`, `Or()`, `Not()` (operators combine the *broken* state of their operands; see the pinned truth table). The operators are real tree nodes (`AndBusinessRule`, `OrBusinessRule`, `NotBusinessRule` and their async twins) that keep their operands and forward the context
+- **Rule Groups** - Unambiguous N-ary quantifiers `RuleGroup.All/Any/AtLeast/Exactly` (and `AsyncRuleGroup`) with opt-in short-circuit and (async) parallel evaluation; member failures travel through `BusinessRuleResult.Details`
+- **Explain Trees** - `rule.Explain(context)` / `await rule.ExplainAsync(context)` return a navigable, printable tree (Passed/Broken/Skipped/CacheHit/NotEvaluated/Faulted per node, with timing) produced by a single evaluation; decorators from other packages join the tree through `IExplainableDecoratedBusinessRule`
 - **Rule Metadata** - Name, description, category, tags, and severity
 - **Caching** - Time-based caching for expensive rule evaluations, per instance or per cache key (`.Cached(ttl, ctx => tenant)`) so scoped rules cache per tenant
-- **Conditional Execution** - Execute rules only when preconditions are met
+- **Conditional Execution** - Execute rules only when preconditions are met (`.When(condition)`)
 - **Shadow Rollout and Feature Gates** - `rule.GatedBy(flag, provider, stableKey)` ships a rule dark: `Off`, `Shadow` (evaluated but never blocking; what would have failed lands on `result.ShadowResults` and the `OnShadowViolation` observer hook) or `Enforced`, ramped to a percentage of callers by a stable in-house FNV-1a bucket, all read from an `IRuleFeatureFlagProvider` on every evaluation so the rule class never changes
-- **Rule Scopes and Externalized Parameters** - Stop hard-coding `10_000m`: declare `.WithParameter<decimal>("maxOrderAmount", fallback: 10_000m)` and read it in `.When((ctx, p) => ...)`; an `IRuleParameterProvider` supplies the value per `RuleScope` (`RuleScope.Tenant("acme").With("region", "EU")`), so the same checkout rules run with different limits for ACME without an `if` in rule code. `IRuleConditionCompiler` / `IAsyncRuleConditionCompiler` are the seams the Expressions package plugs textual conditions into
-- **Rule Adapters** - Convert between sync and async rules
-- **Observers** - Monitor rule execution with per-rule and batch lifecycle callbacks (`OnBatchStarted`, `OnAfterEvaluate` with elapsed time, `OnRuleFaulted`, `OnBatchCompleted`) from both `CheckAll` and `EvaluateAll`
+- **Rule Scopes and Externalized Parameters** - Stop hard-coding `10_000m`: declare `.WithParameter<decimal>("maxOrderAmount", fallback: 10_000m)` and read it in `.When((ctx, p) => ...)`; an `IRuleParameterProvider` supplies the value per `RuleScope` (`RuleScope.Tenant("acme").With("region", "EU")`), so the same checkout rules run with different limits for ACME without an `if` in rule code
 - **Batch Validation** - Check multiple rules with fail-fast and parallel execution, or pass a `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` object
 - **Evaluation Ledger** - Every batch result carries one `RuleEvaluationEntry` per rule (order, outcome, duration, fault), `TotalDuration`, `Slowest` and `Faulted`
 - **Fault Policy and Severity Threshold** - Decide whether a throwing rule aborts the batch, is recorded, or counts as broken (`FaultPolicy`); make `CheckAll` throw only at or above a severity (`ThrowOn`), and re-severity any rule with `.WithSeverity()`
 - **Rich Results** - Every result carries the rule's `Name`, `Category` and `Tags`; a `Describe(context)` hook (or the builders' `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation`) attaches `Detail`, `Actual`, `Expected`, `Remediation` and a `Data` bag on the broken path only, and exceptions and results filter with `ByTag`/`ByCategory`: enough to build an RFC 7807 Problem Details response straight from the engine
 - **Typed Context** - Strongly-typed data passing to rules: `BusinessRuleContext<T>.Data` for one object, `ContextKey<T>` for named values read with `context.Get(OrderKeys.Order)` (no cast, no string literal); a failed read throws `ContextKeyNotFoundException` listing the available keys or `ContextValueTypeMismatchException` naming both types, and the checkers wrap either in a `BusinessRuleContextException` that names the failing rule
-- **Testing Utilities** - Helper methods for unit testing rules
-- **Companion Packages** - Diagnostics (structured logging, OpenTelemetry spans and metrics), Expressions (textual conditions with bound-value explanations), DependencyInjection (assembly scanning, rule runners, scoped registry), Testing (outcome coverage, boundary finder, CsCheck properties) and FeatureManagement (Microsoft.FeatureManagement adapter) ship as separate opt-in packages, so the core stays dependency-free
+- **Rule Adapters** - Convert between sync and async rules
+- **Observers** - Monitor rule execution with per-rule and batch lifecycle callbacks (`OnBatchStarted`, `OnAfterEvaluate` with elapsed time, `OnRuleFaulted`, `OnBatchCompleted`, `OnShadowViolation`) from `CheckAll` and the options-taking `EvaluateAll`
+- **Testing Utilities** - `RuleTestHelper` assertions and factories for unit testing rules
+- **Rule Expressions** (`Masterly.BusinessRules.Expressions`) - Write a condition as `amount > @maxOrderAmount && customer.Tier != 'VIP'`, parse it once and get an explanation with the bound values (`amount(12000) > @maxOrderAmount(10000) => true`); `WhenExpression(...)` on the builders returns an `ExpressionBusinessRule`, and the `IRuleConditionCompiler` seam keeps the grammar out of the core
+- **Diagnostics** (`Masterly.BusinessRules.Diagnostics`) - Drop-in observers turn every rule evaluation into a structured `ILogger` line, a child span per rule under a batch span from the `Masterly.BusinessRules` `ActivitySource`, and the `business_rules.*` instruments of the `Masterly.BusinessRules` `Meter`; `rule.Traced()` does the same for a single `Check()`
+- **Dependency Injection** (`Masterly.BusinessRules.DependencyInjection`) - `services.AddBusinessRules(assembly)` scans for rule types and registers them, a handler injects `IRuleRunner<Order>` and calls `rules.CheckAllAsync(order, ct)`, and `AddRuleSet("checkout", ...)` layers named rule sets per `RuleScope` into an injectable `IRuleRegistry` that disables, adds or replaces rules by code for one tenant
+- **Microsoft.FeatureManagement Adapter** (`Masterly.BusinessRules.FeatureManagement`) - Plugs `IFeatureManager` / `IVariantFeatureManager` into the feature gate: a plain flag maps to `Enforced`/`Off`, a variant named `Shadow`, `Enforced-10` or `Off` (or carrying a `Mode`/`Percent` configuration) maps to the matching `RuleRollout`
+- **Testing Package** (`Masterly.BusinessRules.Testing`) - Outcome coverage (`WithCoverage(session)`), a boundary finder that bisects to the exact flipping value, CsCheck-backed monotonicity and context-purity properties, and smoke-mode mutants
+- **Zero-dependency core** - The five companion packages are opt-in; the core references none of them
 
 ---
 
 ## Installation
 
-Install via NuGet Package Manager:
+Every package ships from this repository with the same version. Install the core, then only the companions you use.
 
-```bash
-dotnet add package Masterly.BusinessRules
-```
+| Package | Purpose | Install |
+|---------|---------|---------|
+| `Masterly.BusinessRules` | The zero-dependency core: rules, builders, composition, groups, explain trees, checkers, context, caching, feature gates, parameters and specifications | `dotnet add package Masterly.BusinessRules` |
+| `Masterly.BusinessRules.Expressions` | Textual rule conditions parsed once and explained with bound values | `dotnet add package Masterly.BusinessRules.Expressions` |
+| `Masterly.BusinessRules.Diagnostics` | Structured `ILogger` observer, OpenTelemetry spans and `Meter` instruments for rule evaluation | `dotnet add package Masterly.BusinessRules.Diagnostics` |
+| `Masterly.BusinessRules.DependencyInjection` | Assembly scanning, injectable rule runners and the scoped rule registry | `dotnet add package Masterly.BusinessRules.DependencyInjection` |
+| `Masterly.BusinessRules.FeatureManagement` | `Microsoft.FeatureManagement` adapter supplying feature-gated rules with their rollout | `dotnet add package Masterly.BusinessRules.FeatureManagement` |
+| `Masterly.BusinessRules.Testing` | Outcome coverage, boundary finder, CsCheck-backed rule properties and smoke-mode mutants for test projects | `dotnet add package Masterly.BusinessRules.Testing` |
 
-Or via Package Manager Console:
+Or via the Package Manager Console:
 
 ```powershell
 Install-Package Masterly.BusinessRules
@@ -89,25 +104,18 @@ Install-Package Masterly.BusinessRules
 
 ## Packages
 
-`Masterly.BusinessRules` is the zero-dependency core. Companion packages ship from the same repository, with the same version, and plug into the seams the core exposes (observers, `IRuleConditionCompiler`, `IRuleFeatureFlagProvider`, the subject-typed rule interfaces). Install only what you use; the core never references any of them.
+`Masterly.BusinessRules` is the zero-dependency core. The companion packages plug into the seams the core exposes (observers, `IRuleConditionCompiler`, `WithRuleFactory`, `IExplainableDecoratedBusinessRule`, `IRuleFeatureFlagProvider`, the subject-typed rule interfaces); the core never references any of them.
 
-| Package | Purpose | Dependencies beyond the core |
-|---------|---------|------------------------------|
-| `Masterly.BusinessRules.Diagnostics` | Structured `ILogger` observer, OpenTelemetry `ActivitySource` spans and `Meter` instruments for rule evaluation | `Microsoft.Extensions.Logging.Abstractions`, `System.Diagnostics.DiagnosticSource` |
-| `Masterly.BusinessRules.Expressions` | Textual rule conditions parsed once and explained with bound values, plugged in through `IRuleConditionCompiler` / `IAsyncRuleConditionCompiler` | none |
-| `Masterly.BusinessRules.DependencyInjection` | Assembly scanning, injectable rule runners and the scoped rule registry | `Microsoft.Extensions.DependencyInjection.Abstractions` |
-| `Masterly.BusinessRules.Testing` | Outcome coverage, boundary finder and CsCheck-backed rule properties; targets `net8.0` because CsCheck ships no .NET Standard build | `CsCheck` |
-| `Masterly.BusinessRules.FeatureManagement` | `Microsoft.FeatureManagement` adapter supplying feature-gated rules with their `RuleRollout` | `Microsoft.FeatureManagement` |
+| Package | Target | Dependencies beyond the core |
+|---------|--------|------------------------------|
+| `Masterly.BusinessRules` | `netstandard2.1` | none |
+| `Masterly.BusinessRules.Expressions` | `netstandard2.1` | none |
+| `Masterly.BusinessRules.Diagnostics` | `netstandard2.1` | `Microsoft.Extensions.Logging.Abstractions`, `System.Diagnostics.DiagnosticSource` |
+| `Masterly.BusinessRules.DependencyInjection` | `netstandard2.1` | `Microsoft.Extensions.DependencyInjection.Abstractions` |
+| `Masterly.BusinessRules.FeatureManagement` | `netstandard2.1` | `Microsoft.FeatureManagement` |
+| `Masterly.BusinessRules.Testing` | `net8.0` (CsCheck ships no .NET Standard build, and the boundary finder uses `INumber<T>`) | `CsCheck` |
 
-```bash
-dotnet add package Masterly.BusinessRules.Diagnostics
-dotnet add package Masterly.BusinessRules.Expressions
-dotnet add package Masterly.BusinessRules.DependencyInjection
-dotnet add package Masterly.BusinessRules.Testing
-dotnet add package Masterly.BusinessRules.FeatureManagement
-```
-
-All companion packages target `netstandard2.1` except where the table says otherwise. Each one is documented in its own section of this README.
+Each companion package is documented in its own section of this README.
 
 ---
 
@@ -226,6 +234,8 @@ The builders support all rule metadata (name, description, category, tags, sever
 
 - `BusinessRuleBuilder`: Creates synchronous rules with `When()` condition
 - `AsyncBusinessRuleBuilder`: Creates asynchronous rules with `WhenAsync()` condition
+
+**Rule factory seam.** `BusinessRuleBuilder.WithRuleFactory(IBuiltRuleFactory)` and `AsyncBusinessRuleBuilder.WithRuleFactory(IAsyncBuiltRuleFactory)` let a sibling package decide which rule type `Build()` returns. At `Build()` the factory receives a `BuiltRuleDefinition`: the seven metadata members (the name defaults to the code), `ResolveParameters(context)` / `ResolveParametersAsync(context, ct)` for the `WithParameter<T>` declarations, and `CreateResult(rule, context)` that attaches the `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation` details. A factory replaces any condition set so far and a later `When`/`WhenAsync` replaces the factory; a factory that returns null makes `Build()` throw `InvalidOperationException`. The Expressions package's `WhenExpression` uses it to return an `ExpressionBusinessRule`.
 
 ### Sync Builder Example
 
@@ -545,7 +555,7 @@ composite.Check();
 
 ## Structural Composition and Explain Trees
 
-Every composed rule keeps its shape. The `And()`, `Or()` and `Not()` operators, the composites and the new rule groups all implement `IComposedBusinessRule` (`Operator`, `Operands`), while `CachedBusinessRule`, `ConditionalBusinessRule`, `SeverityOverrideBusinessRule` and `FeatureGatedBusinessRule` implement `IDecoratedBusinessRule` (`InnerRule`); the async side mirrors this with `IComposedAsyncBusinessRule` and `IDecoratedAsyncBusinessRule`, and both adapters expose their wrapped rule as `InnerRule`. Tooling can therefore walk any rule tree without knowing the concrete node types.
+Every composed rule keeps its shape. The `And()`, `Or()` and `Not()` operators, the composites and the rule groups all implement `IComposedBusinessRule` (`Operator`, `Operands`), while `CachedBusinessRule`, `ConditionalBusinessRule`, `SeverityOverrideBusinessRule` and `FeatureGatedBusinessRule` implement `IDecoratedBusinessRule` (`InnerRule`); the async side mirrors this with `IComposedAsyncBusinessRule` and `IDecoratedAsyncBusinessRule`, and both adapters expose their wrapped rule as `InnerRule`. Tooling can therefore walk any rule tree without knowing the concrete node types.
 
 **Rule groups** are unambiguous N-ary quantifiers stated in terms of how many members must **pass**:
 
@@ -560,7 +570,7 @@ Groups are immutable: `WithShortCircuit()`, `WithSeverity()` and (async only) `W
 
 **Member results survive the batch path.** A group or composite reports one result whose `Details` holds the broken members (nested groups nest their details). `BusinessRuleChecker.CheckAll`/`EvaluateAll` and their async twins evaluate composed rules exactly once and surface those details; `exception.Flatten()` (or `result.Flatten()`) yields only the leaf results.
 
-**Explain trees.** `rule.Explain(context)` and `await asyncRule.ExplainAsync(context, ct)` evaluate the rule **exactly once** and return a `RuleExplanation` tree produced by that evaluation: no rule is evaluated a second time to build it. Every node carries the rule, its `RuleOutcome` (`Passed`, `Broken`, `Skipped`, `CacheHit`, `NotEvaluated`, `Faulted`), `IsBroken`, the `Operator` label (`ALL`, `AND`, `AT LEAST 2`, `CACHED`, `WHEN`, `ADAPTER`, ...), a `Reason` (`short-circuit`, `precondition not met`, `cache hit`, the captured exception), the `Duration` spent in that node and its `Children`. Third-party rules appear as a single leaf. `Explain(context, captureExceptions: true)` turns a throwing node into a `Faulted` node (treated as broken) instead of propagating; cancellation is never captured. Timing exists only inside the explain walk, so the plain `IsBroken`/`Check` path stays allocation-free.
+**Explain trees.** `rule.Explain(context)` and `await asyncRule.ExplainAsync(context, ct)` evaluate the rule **exactly once** and return a `RuleExplanation` tree produced by that evaluation: no rule is evaluated a second time to build it. Every node carries the rule, its `RuleOutcome` (`Passed`, `Broken`, `Skipped`, `CacheHit`, `NotEvaluated`, `Faulted`), `IsBroken`, the `Operator` label (`ALL`, `AND`, `AT LEAST 2`, `CACHED`, `WHEN`, `ADAPTER`, ...), a `Reason` (`short-circuit`, `precondition not met`, `cache hit`, the captured exception), the `Duration` spent in that node and its `Children`. Third-party rules appear as a single leaf, except decorators that implement the public `IExplainableDecoratedBusinessRule` / `IExplainableDecoratedAsyncBusinessRule` seam (see below). `Explain(context, captureExceptions: true)` turns a throwing node into a `Faulted` node (treated as broken) instead of propagating; cancellation is never captured. Timing exists only inside the explain walk, so the plain `IsBroken`/`Check` path stays allocation-free.
 
 ### Structural Composition Examples
 
@@ -610,6 +620,40 @@ foreach (RuleExplanation leaf in why.BrokenLeaves())
 
 // Capture faults instead of propagating them
 RuleExplanation tolerant = kyc.Explain(context, captureExceptions: true);
+```
+
+**Custom decorators in the tree.** A decorator written outside the library implements `IExplainableDecoratedBusinessRule` (`IExplainableDecoratedAsyncBusinessRule` on the async side): an `ExplanationOperator` label and `EvaluateDecorated(DecoratedRuleEvaluation evaluation)` (`EvaluateDecoratedAsync(AsyncDecoratedRuleEvaluation, ct)`). The walker hands it an evaluation whose `EvaluateInner()` / `EvaluateInnerAsync(ct)` runs `InnerRule` through the library walker **at most once** (composed inner rules keep their `Details` and, while explaining, record their own subtree), and records the decorator as a node labelled `ExplanationOperator` with the inner rule as its child; an inner rule the decorator never evaluates is recorded as `NotEvaluated` with the reason `not evaluated by decorator`. `EvaluateDecorated` is the decorator's verdict on every walker path (`And`/`Or`/`Not` operands, groups, `Explain`), so implement the decorator's own `IsBroken` through it with the public constructor `new DecoratedRuleEvaluation(InnerRule, context)`. The Testing package's coverage and mutation decorators use this seam.
+
+```csharp
+public sealed class AuditedRule : IExplainableDecoratedBusinessRule
+{
+    public AuditedRule(IBusinessRule innerRule) => InnerRule = innerRule;
+
+    public IBusinessRule InnerRule { get; }
+    public string ExplanationOperator => "AUDITED";
+    public string Code => InnerRule.Code;
+    public string Message => InnerRule.Message;
+
+    public BusinessRuleResult? EvaluateDecorated(DecoratedRuleEvaluation evaluation)
+    {
+        BusinessRuleResult? result = evaluation.EvaluateInner();   // evaluated once, subtree recorded when explaining
+        AuditLog.Record(InnerRule.Code, result != null);
+        return result;
+    }
+
+    public bool IsBroken() => EvaluateDecorated(new DecoratedRuleEvaluation(InnerRule, null)) != null;
+    public bool IsBroken(BusinessRuleContext context) => EvaluateDecorated(new DecoratedRuleEvaluation(InnerRule, context)) != null;
+    public void Check() => InnerRule.Check();
+    public void Check(BusinessRuleContext context) => InnerRule.Check(context);
+    public BusinessRuleResult Evaluate() => InnerRule.Evaluate();
+    public BusinessRuleResult Evaluate(BusinessRuleContext context) => InnerRule.Evaluate(context);
+}
+
+// [BROKEN] AUDITED  KYC.INCOMPLETE  "All KYC checks must pass"  (1.0 ms)
+//  └─ [BROKEN] ALL  KYC.INCOMPLETE  "All KYC checks must pass"  (0.9 ms)
+//      ├─ [PASSED]  KYC.ID  (0.1 ms)
+//      └─ ...
+Console.WriteLine(new AuditedRule(kyc).Explain(context).ToText());
 ```
 
 ---
@@ -889,30 +933,25 @@ Conditional execution wraps a rule and only evaluates it when a precondition is 
 - Optional validation steps
 
 **Classes:**
-- `ConditionalBusinessRule`: Wraps sync rules with a sync condition
-- `ConditionalAsyncBusinessRule`: Wraps async rules with a sync condition
+- `ConditionalBusinessRule(innerRule, Func<bool> condition)`: Wraps a sync rule with a parameterless condition
+- `ConditionalAsyncBusinessRule(innerRule, Func<BusinessRuleContext, bool> condition)`: Wraps an async rule with a synchronous, context-aware condition
 
 **Extension Methods:**
-- `.WithCondition(Func<bool>)`: Simple condition
-- `.WithCondition(Func<BusinessRuleContext, bool>)`: Context-aware condition
-- `.WithCondition(Func<BusinessRuleContext, CancellationToken, Task<bool>>)`: Async condition
+- `IBusinessRule.When(Func<bool>)`: Returns a `ConditionalBusinessRule`
+- `IAsyncBusinessRule.When(Func<BusinessRuleContext, bool>)`: Returns a `ConditionalAsyncBusinessRule`
+
+When the condition is false the inner rule is never evaluated, and `Explain` records the decorator as `Skipped` (`WHEN`, reason `precondition not met`) with the inner rule as `NotEvaluated`. For a sync condition that needs the context, build the rule with `BusinessRuleBuilder.When(ctx => ...)` instead.
 
 ### Conditional Execution Examples
 
 ```csharp
-// Simple condition
+// Sync rule, parameterless condition
 ConditionalBusinessRule conditionalRule = new ConditionalBusinessRule(
     new PremiumFeatureRule(),
     () => user.IsPremium
 );
 
-// Context-aware condition
-ConditionalBusinessRule contextRule = new ConditionalBusinessRule(
-    new AdvancedValidationRule(),
-    ctx => ctx.Get<bool>("enableAdvancedValidation")
-);
-
-// Async rule with condition
+// Async rule, context-aware condition
 ConditionalAsyncBusinessRule conditionalAsyncRule = new ConditionalAsyncBusinessRule(
     new ExpensiveDatabaseRule(),
     ctx => ctx.Get<bool>("shouldValidate")
@@ -921,14 +960,10 @@ ConditionalAsyncBusinessRule conditionalAsyncRule = new ConditionalAsyncBusiness
 await conditionalAsyncRule.CheckAsync(context); // Only runs if condition is true
 
 // Extension method syntax
-IBusinessRule condExtRule = new PremiumRule().WithCondition(() => isPremiumEnabled);
+IBusinessRule condExtRule = new PremiumRule().When(() => isPremiumEnabled);
 
 IAsyncBusinessRule condExtAsync = new ValidationRule()
-    .WithCondition(ctx => ctx.Get<bool>("validateEnabled"));
-
-IAsyncBusinessRule asyncCondition = new ComplexRule()
-    .WithCondition(async (ctx, ct) =>
-        await featureService.IsEnabledAsync("validation", ct));
+    .When(ctx => ctx.Get<bool>("validateEnabled"));
 ```
 
 ---
@@ -945,7 +980,7 @@ Ship a new rule dark and ramp it from your flag provider without touching the ru
 
 **Ramping.** A `RuleRollout` carries a `Percent` (0..100). A partial rollout needs a `stableKey` selector (a customer id, a tenant id) that `RuleRolloutBucket` hashes with in-house 32-bit FNV-1a into buckets 0..99; the caller is inside the cohort when its bucket is below the percent. The flag name is mixed into the hash, so different flags ramp over different customers, and a customer inside a 10% cohort stays inside when the rollout grows to 20%. A rollout at 100% never calls the stable key selector; a partial rollout without one throws `RuleConfigurationException`.
 
-**Providers.** Pass the provider to `GatedBy(...)`, or store one on the context under `RuleFeatureFlags.ContextKey` (`RuleFeatureFlags.AsyncContextKey` for async providers): a provider on the context overrides the injected one for that evaluation, which lets a test or a canary pipeline force a rollout. Async gated rules try the async provider first, then the sync one. When no provider can be found anywhere the evaluation throws `RuleConfigurationException` naming the rule's `Code`. `InMemoryRuleFeatureFlagProvider` implements both interfaces, is thread-safe and can be flipped at any time; `RuleTestHelper.CreateFlagProvider(flag, mode, percent)` builds one for tests. An adapter for `Microsoft.FeatureManagement` is planned as the sibling package `Masterly.BusinessRules.FeatureManagement`.
+**Providers.** Pass the provider to `GatedBy(...)`, or store one on the context under `RuleFeatureFlags.ContextKey` (`RuleFeatureFlags.AsyncContextKey` for async providers): a provider on the context overrides the injected one for that evaluation, which lets a test or a canary pipeline force a rollout. Async gated rules try the async provider first, then the sync one. When no provider can be found anywhere the evaluation throws `RuleConfigurationException` naming the rule's `Code`. `InMemoryRuleFeatureFlagProvider` implements both interfaces, is thread-safe and can be flipped at any time; `RuleTestHelper.CreateFlagProvider(flag, mode, percent)` builds one for tests. The sibling package `Masterly.BusinessRules.FeatureManagement` adapts `Microsoft.FeatureManagement` flags and variants; see [Microsoft.FeatureManagement Adapter](#microsoftfeaturemanagement-adapter).
 
 **Shadow results.** Both checkers collect what shadow-mode rules would have reported on `RuleEvaluationResult.ShadowResults` / `AsyncRuleEvaluationResult.ShadowResults` (`HasShadowResults`), whether the gated rule is a batch member or nested inside a group, a cache or an adapter. These results are not in `BrokenRules`, never make `CheckAll` throw and never affect `AllPassed`. The options-taking overloads additionally raise the observer hook `OnShadowViolation(rule, result)` / `OnShadowViolationAsync(rule, result, ct)` right after the rule's own callbacks (in a parallel async batch, once every rule has completed and before `OnBatchCompletedAsync`); it is a default interface member, so existing observers keep compiling.
 
@@ -1010,13 +1045,92 @@ Console.WriteLine($"{explanation.Operator} {explanation.Outcome} {explanation.Re
 
 ---
 
+## Microsoft.FeatureManagement Adapter
+
+`Masterly.BusinessRules.FeatureManagement` lets feature-gated rules read their `RuleRollout` from the same `Microsoft.FeatureManagement` flags, filters and variants as the rest of the application. `FeatureManagementRuleFeatureFlagProvider` implements both `IRuleFeatureFlagProvider` and `IAsyncRuleFeatureFlagProvider` over an `IVariantFeatureManager` (variants consulted) or a plain `IFeatureManager` (enabled state only), so one instance serves sync and async gated rules; the async decorator picks its async side.
+
+```bash
+dotnet add package Masterly.BusinessRules.FeatureManagement
+```
+
+**Mapping.** On every evaluation the provider asks for the flag's assigned variant first and the enabled state second:
+
+| Microsoft.FeatureManagement says | `RuleRollout` reported |
+|----------------------------------|------------------------|
+| Variant listed in `FeatureManagementRolloutOptions.VariantRollouts` (`MapVariant("dark", RuleRollout.Shadow())`) | the mapped rollout |
+| Variant whose configuration has a `Mode` value and an optional `Percent` value (0..100, default 100), or a scalar value such as `"Shadow-10"` | that mode and percent |
+| Variant named after a `RuleRolloutMode`, optionally followed by a percent: `Shadow`, `Enforced-10`, `enforced:25%`, `Off` (case-insensitive; separators `-`, `:`, `_`, `/`, space) | that mode and percent; `Off` is always the canonical `RuleRollout.Off` |
+| Variant that maps to none of the above | per `OnUnrecognizedVariant`: `Throw` (`RolloutVariantFormatException`, the default), `Off`, or `UseEnabledState` |
+| No variant, flag enabled | `EnabledRollout` (`RuleRollout.Enforced()` by default; set `RuleRollout.Shadow()` to ship every boolean-gated rule dark) |
+| No variant, flag disabled or unknown | `RuleRollout.Off` |
+
+An assigned variant decides even when the flag is disabled (`allocation.default_when_disabled`), which is how `Microsoft.FeatureManagement` itself treats variants; give the disabled allocation an `Off` variant. `RolloutVariantConvention.TryParse(name)` / `TryRead(section)` expose the convention so configuration can be validated at startup.
+
+**Two ramps, pick one.** The `Percent` of a variant is the in-house `RuleRolloutBucket` cohort over the gated rule's `stableKey`; a `Microsoft.Percentage` or `Microsoft.Targeting` filter ramps the flag inside `Microsoft.FeatureManagement`, and the provider then reports `Enforced`/`Off` at 100%. Use the variant percent **or** the filter, not both, or callers are bucketed twice. Set `TargetingContextSelector` to turn the evaluation context into an `ITargetingContext` (`new TargetingContext { UserId = ctx.Get<string>("customerId") }`) so the filter and the variant allocation see the same customer the stable key describes; without it the feature manager falls back to its own `ITargetingContextAccessor`.
+
+**Sync side.** `Microsoft.FeatureManagement` is asynchronous only, so `GetRollout` blocks on `GetRolloutAsync` with `GetAwaiter().GetResult()`, exactly like `AsyncToSyncRuleAdapter`. Prefer async gated rules on request paths.
+
+**Registration.** `services.AddBusinessRulesFeatureManagement(configure?, lifetime?)` registers `FeatureManagementRuleFeatureFlagProvider`, `IRuleFeatureFlagProvider` and `IAsyncRuleFeatureFlagProvider` (one instance behind all three) over the `IVariantFeatureManager` when one is registered and the `IFeatureManager` otherwise. Call `services.AddFeatureManagement(...)` first. The lifetime defaults to `Singleton`, matching `AddFeatureManagement`; pass `ServiceLifetime.Scoped` with `AddScopedFeatureManagement`. Registrations use `TryAdd`, so an existing provider registration wins.
+
+### Microsoft.FeatureManagement Examples
+
+```jsonc
+// appsettings.json: ship dark at 10% of customers, then flip the allocation to "live"
+{
+  "feature_management": {
+    "feature_flags": [
+      {
+        "id": "credit-score-v2",
+        "enabled": true,
+        "variants": [
+          { "name": "dark", "configuration_value": { "Mode": "Shadow", "Percent": 10 } },
+          { "name": "live", "configuration_value": { "Mode": "Enforced" } }
+        ],
+        "allocation": { "default_when_enabled": "dark", "default_when_disabled": "Off" }
+      },
+      { "id": "sanctions-check", "enabled": true }      // plain flag: Enforced when on, Off when off
+    ]
+  }
+}
+```
+
+```csharp
+services.AddFeatureManagement(configuration);
+services.AddBusinessRulesFeatureManagement(options =>
+{
+    options.TargetingContextSelector = ctx => new TargetingContext { UserId = ctx.Get<string>("customerId") };
+    options.OnUnrecognizedVariant = UnrecognizedVariantBehavior.Off;      // a variant meant for other code never blocks
+});
+
+// Gate the rules; the rule classes never change
+IAsyncRuleFeatureFlagProvider flags = serviceProvider.GetRequiredService<IAsyncRuleFeatureFlagProvider>();
+IAsyncBusinessRule creditScore = new NewCreditScoreRule(customer)
+    .GatedBy("credit-score-v2", flags, stableKey: ctx => ctx.Get<string>("customerId"));
+IAsyncBusinessRule sanctions = new SanctionsCheckRule(api).GatedBy("sanctions-check", flags);
+
+BusinessRuleContext context = RuleTestHelper.CreateContext(("customerId", customer.Id));
+AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(context, new[] { creditScore, sanctions });
+IReadOnlyCollection<BusinessRuleResult> shadow = result.ShadowResults;   // what credit-score-v2 would have blocked for the 10% cohort
+
+// Without DI, or when a variant name does not follow the convention
+FeatureManagementRuleFeatureFlagProvider provider = new FeatureManagementRuleFeatureFlagProvider(
+    variantFeatureManager,
+    new FeatureManagementRolloutOptions().MapVariant("canary", RuleRollout.Enforced(5)));
+
+// Validate the convention at startup
+if (!RolloutVariantConvention.TryParse(variantName, out RuleRollout rollout))
+    throw new InvalidOperationException($"Variant '{variantName}' is not a rollout");
+```
+
+---
+
 ## Rule Scopes and Externalized Parameters
 
 Multi-tenant SaaS wants "the same checkout rules, different limits for ACME" with no `if (tenant == "acme")` in rule code. Declare the limit as a **named parameter with a mandatory fallback**, read it from the `RuleParameters` handed to the `(ctx, p) => ...` condition, and let an `IRuleParameterProvider` supply the value for the **scope** of the evaluation. The provider is consulted on every evaluation, so changing a limit never rebuilds a rule; without any provider every parameter resolves to its fallback, so a parameterless `Check()` or an `And`/`Or` composition can never throw for a missing value.
 
 **`RuleScope`** is an immutable set of key/value pairs (`RuleScope.Global`, `RuleScope.Tenant("acme")`, `.With("region", "EU")`) with value equality (pair order does not matter), `Specificity` (the pair count) and `AppliesTo(requested)`: a scope applies to a request when every one of its pairs is in the request, so `Tenant("acme")` applies to `Tenant("acme").With("region", "EU")` and `Global` applies to everything. A provider or a registry picks the most specific applying layer. `TenantId`, `TryGet(key)`, `ContainsKey(key)` and `ToString()` (`region=EU;tenant=acme`, keys sorted) complete the type.
 
-**Providers.** `IRuleParameterProvider.TryGet<T>(name, scope, out value)` and the async twin `IAsyncRuleParameterProvider.TryGetAsync<T>(name, scope, ct)` returning `RuleParameterLookup<T>` (`Found`, `Value`, `Missing`, `Of(value)`, `GetValueOrFallback`). `InMemoryRuleParameterProvider` implements both, is thread-safe, layers values per scope (`Set(name, value)` for everybody, `Set(name, value, scope)` for a layer) and returns the most specific applying value; among equally specific layers the most recently set one wins. A value stored with another type than the one requested throws `InvalidCastException` naming the parameter, the scope and both types: a configuration error, never a silent fallback. `RuleTestHelper.CreateParameterProvider(name, value, scope?)` builds one for tests. The sibling DependencyInjection package will bind a provider to `IConfiguration` / `IOptionsMonitor` and host the scoped `RuleRegistry` (named rule sets with per-tenant overrides); the Expressions package resolves `@maxOrderAmount` nodes through the same provider.
+**Providers.** `IRuleParameterProvider.TryGet<T>(name, scope, out value)` and the async twin `IAsyncRuleParameterProvider.TryGetAsync<T>(name, scope, ct)` returning `RuleParameterLookup<T>` (`Found`, `Value`, `Missing`, `Of(value)`, `GetValueOrFallback`). `InMemoryRuleParameterProvider` implements both, is thread-safe, layers values per scope (`Set(name, value)` for everybody, `Set(name, value, scope)` for a layer) and returns the most specific applying value; among equally specific layers the most recently set one wins. A value stored with another type than the one requested throws `InvalidCastException` naming the parameter, the scope and both types: a configuration error, never a silent fallback. `RuleTestHelper.CreateParameterProvider(name, value, scope?)` builds one for tests. The sibling DependencyInjection package hosts the scoped `RuleRegistry` (named rule sets with per-tenant overrides; see [Dependency Injection](#dependency-injection)); the Expressions package resolves `@maxOrderAmount` nodes through the same provider.
 
 **Wiring.** All four builders take `.WithParameters(provider)` and `.WithParameter<T>(name, fallback)` (a name may be declared once per builder). The sync builders add `When((ctx, p) => ...)` / `When((subject, ctx, p) => ...)`; the async builders add `WhenAsync((ctx, p, ct) => ...)` / `WhenAsync((subject, ctx, p, ct) => ...)` (the token is part of the signature because a two-parameter `(ctx, p)` lambda would be ambiguous with `(ctx, ct)`) and also accept an `IAsyncRuleParameterProvider`, which they prefer over a sync one. The scope of an evaluation is read from the context under `RuleParameters.ScopeKey`; absent means the global scope. A provider stored on the context under `RuleParameters.ContextKey` (`RuleParameters.AsyncContextKey` for async providers) **overrides** the injected one for that evaluation; it is an optional override for tests and request pipelines, not the primary wiring, so the context never becomes a service locator. A reserved key that is present but holds a value of another type (a tenant name stored as a plain string under `RuleParameters.ScopeKeyName`, say) throws `ContextValueTypeMismatchException` (wrapped by the checkers into `BusinessRuleContextException`) rather than silently resolving the global scope. `RuleParameters` exposes `Get<T>(name)` (throws `KeyNotFoundException` listing the declared names, or `InvalidCastException`), `TryGet<T>`, `Contains`, `Names`, `Count` and the resolved `Scope`.
 
@@ -1109,6 +1223,210 @@ IBusinessRule fromText = BusinessRuleBuilder.Create("ORDER.TOO_LARGE").When(comp
 
 ---
 
+## Rule Expressions
+
+The `Masterly.BusinessRules.Expressions` package lets a condition live as text: `amount > @maxOrderAmount && customer.Tier != 'VIP'` is parsed once into an immutable tree, evaluated against the `BusinessRuleContext` by a single interpreter, and explained with the **actual bound values**: `amount(12000) > @maxOrderAmount(10000) => true`. It depends on the core package only, targets `netstandard2.1`, and plugs into the core through the `IRuleConditionCompiler` / `IAsyncRuleConditionCompiler` seam, so the grammar never enters the core assembly and a team that prefers another parser can implement the seam instead.
+
+```bash
+dotnet add package Masterly.BusinessRules.Expressions
+```
+
+**One evaluator.** `RuleExpression.Parse(text, options)` builds the tree; `Evaluate(context)` / `EvaluateAsync(context, ...)` walk it, and `Explain(context, redact)` / `ExplainAsync(...)` run the same walk with a binding recorder, so the verdict and the explanation cannot disagree. `RuleExpressionExplanation` carries `Result`, `Steps` (`RuleExpressionStep`: `Kind` = `Binding` or `Operation`, `NodeText`, `BoundValue`, `Result`, in evaluation order; a short-circuited branch has no steps) and `Rendered`, where paths show `path(value)`, nested operations show `[result]` (or `[not evaluated]`) and the root ends in `=> result`. Values are formatted with `RuleExpressionOptions.Culture` (invariant by default). The `redact` delegate (`RuleExpressionRedactor`, `(name, value) => string?`) decides how every bound value is displayed and runs before the value is recorded, so masked PII never reaches `Steps` or `Rendered`.
+
+**Binding.** A root identifier binds to the context entry of that name; `Data` binds to the typed data of a `BusinessRuleContext<T>` (`__typedData`) and falls back to a key named `Data`. `@name` is a parameter node resolved through the core parameter pipeline: declared builder parameters, then the provider stored under `RuleParameters.AsyncContextKey` / `RuleParameters.ContextKey`, then the injected async / sync `IRuleParameterProvider` (scope from `RuleParameters.ScopeKey`), then the context bag. An unbound identifier, parameter or member throws `RuleExpressionBindingException` with `Identifier` and the sorted `AvailableKeys` (context keys, or the readable members of the type); an operator meeting operands it cannot work on throws `RuleExpressionEvaluationException` (`NodeText`); malformed text throws `RuleExpressionParseException` with 1-based `Line` and `Column`.
+
+**Rules.** `expression.ToRule(code, message, parameters?, severity?)` returns an `ExpressionBusinessRule` (a `BaseBusinessRule` whose `Description` is the expression text; the parameterless `IsBroken()` throws `InvalidOperationException` because an expression needs a context) and `ToAsyncRule(code, message, asyncParameters?, parameters?, severity?)` an `ExpressionAsyncBusinessRule`, which resolves every `@parameter` before the walk so async providers are awaited once per evaluation. Both are ordinary leaves to `And/Or/Not`, groups, decorators, the checkers and `Explain()`; `ExplainExpression(context, redact?)` / `ExplainExpressionAsync(...)` return the bound-value explanation. On the builders, `WhenExpression(text[, options])` or `WhenExpression(expression)` parses at builder time and installs the expression through the core `WithRuleFactory` seam, so `Build()` returns an `ExpressionBusinessRule` (async builder: `ExpressionAsyncBusinessRule`) that keeps every builder feature: name, description (the expression text when none is set), category, tags, the `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation` details and the `WithParameter<T>` declarations feeding `@name`. Like every expression rule it needs a context (its parameterless `IsBroken()` throws `InvalidOperationException`), and a later `When`/`WhenAsync` call on the same builder replaces the expression. `RuleExpressionConditionCompiler` implements both seams for `When(compiler, text)` / `WhenAsync(compiler, text)` and for container registration (`Options`, `Parameters`, `AsyncParameters`; the async seam is implemented explicitly and also exposed as `CompileAsyncCondition`).
+
+**Typed fast path.** `expression.Compile<T>()` returns `Func<BusinessRuleContext<T>, bool>`. Paths rooted at `Data` become real, statically resolved `MemberExpression` chains (null-safe), so a typo such as `Data.Itemz.Count` fails at compile time with `RuleExpressionParseException`; context identifiers, parameters and every operator call the same runtime helpers as the interpreter, so both paths return the same verdict.
+
+**Safety.** `RuleExpressionOptions` is immutable (`Default`, `WithMaxLength`, `WithMaxDepth`, `WithMemberFilter`, `WithRequireRuleAccessibleAttribute`, `WithCulture`): `MaxLength` (default 4096 characters) and `MaxDepth` (default 64 levels) bound the parse; member access is restricted to public, non-indexed instance properties, further narrowed by `MemberFilter` (`Func<PropertyInfo, bool>`) and, when `RequireRuleAccessibleAttribute` is set, to properties (or types) marked `[RuleAccessible]`. Expressions cannot call arbitrary methods: the only functions are `startsWith`, `endsWith` and `contains`. **AOT and trimming:** the interpreter path (`Evaluate`, `Explain`, the rules, the builders and the condition compiler) emits no dynamic code and reads properties through `PropertyInfo`, so keep the members your expressions read from being trimmed; `Compile<T>()` builds an expression tree and needs dynamic code (on AOT, `LambdaExpression.Compile` falls back to the interpreter).
+
+### Grammar
+
+Precedence from loosest to tightest; keywords (`and`, `or`, `not`, `in`, `true`, `false`, `null`) are case-insensitive, identifiers and member names are matched ordinally first and case-insensitively when unambiguous.
+
+| Construct | Syntax | Notes |
+|-----------|--------|-------|
+| Or | `a \|\| b`, `a or b` | Short-circuits; operands must be booleans |
+| And | `a && b`, `a and b` | Short-circuits; operands must be booleans |
+| Not | `!a`, `not a` | Operand must be a boolean |
+| Comparison | `==` `!=` `~=` `<` `<=` `>` `>=` | `~=` is case-insensitive equality |
+| Membership | `x in [a, b, c]`, `x in path` | List items may be any expression; `in` uses `==` equality |
+| Additive | `a + b`, `a - b` | `+` also concatenates two strings |
+| Multiplicative | `a * b`, `a / b`, `a % b` | |
+| Unary minus | `-a` | |
+| Member access | `customer.Address.City`, `items.Count`, `name.Length` | Null-safe: any null segment yields null |
+| Functions | `name.startsWith('A')`, `endsWith(...)`, `contains(...)`; `/ci` suffix: `name.startsWith/ci('a')` | `contains` works on strings and collections |
+| Literals | `12000`, `12.5`, `'VIP'`, `"VIP"`, `true`, `false`, `null` | Numbers are invariant-culture decimals (no exponent); strings accept `\'` `\"` `\\` `\n` `\r` `\t` |
+| Identifiers | `amount`, `Data`, `@maxOrderAmount` | Context key, typed data, rule parameter |
+| Grouping | `( ... )` | |
+
+The root must evaluate to a boolean; anything else throws `RuleExpressionEvaluationException`.
+
+### Coercion Rules
+
+| Operands | Behaviour |
+|----------|-----------|
+| Number and number (any CLR numeric type, literals included) | Promoted to `decimal`; to `double` only when either side is `float` or `double`. Decimal division by zero and overflow throw `RuleExpressionEvaluationException`; `double` follows IEEE (`Infinity`, `NaN`) |
+| Enum and string literal | Equal when the literal is the member name, ignoring case (`tier == 'gold'`); ordering an enum against a string throws |
+| Enum and number | Compared and ordered by the underlying value (`tier > 1`) |
+| Enum and enum | Same type: by value; different enum types are never equal and cannot be ordered |
+| String and string | Ordinal for `==`, `!=` and ordering; `~=` and the `/ci` functions are ordinal-ignore-case |
+| Null | `null == null` is true and `null != x` is true; every ordering comparison with a null side is false; arithmetic with null yields null; a function with a null target or argument is false; `x in null` is false |
+| `in` | Each item compared with the `==` rules above (`2.0 in [1, 2]` is true, `tier in ['vip', 'gold']` matches by name) |
+| `Count` / `Length` | A real property of that name wins; otherwise `Length` and `Count` on `string` and `Count` on `ICollection` |
+| Other values | Same-type `IComparable` values (`DateTime`, `Guid`, ...) order through `CompareTo`; equality across unrelated types is false (not an error); ordering or arithmetic across unrelated types throws `RuleExpressionEvaluationException` |
+
+### Expression Examples
+
+```csharp
+using Masterly.BusinessRules.Expressions;
+
+// Parse once, reuse everywhere
+RuleExpression expression = RuleExpression.Parse("amount > @maxOrderAmount && customer.Tier != 'VIP'", RuleExpressionOptions.Default);
+
+BusinessRuleContext context = new BusinessRuleContext();
+context.Set("amount", 12_000m);
+context.Set("customer", customer);                   // customer.Tier == CustomerTier.Gold
+context.Set("maxOrderAmount", 10_000m);              // @name falls back to the context bag
+
+// Bound-value explanation, with PII redaction
+RuleExpressionExplanation why = expression.Explain(context, redact: (name, value) => name == "customer.Ssn" ? "***" : value?.ToString());
+// why.Rendered => "(amount(12000) > @maxOrderAmount(10000) [true]) && (customer.Tier(Gold) != 'VIP' [true]) => true"
+// why.Steps    => amount = 12000, @maxOrderAmount = 10000, amount > @maxOrderAmount => True, customer.Tier = Gold, ...
+
+// As rules
+ExpressionBusinessRule rule = expression.ToRule("ORDER.TOO_LARGE", "Order exceeds the customer's limit", parameters: provider);
+ExpressionAsyncBusinessRule asyncRule = expression.ToAsyncRule("ORDER.TOO_LARGE", "Order exceeds the customer's limit", asyncParameters: tenantSettings);
+rule.Check(context);
+await asyncRule.CheckAsync(context, cancellationToken: ct);
+
+// On the builders: parameters declared on the builder feed @name, and Build() returns an ExpressionBusinessRule
+IBusinessRule built = BusinessRuleBuilder.Create("ORDER.TOO_LARGE")
+    .WithMessage("Order exceeds the customer's limit")
+    .WithCategory("Orders")
+    .WithParameter("maxOrderAmount", 10_000m)
+    .WhenExpression("amount > @maxOrderAmount")
+    .Build();
+RuleExpressionExplanation builtWhy = ((ExpressionBusinessRule)built).ExplainExpression(context);   // @maxOrderAmount(10000)
+
+// Through the core seam (for example rules loaded from configuration)
+RuleExpressionConditionCompiler compiler = new RuleExpressionConditionCompiler(RuleExpressionOptions.Default, provider);
+IBusinessRule fromConfig = BusinessRuleBuilder.Create(row.Code).WithMessage(row.Message).When(compiler, row.Condition).Build();
+
+// Parse errors carry a position
+RuleExpressionParseException error = Assert.Throws<RuleExpressionParseException>(() => RuleExpression.Parse("amount >"));
+// error.Line == 1, error.Column == 9
+
+// Unbound identifiers name what was available
+// RuleExpressionBindingException: 'amuont' could not be bound; available: amount, customer, maxOrderAmount.
+
+// Typed fast path: typos fail at compile time
+Func<BusinessRuleContext<Order>, bool> isEmpty = RuleExpression.Parse("Data.Items.Count == 0").Compile<Order>();
+bool empty = isEmpty(new BusinessRuleContext<Order>(order));
+
+// Restrict what analysts can read
+RuleExpressionOptions locked = RuleExpressionOptions.Default
+    .WithMaxLength(500)
+    .WithRequireRuleAccessibleAttribute(true);       // only [RuleAccessible] properties
+
+public sealed class Customer
+{
+    [RuleAccessible] public CustomerTier Tier { get; set; }
+    public string Ssn { get; set; }                   // not readable from an expression
+}
+```
+
+---
+
+## Dependency Injection
+
+`Masterly.BusinessRules.DependencyInjection` wires the engine into `Microsoft.Extensions.DependencyInjection` (it depends on `Microsoft.Extensions.DependencyInjection.Abstractions` only). Subject-typed rules are stateless, so they can be discovered by assembly scanning and injected as a set; the scoped `RuleRegistry` from the [Rule Scopes](#rule-scopes-and-externalized-parameters) design lives here too.
+
+```bash
+dotnet add package Masterly.BusinessRules.DependencyInjection
+```
+
+**Scanning.** `services.AddBusinessRules(assembly, ...)` registers every concrete, closed class that implements `IBusinessRule<T>` or `IAsyncBusinessRule<T>` under each closed rule interface it implements, and every class implementing the plain `IBusinessRule` / `IAsyncBusinessRule` under that interface (`IncludeUntypedRules`, default true; a plain rule that captures its subject through the constructor cannot be created by the container, so exclude it with `TypeFilter` or turn untyped scanning off). Abstract classes and open generics are skipped, non-public types are opt-in (`IncludeNonPublicTypes`), types are visited in ordinal order of their full name so the registration order is deterministic, and registrations use `TryAddEnumerable`, so scanning the same assembly twice registers each rule once. The default lifetime is `Scoped` (it works with dependencies of any lifetime); set `Lifetime = ServiceLifetime.Singleton` when every dependency is a singleton. `IRuleRunner<>` is registered as an open generic with the same lifetime and `IRuleRegistry` as a singleton, both with `TryAdd`, so your own registration made earlier wins.
+
+**`IRuleRunner<TSubject>`** resolves every `IBusinessRule<T>` and `IAsyncBusinessRule<T>` registered for the subject type (`Rules`, `AsyncRules`, in registration order) and runs them through the typed checker overloads, so the ledger, fault policy, `ThrowOn` threshold and observers behave exactly as for a direct `BusinessRuleChecker` call. `CheckAllAsync` / `EvaluateAllAsync` evaluate **both** lists: the sync rules adapted with `.For(subject).ToAsync()` first, then the async rules bound with `.For(subject)`. The sync `CheckAll` / `EvaluateAll` evaluate the sync rules only and throw `InvalidOperationException` (naming the codes) when async rules are registered for the subject, because a synchronous batch cannot run them without blocking; `HasAsyncRules` tells you in advance. `RuleRunner<T>` has a public constructor taking the two collections for tests and non-container code.
+
+**`IRuleRegistry`.** Register rule *factories* under a set name, once for everybody (`RuleScope.Global`) and again for the scopes that need an override: `RuleRegistry.Create().AddSet(name, scope, set => ...)` or, in the container, `services.AddBusinessRules(o => o.AddRuleSet(name, scope, set => ...))` (the `(serviceProvider, set) => ...` overload runs when the registry is first resolved and can capture resolved services). Inside a layer, `set.Add(ctx => new Rule(ctx.Get(OrderKeys.Order)))` / `set.Add(rule)` add sync rules, `set.AddAsyncRule(...)` async rules (the two lists are independent: `Resolve`/`CheckAll` see the sync list, `ResolveAsyncRules`/`CheckAllAsync` the async list; add a sync rule to the async list with `.ToAsync()`), `set.Disable(code)` removes every rule with that code from the layers resolved before this one, and `set.Replace(code, factory)` / `set.ReplaceAsyncRule(code, factory)` are `Disable` plus `Add`. `Build()` freezes the registry; the builder and every `RuleSetBuilder` reject mutation afterwards, so there are no mutation races. Resolution for a request scope (an explicit argument, never ambient state; `null` means `Global`) merges the layers whose scope `AppliesTo` the request from the **least to the most specific**, equally specific layers in **declaration order**; each layer first applies its disables to the rules merged so far and then appends its own rules, so a later or more specific layer always wins and a disable never reaches a layer resolved after it. Factories receive the context (a fresh one when you pass `null`); when the context has no `RuleParameters.ScopeKey` entry the requested scope is stored under it first, so parameterized rules in the set resolve their values for the same scope. Nothing is cached (merging a handful of layers is cheap and a cache keyed by high-cardinality scopes is unbounded), an unknown set throws `RuleSetNotFoundException` (a `KeyNotFoundException` naming the set and listing `AvailableSets`), and a factory returning `null` throws `InvalidOperationException` naming the position, set and scope. `CheckAll` / `EvaluateAll` / `CheckAllAsync` / `EvaluateAllAsync` resolve and run the set in one call, with optional `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions`.
+
+### Dependency Injection Examples
+
+```csharp
+// 1. Scan an assembly: typed rules, untyped rules, IRuleRunner<T> and IRuleRegistry
+services.AddBusinessRules(typeof(OrderMustHaveItemsRule).Assembly);
+
+// or configure the scan
+services.AddBusinessRules(o => o
+    .AddAssemblyContaining<OrderMustHaveItemsRule>()
+    .AddAssembly(typeof(PaymentRules).Assembly));          // Lifetime, IncludeNonPublicTypes, IncludeUntypedRules, TypeFilter are properties
+
+// 2. Inject the runner; the handler never enumerates rules itself
+public sealed class PlaceOrderHandler
+{
+    private readonly IRuleRunner<Order> _rules;
+
+    public PlaceOrderHandler(IRuleRunner<Order> rules) => _rules = rules;
+
+    public Task Handle(Order order, CancellationToken ct) => _rules.CheckAllAsync(order, ct);   // sync rules adapted, then async rules
+}
+
+RuleEvaluationResult result = runner.EvaluateAll(order, context);                                // sync rules only; throws if async rules exist
+await runner.CheckAllAsync(order, context, new AsyncRuleEvaluationOptions { ThrowOn = RuleSeverity.Error }, ct);
+
+// 3. A scoped registry: checkout rules for everybody, overridden for ACME
+services.AddBusinessRules(o => o
+    .AddRuleSet("checkout", set => set
+        .Add(ctx => new CartMustHaveItemsRule(ctx.Get(OrderKeys.Order)))
+        .Add(ctx => new OrderLimitRule(ctx.Get(OrderKeys.Order), parameters))
+        .AddAsyncRule(ctx => new SanctionsCheckRule(ctx.Get(OrderKeys.Order), sanctionsApi)))
+    .AddRuleSet("checkout", RuleScope.Tenant("acme"), (sp, set) => set
+        .Disable("CART.EMPTY")                                                                  // removed from the global layer for ACME
+        .Add(ctx => new AcmePurchaseOrderRequiredRule(ctx.Get(OrderKeys.Order), sp.GetRequiredService<IPurchaseOrderLookup>())))
+    .AddRuleSet("checkout", RuleScope.Tenant("acme").With("region", "EU"), set => set
+        .Replace("ORDER.LIMIT", ctx => new EuOrderLimitRule(ctx.Get(OrderKeys.Order)))));         // Disable + Add
+
+public sealed class CheckoutService
+{
+    private readonly IRuleRegistry _registry;
+
+    public CheckoutService(IRuleRegistry registry) => _registry = registry;
+
+    public Task Checkout(Order order, string tenant, string region, CancellationToken ct)
+    {
+        BusinessRuleContext context = RuleTestHelper.CreateContext((OrderKeys.Order, order));
+        RuleScope scope = RuleScope.Tenant(tenant).With("region", region);
+
+        _registry.CheckAll("checkout", scope, context);                                         // CART.EMPTY gone, ORDER.LIMIT swapped, ACME.PO added
+        return _registry.CheckAllAsync("checkout", scope, context, ct);                         // SANCTIONS.HIT
+    }
+}
+
+// The same registry without a container
+RuleRegistry registry = RuleRegistry.Create()
+    .AddSet("checkout", set => set.Add(ctx => new CartMustHaveItemsRule(ctx.Get(OrderKeys.Order))))
+    .AddSet("checkout", RuleScope.Tenant("acme"), set => set.Disable("CART.EMPTY"))
+    .Build();                                                                                     // frozen: AddSet/Build now throw
+
+IReadOnlyList<IBusinessRule> acmeRules = registry.Resolve("checkout", RuleScope.Tenant("acme"), context);   // empty for ACME
+IReadOnlyList<IBusinessRule> globexRules = registry.Resolve("checkout", RuleScope.Tenant("globex"), context); // CART.EMPTY
+registry.Resolve("checkuot");   // RuleSetNotFoundException: Rule registry has no set 'checkuot'. Available sets: checkout
+```
+
+Merge order, for a request `tenant=acme;region=EU` against layers declared as `Global`, `region=EU`, `tenant=acme`, `tenant=acme;region=EU`:
+
+| Step | Layer | Specificity | Why this position |
+|------|-------|-------------|-------------------|
+| 1 | `Global` | 0 | least specific; applies to every request |
+| 2 | `region=EU` | 1 | declared before the equally specific tenant layer |
+| 3 | `tenant=acme` | 1 | declared after the region layer; its `Disable` can remove a rule the region layer added, not the reverse |
+| 4 | `tenant=acme;region=EU` | 2 | most specific; a `Disable` here reaches every earlier layer |
+
+---
+
 ## Rule Adapters
 
 Rule adapters convert between sync and async rule interfaces. This is useful when you need to:
@@ -1121,10 +1439,10 @@ Rule adapters convert between sync and async rule interfaces. This is useful whe
 - `AsyncToSyncRuleAdapter`: Wraps an async rule to implement `IBusinessRule` (**Warning: Blocks!**)
 
 **Extension Methods:**
-- `.ToAsync()`: Convert sync to async
-- `.ToSyncRule()`: Convert async to sync (blocking)
+- `.ToAsync()`: Convert sync to async (returns a `SyncToAsyncRuleAdapter`)
+- There is deliberately no extension for the blocking direction: construct `AsyncToSyncRuleAdapter` explicitly (optionally with the `BusinessRuleContext` to use when the sync caller passes none)
 
-> **Warning:** `ToSyncRule()` and `AsyncToSyncRuleAdapter` block the calling thread using `.GetAwaiter().GetResult()`. Avoid using in UI threads or ASP.NET request threads to prevent deadlocks.
+> **Warning:** `AsyncToSyncRuleAdapter` blocks the calling thread using `.GetAwaiter().GetResult()`. Avoid using it on UI threads or ASP.NET request threads to prevent deadlocks.
 
 ### Adapter Examples
 
@@ -1140,10 +1458,7 @@ await convertedAsyncRule.CheckAsync(context);
 
 // Async to Sync (WARNING: Blocks!)
 IAsyncBusinessRule originalAsyncRule = new EmailMustBeUniqueRule(repo, email);
-IBusinessRule convertedSyncRule = originalAsyncRule.ToSyncRule();
-
-// Or using adapter directly
-AsyncToSyncRuleAdapter asyncToSyncAdapter = new AsyncToSyncRuleAdapter(originalAsyncRule);
+IBusinessRule convertedSyncRule = new AsyncToSyncRuleAdapter(originalAsyncRule);
 
 convertedSyncRule.Check(); // Blocks until async operation completes
 ```
@@ -1231,6 +1546,77 @@ await AsyncBusinessRuleChecker.CheckAllAsync(
 
 ---
 
+## Diagnostics: Logging, Tracing and Metrics
+
+The `Masterly.BusinessRules.Diagnostics` package plugs ready-made observers into the seams above so rule evaluation shows up in your logs, your traces and your metrics without a line of observer code. It depends only on `Microsoft.Extensions.Logging.Abstractions` and `System.Diagnostics.DiagnosticSource`; OpenTelemetry wiring is plain OTel (`AddSource` / `AddMeter`), no builder extension package is needed.
+
+```bash
+dotnet add package Masterly.BusinessRules.Diagnostics
+```
+
+**Logging.** `LoggingRuleExecutionObserver` / `LoggingAsyncRuleExecutionObserver` write one structured line per rule with the fields `RuleCode`, `RuleName`, `Category`, `Severity`, `Outcome` (`passed`, `broken`, `faulted`, `shadow`), `ElapsedMs` and, for a broken rule, `Message`. The messages are generated with `[LoggerMessage]`, so a disabled level costs one `IsEnabled` call and no allocation. The level is chosen by the rule's severity through `LoggingRuleObserverOptions.BrokenLevelBySeverity`; the defaults are conservative because an expected validation failure is not an application error: `Info` → `Debug`, `Warning` → `Information`, `Error` → `Warning`, a faulted rule → `Error` with the exception attached, batch start/completion → `Debug`, shadow violations → `Information`, and passed rules are not logged unless `LogPassedRules` is set. Map a severity to `LogLevel.None` to silence it. **The rule `Message` can carry domain data** (a customer id, an amount); set `IncludeMessage = false` to replace it with `[redacted]`. Event ids are on `RuleLogEvents` for filtering.
+
+**Tracing.** `TracingRuleExecutionObserver` / `TracingAsyncRuleExecutionObserver` start one `BusinessRules.Batch` span per checker batch and one `BusinessRule.Evaluate` child span per rule from the `ActivitySource` named `Masterly.BusinessRules` (`BusinessRulesActivitySource.Name`), with the attributes `business_rule.code`, `business_rule.name`, `business_rule.category`, `business_rule.severity` and `business_rule.outcome` (`BusinessRuleSpanAttributes`). The span's display name is the rule code, so a trace reads as a batch with per-rule children; a faulted rule gets an error status and an OpenTelemetry `exception` event; a shadow violation becomes a `business_rule.shadow_violation` event on the batch span. The observer callbacks are deliberately **not** `async` methods, so the rule span is `Activity.Current` while the rule body runs and anything a rule starts itself (a repository query, an HTTP call) becomes a child of its rule span, in sequential and in parallel batches alike. The observers hold no per-rule state, so one instance can serve concurrent batches and the same rule instance can appear twice in a batch.
+
+**Cardinality guard.** `TracingRuleObserverOptions.CodeTagSelector` decides which rules contribute a `code` tag; the default (`LeafCodeTagSelector`) unwraps decorators and adapters and returns `null` for composed rules (`A+B`, `A|B`, `!A`, groups, composites), so synthesised codes never become a tag or a metric series. `MessageAsEvent` (default false) adds the broken message as a `business_rule.broken` event; it is off because messages can carry domain data.
+
+**Metrics.** The same observers record three instruments on the `Meter` named `Masterly.BusinessRules` (`BusinessRulesMetrics.MeterName`): the counter `business_rules.evaluations` tagged `code` (when selected), `category`, `severity`, `outcome`; the histogram `business_rules.evaluation.duration` in milliseconds tagged `outcome` only; and the counter `business_rules.batches` tagged `outcome` (`faulted` when any rule threw, else `broken`, else `passed`). A shadow violation is counted as an extra `outcome=shadow` evaluation beside the gated rule's own `passed` one. Set `RecordMetrics = false` to disable, or `Metrics = new BusinessRulesMetrics(meter)` to record on a meter you own (an `IMeterFactory` meter, a test meter).
+
+**Single-rule path.** Batches are not the only path: a DDD aggregate calls `rule.Check()` directly. `rule.Traced()` wraps any rule in a `DiagnosticsBusinessRule` / `DiagnosticsAsyncBusinessRule` that records every `IsBroken` / `Check` (`IsBrokenAsync` / `EvaluateAsync` / `CheckAsync`) call as a span and a measurement, and `rule.Traced(logger)` adds the log line. The decorator forwards all seven metadata members, implements `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule`, rethrows the inner rule's own `BusinessRuleValidationException`, and leaves the sync `Evaluate()` factory untouched. Use the observer for batches and the decorator for single-rule calls; a traced rule inside a traced batch produces a nested span and a second measurement. Cancellation closes the span with `outcome=cancelled` and is neither counted nor logged.
+
+**Known limitation.** Under `FaultPolicy.Throw` (the default) the checkers let the fault propagate without raising `OnBatchCompleted`, so the batch span is never stopped (and, for the sync checker, stays `Activity.Current` on the calling thread); the rule span is still finished from `OnRuleFaulted`. Use `FaultPolicy.Record` or `FaultPolicy.TreatAsBroken` for complete traces.
+
+### Diagnostics Examples
+
+```csharp
+// OpenTelemetry wiring is plain OTel
+builder.Services.AddOpenTelemetry()
+    .WithTracing(t => t.AddSource(BusinessRulesActivitySource.Name))      // "Masterly.BusinessRules"
+    .WithMetrics(m => m.AddMeter(BusinessRulesMetrics.MeterName));         // "Masterly.BusinessRules"
+
+// Structured logging, one line per rule, level chosen by severity
+LoggingRuleExecutionObserver logging = new LoggingRuleExecutionObserver(logger, new LoggingRuleObserverOptions
+{
+    LogPassedRules = false,
+    BrokenLevelBySeverity = { [RuleSeverity.Info] = LogLevel.Debug, [RuleSeverity.Warning] = LogLevel.Information, [RuleSeverity.Error] = LogLevel.Warning }
+});
+BusinessRuleChecker.CheckAll(rules, context, new RuleEvaluationOptions { Observer = logging });
+// warn: Business rule ORDER.NO_ITEMS (OrderMustHaveItemsRule) is broken: Order must contain at least one item. [Category=checkout Severity=Error Outcome=broken ElapsedMs=0.031]
+
+// Spans and metrics for an async batch
+TracingAsyncRuleExecutionObserver tracing = new TracingAsyncRuleExecutionObserver(new TracingRuleObserverOptions
+{
+    MessageAsEvent = false,
+    CodeTagSelector = rule => rule is IComposedAsyncBusinessRule || rule is IComposedBusinessRule ? null : rule.Code
+});
+await AsyncBusinessRuleChecker.EvaluateAllAsync(context, rules, new AsyncRuleEvaluationOptions { Observer = tracing }, ct);
+// Jaeger: BusinessRules.Batch
+//           ├─ ORDER.NO_ITEMS        business_rule.outcome=broken
+//           ├─ CUSTOMER.ACTIVE       business_rule.outcome=passed
+//           └─ BusinessRule.Evaluate business_rule.outcome=passed   (a composed rule: no code tag)
+
+// A child activity started inside a rule is parented to the rule span
+public class StockAvailableRule(IInventory inventory) : BaseAsyncBusinessRule
+{
+    public override string Code => "ORDER.STOCK";
+    public override string Message => "Every item must be in stock.";
+
+    public override async Task<bool> IsBrokenAsync(BusinessRuleContext ctx, CancellationToken ct)
+        => !await inventory.IsAvailableAsync(ctx.Get<Order>("order"), ct);   // the HttpClient span lands under ORDER.STOCK
+}
+
+// Single-rule path: the dominant DDD call site
+IBusinessRule traced = new OrderMustHaveItemsRule(order).Traced();            // span + metrics
+IBusinessRule tracedAndLogged = new OrderMustHaveItemsRule(order).Traced(logger);
+traced.Check();
+
+// Record on a meter you own (IMeterFactory, tests)
+BusinessRulesMetrics metrics = new BusinessRulesMetrics(meterFactory.Create(BusinessRulesMetrics.MeterName));
+TracingRuleObserverOptions owned = new TracingRuleObserverOptions { Metrics = metrics };
+```
+
+---
+
 ## Evaluation Results
 
 Evaluation methods return detailed results without throwing exceptions. This is useful when you need to:
@@ -1310,7 +1696,7 @@ if (result.HasBrokenRules)
 
 ## Evaluation Ledger, Options and Fault Policy
 
-One options object per side (`RuleEvaluationOptions` for `BusinessRuleChecker`, `AsyncRuleEvaluationOptions` for `AsyncBusinessRuleChecker`) replaces the growing pile of boolean parameters. Every checker call, including the existing boolean overloads, now runs through a single core that records an **evaluation ledger**: one `RuleEvaluationEntry` per submitted rule with its `Order` (submission index), `Outcome` (`Passed`, `Broken`, `Faulted`, or `NotEvaluated` after a fail-fast stop), `Result`, `Fault` and `Duration`. The result exposes the ledger as `Entries`, plus `Faulted`, `HasFaults`, `TotalDuration` (batch wall clock) and `Slowest`. Timing uses `Stopwatch.GetTimestamp()` tick math, so no `Stopwatch` is allocated.
+One options object per side (`RuleEvaluationOptions` for `BusinessRuleChecker`, `AsyncRuleEvaluationOptions` for `AsyncBusinessRuleChecker`) replaces the growing pile of boolean parameters. Every checker call, including the boolean overloads, runs through a single core that records an **evaluation ledger**: one `RuleEvaluationEntry` per submitted rule with its `Order` (submission index), `Outcome` (`Passed`, `Broken`, `Faulted`, or `NotEvaluated` after a fail-fast stop), `Result`, `Fault` and `Duration`. The result exposes the ledger as `Entries`, plus `Faulted`, `HasFaults`, `TotalDuration` (batch wall clock) and `Slowest`. Timing uses `Stopwatch.GetTimestamp()` tick math, so no `Stopwatch` is allocated.
 
 **Options:**
 
@@ -1382,12 +1768,12 @@ asyncResult.ThrowIfAtLeast(RuleSeverity.Error);
 
 ## Rich Results
 
-"Transaction amount exceeds limit" is useless to the user who needs to know it was 5,200 against a 5,000 limit. Every `BusinessRuleResult` now carries the rule's **`Name`, `Category` and `Tags`** (populated at every construction site: base classes, builders, decorators, adapters, composites, groups and the checkers), so an exception or a ledger can be filtered by category or tag and mapped to an RFC 7807 Problem Details payload without looking the rule up again. A rule can additionally attach rich violation details through a **`Describe(context)`** hook: a formatted `Detail` sentence, the `Actual` value that broke it, the `Expected` value or range, a `Remediation` hint and a free-form `Data` bag.
+"Transaction amount exceeds limit" is useless to the user who needs to know it was 5,200 against a 5,000 limit. Every `BusinessRuleResult` carries the rule's **`Name`, `Category` and `Tags`** (populated at every construction site: base classes, builders, decorators, adapters, composites, groups and the checkers), so an exception or a ledger can be filtered by category or tag and mapped to an RFC 7807 Problem Details payload without looking the rule up again. A rule can additionally attach rich violation details through a **`Describe(context)`** hook: a formatted `Detail` sentence, the `Actual` value that broke it, the `Expected` value or range, a `Remediation` hint and a free-form `Data` bag.
 
 **How it works:**
 - `RuleResultDetails` is an immutable fluent bag: start with `RuleResultDetails.Detail($"...")` or `RuleResultDetails.Empty`, then chain `.Actual(...)`, `.Expected(...)`, `.Remediation(...)`, `.With(key, value)`
 - `BaseBusinessRule` and `BaseAsyncBusinessRule` expose `protected virtual RuleResultDetails Describe(BusinessRuleContext? context)`. It runs **only on the broken path** (never from `IsBroken`, never for a passing rule) and is guarded: an exception inside `Describe` degrades the details to `RuleResultDetails.Empty` so it can never mask the violation it describes. Cancellation propagates
-- `IBusinessRule` gains `Evaluate(BusinessRuleContext context)` (a default interface member falling back to `Evaluate()`), implemented explicitly on every in-library node, decorator, adapter and composite. `Check(context)`, `CompositeBusinessRule.EvaluateAll(context)` and the checkers route broken leaves through it, so `Describe` sees the same context the rule was evaluated with. Both `Evaluate` overloads stay pure factories: they build the result without re-evaluating the rule
+- `IBusinessRule` has `Evaluate(BusinessRuleContext context)` (a default interface member falling back to `Evaluate()`), implemented explicitly on every in-library node, decorator, adapter and composite. `Check(context)`, `CompositeBusinessRule.EvaluateAll(context)` and the checkers route broken leaves through it, so `Describe` sees the same context the rule was evaluated with. Both `Evaluate` overloads stay pure factories: they build the result without re-evaluating the rule
 - `Detail` is written as an interpolated string (`FormattableString`) and formatted when the result is built with `BusinessRuleContext.FormatProvider` when set, otherwise the invariant culture. `Actual`/`Expected` stay `object?` and are serialised by their runtime type. `Message` remains a finished string: no templating
 - Decorators keep the inner rule's details: `Cached`/`Conditional` forward `Evaluate(context)` to the inner rule, `WithSeverity()` copies the inner result with the new severity (`BusinessRuleResult.WithSeverity`), and composed results carry the member results in `Details`
 - Filters: `BusinessRuleValidationException`, `RuleEvaluationResult` and `AsyncRuleEvaluationResult` expose `ByTag(tag)` (case-insensitive) and `ByCategory(category)` (ordinal); `BusinessRuleResult.HasTag(tag)` is the per-result predicate
@@ -1566,6 +1952,118 @@ BusinessRuleContext typedContext = RuleTestHelper.CreateContext(
 
 ---
 
+## Testing Package: Coverage, Boundaries and Properties
+
+`Masterly.BusinessRules.Testing` answers three questions `RuleTestHelper` cannot: which rules has the suite never seen both pass **and** fail, at exactly which value does a rule flip, and does a rule family obey its laws for every input, not just the three you thought of. It targets `net8.0` (CsCheck ships no .NET Standard build) and references the core plus `CsCheck`.
+
+```bash
+dotnet add package Masterly.BusinessRules.Testing
+```
+
+Everything lives in the `Masterly.BusinessRules.Testing` namespace.
+
+**Outcome coverage.** `RuleCoverage.Begin()` starts a `RuleCoverageSession`. `.WithCoverage(session)` wraps an `IBusinessRule` in `CoverageBusinessRule`, or an `IAsyncBusinessRule` in `CoverageAsyncBusinessRule`. The decorators forward all seven metadata members and the verdict unchanged, and record one outcome per evaluation under the rule's `Code`:
+
+- Sync rules record from both `IsBroken` overloads and both `Check` overloads. The `Evaluate()` factories don't evaluate anything, so they record nothing.
+- Async rules record from `IsBrokenAsync`, `EvaluateAsync` and `CheckAsync`.
+- A rule that throws or is cancelled records nothing.
+
+Wrapping a rule registers its code, so a rule the suite never reached still shows up in the report. Wrap the operands **before** composing them: an `And`/`Or` node short-circuits, and only wrapped operands make the skipped operand visible. The decorator records outcomes itself rather than through observers, so the boolean `EvaluateAll` overloads are covered too. Both decorators implement the core `IExplainableDecoratedBusinessRule` / `IExplainableDecoratedAsyncBusinessRule` seam: inside `And`/`Or`/`Not` or a group they record through the same single evaluation, and `Explain` / `ExplainAsync` show a `COVERAGE` node with the wrapped rule's own explanation tree beneath it (one recorded outcome per explain call). This is outcome coverage per rule code; it makes no MC/DC claims.
+
+`session.Report()` takes an immutable `RuleCoverageReport` snapshot:
+
+- `Entries`: one `RuleCoverageEntry` per code, sorted ordinally, with `BrokenCount`, `PassedCount` and `IsFullyCovered`.
+- `OutcomeCoverage`: observed outcomes divided by `2 × rules`. An empty report has `0.0`.
+- `NeverBroken`, `NeverPassed` and `NeverEvaluated`: the codes missing each outcome.
+- `ToText()`: a printable table.
+- `AssertMinimum(outcomeCoverage)`: throws `RuleAssertionException` naming the uncovered rules.
+
+Recording is thread-safe. Disposing the session stops recording; the report stays readable.
+
+**Boundary finder.** `RuleBoundaryFinder.Find<T>(factory, from, to, step)` bisects the grid `from, from + step, …, to` over a factory-built rule. `FindAsync<T>(..., cancellationToken)` is the async twin. Both return a `RuleBoundary<T>`:
+
+- `LastPassing` and `FirstBroken`: adjacent grid points, one `Step` apart.
+- `Monotonicity`: whether the rule breaks above or below the boundary.
+- `ProbeCount`: how many rules were built.
+
+The finder takes a factory rather than a context key because rules usually receive their data through the constructor. `step` is mandatory because it sets the resolution of the answer. `T` is any `INumber<T>` (`decimal`, `int`, `double`, …). The sync finder evaluates `IsBroken()`. The async finder evaluates `IsBrokenAsync` with one empty context and checks the token before every probe.
+
+After bisection, the finder probes `MonotonicitySampleCount` (32) evenly spread grid points. It throws `RuleAssertionException` naming the contradicting pair when a sample disagrees with the located boundary, and when the rule has the same verdict at both ends of the range.
+
+**Rule properties.** `RuleProperties.For<T>(factory, generator)` takes a CsCheck `Gen<T>`. It returns `RuleProperties<T>`, or `AsyncRuleProperties<T>` for an async factory. Add laws fluently, then call `Verify(iterations, seed)` or `VerifyAsync(iterations, seed, cancellationToken)`:
+
+- `MonotoneIn(Monotonicity.BrokenAbove | BrokenBelow, comparer?)`: for any two generated inputs `a ≤ b`, broken at `a` implies broken at `b` (`BrokenAbove`), or broken at `b` implies broken at `a` (`BrokenBelow`). Inputs that aren't comparable need an `IComparer<T>`.
+- `ContextPure()` / `ContextPure(contextFactory)`: evaluating the rule doesn't add, remove or replace a key in the context. Writes are detected through `BusinessRuleContext.Keys` and the stored values. Mutation inside an object already stored in the context can't be detected.
+
+Sampling uses CsCheck's generators and its size-based shrinking. It runs single-threaded from one seed, so `Verify(seed: 42)` replays the same inputs and finds the same counter-example every time. Without a seed, one is drawn and printed in the failure message.
+
+How each outcome surfaces:
+
+- A violated law throws `RuleAssertionException` with the shrunk counter-example, the seed, the shrink count and the law's own message. A rule that throws counts as a violation too.
+- A factory that returns null, or a generator that can't produce a value, throws `InvalidOperationException`.
+- Cancellation throws `OperationCanceledException`.
+
+Neither of the last two is reported as a failed law. There are no deterministic or idempotent laws, because they don't hold for repository-backed async rules or for `CachedBusinessRule`.
+
+> **CsCheck caveat:** in CsCheck 4.9.1, `Gen.Decimal[start, finish]` can't generate values when a bound is exactly `0m`; it fails with "Failing Where max count". `Verify` reports this as an `InvalidOperationException`. Use a bound such as `0.01m`, or build amounts from an integer generator: `Gen.Long[0L, 10_000_000L].Select(cents => cents / 100m)`.
+
+**Smoke-mode mutants.** `.Invert()`, `.AlwaysPass()` and `.DowngradeSeverity()` (sync and async) wrap a rule so it misbehaves in a known way while keeping its `Code`, `Message` and other metadata:
+
+- `InvertedBusinessRule` is broken exactly when the original passes.
+- `AlwaysPassingBusinessRule` never breaks and never evaluates the original.
+- `DowngradeSeverity` steps the severity down one level: `Error` → `Warning` → `Info`.
+
+The inverted and always-passing mutants implement the same explain seam as the coverage decorators, so an explain tree shows an `INVERTED` node over the evaluated original, or an `ALWAYS PASSING` node whose original is `NotEvaluated`; `DowngradeSeverity` is the core `WithSeverity` decorator (a `SEVERITY` node).
+
+If your suite still passes against a mutant, it hasn't pinned the rule down. This is a smoke test, not mutation testing: real rule bugs live inside `IsBroken`, and only a source-level mutator such as [Stryker.NET](https://stryker-mutator.io/docs/stryker-net/introduction/) reaches them.
+
+### Testing Package Examples
+
+```csharp
+using CsCheck;
+using Masterly.BusinessRules;
+using Masterly.BusinessRules.Testing;
+
+// Outcome coverage
+using RuleCoverageSession coverage = RuleCoverage.Begin();
+IBusinessRule adult = new CustomerIsAdultRule(customer).WithCoverage(coverage);
+IBusinessRule active = new CustomerIsActiveRule(customer).WithCoverage(coverage);
+
+BusinessRuleChecker.EvaluateAll(adult.And(active));
+
+RuleCoverageReport report = coverage.Report();
+Console.WriteLine(report.ToText());
+// CUSTOMER.ADULT     broken ✔  passed ✔
+// CUSTOMER.INACTIVE  broken ✔  passed ✘   <- never exercised on the happy path
+// outcome coverage 75% (3 of 4 outcomes, 1 of 2 rules fully covered)
+report.AssertMinimum(outcomeCoverage: 1.0);   // RuleAssertionException naming CUSTOMER.INACTIVE
+
+// Boundary finder
+RuleBoundary<decimal> boundary = RuleBoundaryFinder.Find<decimal>(
+    amount => new TransactionLimitRule(amount), from: 0m, to: 1_000_000m, step: 0.01m);
+// boundary.LastPassing == 10000.00m, boundary.FirstBroken == 10000.01m
+// boundary.ToString() == "passes up to 10000.00, breaks from 10000.01 (… probes)"
+
+RuleBoundary<decimal> asyncBoundary = await RuleBoundaryFinder.FindAsync<decimal>(
+    amount => new AsyncLimitRule(amount), 0m, 1_000_000m, 0.01m, cancellationToken);
+
+// Rule properties
+RuleProperties.For<decimal>(amount => new TransactionLimitRule(amount), Gen.Decimal[0.01m, 100_000m])
+    .MonotoneIn(Monotonicity.BrokenAbove)
+    .ContextPure()
+    .Verify(iterations: 500, seed: 42);
+
+await RuleProperties.For<int>(age => new AsyncMinimumAgeRule(age), Gen.Int[0, 120])
+    .MonotoneIn(Monotonicity.BrokenBelow)
+    .VerifyAsync(iterations: 500, seed: 42, cancellationToken: cancellationToken);
+
+// Smoke-mode mutant: the suite must notice that the rule now fires on the happy path
+IBusinessRule mutant = new CustomerIsAdultRule(adultCustomer).Invert();
+Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.CheckAll(new[] { mutant }));
+```
+
+---
+
 ## Real-World Examples
 
 ### E-Commerce Checkout
@@ -1659,6 +2157,43 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 }
 ```
 
+### Multi-Tenant Order Approval with an Audit Trail
+
+```csharp
+// One stateless rule instance per type; the subject arrives at evaluation time
+public sealed class OrderMustHaveItemsRule : BaseBusinessRule<Order>
+{
+    public override string Code => "ORDER.NO_ITEMS";
+    public override string Message => "Order must contain at least one item.";
+    public override bool IsBroken(Order order) => order.Items.Count == 0;
+}
+
+// The tenant limit is a scoped parameter, not a constant
+IBusinessRule<Order> withinLimit = BusinessRuleBuilder<Order>.Create("ORDER.TOO_LARGE")
+    .WithMessage("Order exceeds the tenant limit.")
+    .WithParameters(tenantLimits)                                    // an IRuleParameterProvider
+    .WithParameter<decimal>("maxOrderAmount", fallback: 10_000m)
+    .WithActual((order, ctx) => order.Total)
+    .When((order, ctx, p) => order.Total > p.Get<decimal>("maxOrderAmount"))
+    .Build();
+
+public IReadOnlyList<string> Approve(Order order, string tenantId)
+{
+    BusinessRuleContext context = new BusinessRuleContext();
+    context.Set(RuleParameters.ScopeKey, RuleScope.Tenant(tenantId));
+
+    IBusinessRule approval = RuleGroup.All("ORDER.REJECTED", "The order cannot be placed",
+        new OrderMustHaveItemsRule().For(order),
+        withinLimit.For(order));
+
+    // Explain is the evaluation: one walk yields the verdict and the audit trail
+    RuleExplanation why = approval.Explain(context);
+    _audit.Write(why.ToText());
+
+    return why.BrokenLeaves().Select(leaf => $"{leaf.Code}: {leaf.Message}").ToList();
+}
+```
+
 ---
 
 ## API Reference
@@ -1675,6 +2210,8 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `IBusinessRuleMetadata` | Base of all four rule interfaces: `Code`, `Message`, and defaulted `Severity`, `Name`, `Description`, `Category`, `Tags` |
 | `IComposedBusinessRule` / `IComposedAsyncBusinessRule` | A rule computed from operands: `Operator`, `Operands` (And/Or/Not nodes, groups, composites) |
 | `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` | A rule wrapping one other rule: `InnerRule` (cached, conditional, severity-override and feature-gated decorators) |
+| `IExplainableDecoratedBusinessRule` / `IExplainableDecoratedAsyncBusinessRule` | Public seam for decorators written outside the library: `ExplanationOperator`, `EvaluateDecorated(DecoratedRuleEvaluation)` / `EvaluateDecoratedAsync(AsyncDecoratedRuleEvaluation, ct)`; the walkers and `Explain` treat them as decorator nodes instead of leaves |
+| `IBuiltRuleFactory` / `IAsyncBuiltRuleFactory` | Builder seam: `Create(BuiltRuleDefinition)` decides the rule type `Build()` returns (set with `WithRuleFactory`) |
 | `IRuleExecutionObserver` | Sync execution callbacks plus batch hooks `OnBatchStarted`, `OnAfterEvaluate(rule, isBroken, elapsed)`, `OnRuleFaulted`, `OnBatchCompleted`, `OnShadowViolation` |
 | `IAsyncRuleExecutionObserver` | Async execution callbacks plus the async batch hooks and `OnShadowViolationAsync` |
 | `IRuleFeatureFlagProvider` / `IAsyncRuleFeatureFlagProvider` | Supply a flag's `RuleRollout` to gated rules: `GetRollout(flag, context)` / `GetRolloutAsync(flag, context, ct)` |
@@ -1687,8 +2224,10 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 |-------|-------------|
 | `BaseBusinessRule` | Abstract base for sync rules; virtual `Evaluate()`/`Evaluate(context)` and the `protected virtual Describe(context)` hook |
 | `BaseAsyncBusinessRule` | Abstract base for async rules; the `protected virtual Describe(context)` hook |
-| `BusinessRuleBuilder` | Fluent builder for sync rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation`; `When((ctx, p) => ...)` with parameters and `When(compiler, expression)` |
-| `AsyncBusinessRuleBuilder` | Fluent builder for async rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation`; `WhenAsync((ctx, p, ct) => ...)` with parameters, `WithParameters(asyncProvider)` and `WhenAsync(compiler, expression)` |
+| `BusinessRuleBuilder` | Fluent builder for sync rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation`; `When((ctx, p) => ...)` with parameters, `When(compiler, expression)` and `WithRuleFactory(IBuiltRuleFactory)` |
+| `AsyncBusinessRuleBuilder` | Fluent builder for async rules; `WithDetail`, `WithActual`, `WithExpected`, `WithRemediation`; `WhenAsync((ctx, p, ct) => ...)` with parameters, `WithParameters(asyncProvider)`, `WhenAsync(compiler, expression)` and `WithRuleFactory(IAsyncBuiltRuleFactory)` |
+| `BuiltRuleDefinition` | The builder snapshot handed to a rule factory: the seven metadata members, `HasDetails`, `ResolveParameters(context)`, `ResolveParametersAsync(context, ct)`, `CreateResult(rule, context)` |
+| `DecoratedRuleEvaluation` / `AsyncDecoratedRuleEvaluation` | One-shot evaluation of a custom decorator's inner rule: `InnerRule`, `Context`, `IsExplaining`, `IsInnerEvaluated`, `EvaluateInner()` / `EvaluateInnerAsync(ct)` (evaluates at most once) |
 | `BaseBusinessRule<TSubject>` / `BaseAsyncBusinessRule<TSubject>` | Abstract bases for subject-typed rules; `protected virtual Describe(subject, context)` hook |
 | `BusinessRuleBuilder<TSubject>` / `AsyncBusinessRuleBuilder<TSubject>` | Fluent builders for subject-typed rules; `When(subject[, context[, p]])` / `WhenAsync(subject[, context[, ct]])` and `WhenAsync((subject, ctx, p, ct) => ...)`, subject-aware `WithDetail`/`WithActual`/`WithExpected`/`WithRemediation` |
 | `BusinessRuleMetadataBuilder<TBuilder>` | Shared base of the four builders: `WithMessage`, `WithSeverity`, `WithName`, `WithDescription`, `WithCategory`, `WithTags`, the context-only detail methods, `WithParameters(provider)` and `WithParameter<T>(name, fallback)` |
@@ -1760,25 +2299,99 @@ public async Task<IActionResult> CreateOrder([FromBody] CreateOrderRequest reque
 | `queryable.WhereBroken(spec)` / `queryable.WhereSatisfies(spec)` | Append one `Where` with the specification's `BrokenExpression` / `SatisfiedExpression`; accept `ISpecificationRule<T>` only |
 | `.Explain(context?, captureExceptions?)` | Evaluate once and return the `RuleExplanation` tree (sync) |
 | `.ExplainAsync(context, [captureExceptions], ct)` | Evaluate once and return the `RuleExplanation` tree (async) |
-| `.ToAsync()` | Convert sync to async |
-| `.ToSyncRule()` | Convert async to sync (blocking) |
+| `.ToAsync()` | Convert sync to async (`SyncToAsyncRuleAdapter`); the blocking direction has no extension, construct `AsyncToSyncRuleAdapter` |
 | `.Cached(TimeSpan)` | Add per-instance caching |
 | `.Cached(TimeSpan, cacheKeySelector)` | Add per-key caching (one verdict per tenant, region, ...) |
-| `.WithCondition(Func)` | Add conditional execution |
+| `.When(condition)` | Add conditional execution: `Func<bool>` on `IBusinessRule`, `Func<BusinessRuleContext, bool>` on `IAsyncBusinessRule` |
 | `.WithSeverity(RuleSeverity)` | Wrap in a severity-override decorator (sync and async) |
 | `.GatedBy(flag, provider, stableKey?)` / `.GatedBy(flag, stableKey?)` | Wrap in a feature gate read from the provider on every evaluation (sync and async; the async form accepts a sync or an async provider, and the provider-less form resolves it from `RuleFeatureFlags.ContextKey`/`AsyncContextKey`) |
 | `.Check(throwOn)` / `.Check(context, throwOn)` | Check one sync rule, throwing only at or above the severity |
 | `.CheckAsync(context, throwOn, ct)` | Check one async rule, throwing only at or above the severity |
+
+### Masterly.BusinessRules.FeatureManagement
+
+| Type | Description |
+|------|-------------|
+| `FeatureManagementRuleFeatureFlagProvider` | `IRuleFeatureFlagProvider` + `IAsyncRuleFeatureFlagProvider` over `IVariantFeatureManager` (variants consulted) or `IFeatureManager` (enabled state only); `Options`, `SupportsVariants`; the sync side blocks on the async one |
+| `FeatureManagementRolloutOptions` | `EnabledRollout` (default `Enforced`), `OnUnrecognizedVariant` (default `Throw`), `TargetingContextSelector`, `VariantRollouts`, `MapVariant(name, rollout)` / `MapVariant(name, mode, percent)`, `TryGetVariantRollout` |
+| `UnrecognizedVariantBehavior` | `Throw`, `Off`, `UseEnabledState` |
+| `RolloutVariantConvention` | `TryParse(name)` / `Parse(name)` for variant names (`Shadow`, `Enforced-10`, `Off`), `TryRead(section)` for `Mode`/`Percent` configuration; `ModeKey`, `PercentKey`, `Separators`, `PercentSuffix` |
+| `RolloutVariantFormatException` | Derives from `FormatException`; `Flag`, `Variant`; thrown for an unmappable variant under `Throw` |
+| `services.AddBusinessRulesFeatureManagement(configure?, lifetime?)` | Registers the provider as itself and as both provider interfaces over the registered feature manager (`TryAdd`; default `Singleton`) |
+
+### Masterly.BusinessRules.DependencyInjection
+
+| Member | Description |
+|--------|-------------|
+| `services.AddBusinessRules(params Assembly[])` / `services.AddBusinessRules(Action<BusinessRuleOptions>)` | Scan assemblies for `IBusinessRule<T>` / `IAsyncBusinessRule<T>` (and plain `IBusinessRule` / `IAsyncBusinessRule`) types and register them (`TryAddEnumerable`), the open generic `IRuleRunner<>` and the `IRuleRegistry` singleton (`TryAdd`) |
+| `BusinessRuleOptions` | `Lifetime` (default `Scoped`), `IncludeNonPublicTypes`, `IncludeUntypedRules` (default true), `TypeFilter`, `AddAssembly` / `AddAssemblies` / `AddAssemblyContaining<T>`, `AddRuleSet(name[, scope], set => ...)` and `AddRuleSet(name[, scope], (serviceProvider, set) => ...)` |
+| `IRuleRunner<TSubject>` / `RuleRunner<TSubject>` | The registered typed rules of one subject type (`Rules`, `AsyncRules`, `HasAsyncRules`): `CheckAll` / `EvaluateAll` run the sync rules (throw `InvalidOperationException` when async rules exist); `CheckAllAsync` / `EvaluateAllAsync` run the sync rules adapted, then the async rules; options overloads on both sides |
+| `IRuleRegistry` / `RuleRegistry` | Named rule sets layered per `RuleScope`: `SetNames`, `Contains`, `Resolve(name, scope?, context?)`, `ResolveAsyncRules(...)`, `CheckAll` / `EvaluateAll` / `CheckAllAsync` / `EvaluateAllAsync` with options; least specific layer first, declaration order on ties; `RuleRegistry.Create()` starts a builder |
+| `RuleRegistryBuilder` | `AddSet(name[, scope], configure)`, `LayerCount`, `Build()`; frozen after `Build` |
+| `RuleSetBuilder` | One layer: `Add(factory)` / `Add(rule)`, `AddAsyncRule(factory)` / `AddAsyncRule(rule)`, `Disable(code)`, `Replace(code, factory)`, `ReplaceAsyncRule(code, factory)`, `Name`, `Scope`, `RuleCount`, `AsyncRuleCount`, `DisabledCodes`; frozen once its `AddSet` call returns |
+| `RuleSetNotFoundException` | Derives from `KeyNotFoundException`; `SetName`, `AvailableSets`; thrown for an unknown set name |
+
+### Diagnostics Package
+
+| Type | Description |
+|------|-------------|
+| `LoggingRuleExecutionObserver` / `LoggingAsyncRuleExecutionObserver` | `IRuleExecutionObserver` / `IAsyncRuleExecutionObserver` writing one structured `ILogger` line per rule (`RuleCode`, `RuleName`, `Category`, `Severity`, `Outcome`, `ElapsedMs`, `Message`) plus batch, fault and shadow lines; `Options` |
+| `LoggingRuleObserverOptions` | `LogPassedRules`, `PassedLevel`, `BrokenLevelBySeverity`, `DefaultBrokenLevel`, `BrokenLevelFor(severity)`, `FaultedLevel`, `LogBatches`, `BatchLevel`, `ShadowViolationLevel`, `IncludeMessage`, `RedactedMessage` |
+| `RuleLogEvents` | The `EventId`s: `RuleBroken` (1), `RulePassed` (2), `RuleFaulted` (3), `BatchStarted` (4), `BatchCompleted` (5), `ShadowViolation` (6) |
+| `TracingRuleExecutionObserver` / `TracingAsyncRuleExecutionObserver` | Observers producing a `BusinessRules.Batch` span with a `BusinessRule.Evaluate` child per rule and recording the metrics; callbacks complete synchronously so the rule span is `Activity.Current` inside the rule; `Options` |
+| `TracingRuleObserverOptions` | `MessageAsEvent` (default false), `CodeTagSelector` (default `LeafCodeTagSelector`: null for composed rules), `RecordMetrics` (default true), `Metrics` (default `BusinessRulesMetrics.Default`) |
+| `BusinessRulesActivitySource` | `Name` (`Masterly.BusinessRules`), `Source`, `RuleActivityName` (`BusinessRule.Evaluate`), `BatchActivityName` (`BusinessRules.Batch`) |
+| `BusinessRuleSpanAttributes` | Attribute and event names: `business_rule.code`/`.name`/`.category`/`.severity`/`.outcome`/`.message`, `business_rule.broken`, `business_rule.shadow_violation`, `exception` (+ `exception.type`, `exception.message`), `business_rules.batch.rule_count`/`.broken_count`/`.faulted_count`/`.outcome` |
+| `BusinessRulesMetrics` | `MeterName` (`Masterly.BusinessRules`), `Default`, `Meter`, the instruments `business_rules.evaluations` (`Counter<long>`; tags `code?`, `category`, `severity`, `outcome`), `business_rules.evaluation.duration` (`Histogram<double>`, ms; tag `outcome`), `business_rules.batches` (`Counter<long>`; tag `outcome`); `RecordEvaluation(rule, code, outcome, duration)`, `RecordBatch(outcome)`; constructor `(Meter)` for an owned meter |
+| `RuleOutcomeTags` / `RuleSeverityTags` | Tag values `passed`, `broken`, `faulted`, `shadow`, `cancelled` (`ForVerdict`, `ForBatch`) and `info`, `warning`, `error` (`From`) |
+| `DiagnosticsBusinessRule` / `DiagnosticsAsyncBusinessRule` | `IDecoratedBusinessRule` / `IDecoratedAsyncBusinessRule` recording every single-rule evaluation as a span, a measurement and (with a logger) a log line; `InnerRule`, `Options`, `IsLogging`; forwards all metadata, rethrows the inner `BusinessRuleValidationException` |
+| `.Traced(options?)` / `.Traced(logger, options?, loggingOptions?)` | Extensions wrapping an `IBusinessRule` / `IAsyncBusinessRule` in the diagnostics decorator |
+
+### Expressions Package
+
+| Type | Description |
+|------|-------------|
+| `RuleExpression` | `Parse(text[, options])`, `TryParse`, `Text`, `Options`, `Identifiers`, `ParameterNames`, `Depth`; `Evaluate(context, parameters?)`, `EvaluateAsync(context, asyncParameters?, parameters?, ct)`, `Explain(context, redact?, parameters?)`, `ExplainAsync(...)`, `ToRule(code, message, parameters?, severity?)`, `ToAsyncRule(...)`, `Compile<T>([parameters])`; constants `DataIdentifier` (`Data`) and `TypedDataKey` (`__typedData`) |
+| `RuleExpressionOptions` | Immutable: `Default`, `MaxLength` (4096), `MaxDepth` (64), `MemberFilter`, `RequireRuleAccessibleAttribute`, `Culture` (invariant) and the matching `With...` methods |
+| `RuleAccessibleAttribute` | `[RuleAccessible]` on a property or type: the only members readable when `RequireRuleAccessibleAttribute` is set |
+| `ExpressionBusinessRule` / `ExpressionAsyncBusinessRule` | `BaseBusinessRule` / `BaseAsyncBusinessRule` over a `RuleExpression`, created by `ToRule`/`ToAsyncRule`, the constructors or `WhenExpression(...).Build()` (then carrying the builder's name, description, category, tags, details and parameters): `Expression`, `Parameters` (async: `AsyncParameters`), `Description` = expression text unless configured, `ExplainExpression(context, redact?)` / `ExplainExpressionAsync(context, redact?, ct)`; the sync parameterless `IsBroken()` throws `InvalidOperationException` (`ContextRequiredMessage`) |
+| `RuleExpressionExplanation` | `Expression`, `Result`, `Steps`, `Rendered` (`ToString()`) |
+| `RuleExpressionStep` / `RuleExpressionStepKind` | `Kind` (`Binding`, `Operation`), `NodeText`, `BoundValue`, `Result` |
+| `RuleExpressionRedactor` | `delegate string? (string name, object? value)` deciding how a bound value is displayed |
+| `RuleExpressionParseException` | Malformed text, unknown typed member or exceeded limit; `Line`, `Column` (1-based) |
+| `RuleExpressionBindingException` | Unbound identifier, parameter or member; `Identifier`, `AvailableKeys` (sorted) |
+| `RuleExpressionEvaluationException` | Operator applied to unsupported operands, non-boolean root, decimal division by zero or overflow; `NodeText` |
+| `RuleExpressionConditionCompiler` | `IRuleConditionCompiler` + `IAsyncRuleConditionCompiler` (explicit; also `CompileAsyncCondition`); `Options`, `Parameters`, `AsyncParameters` |
+| `.WhenExpression(text[, options])` / `.WhenExpression(expression)` | Extensions on `BusinessRuleBuilder` and `AsyncBusinessRuleBuilder`; parse at builder time, builder-declared parameters feed `@name`, and `Build()` returns an `ExpressionBusinessRule` / `ExpressionAsyncBusinessRule` (through `WithRuleFactory`) |
+
+### Testing Package
+
+| Type | Description |
+|------|-------------|
+| `RuleCoverage` | `Begin()` starts a `RuleCoverageSession` |
+| `RuleCoverageSession` | `IDisposable`; `Register(rule)`, `Record(rule, isBroken)`, `Report()`, `Reset()`, `RuleCount`, `IsEnded`; thread-safe; disposing it stops recording |
+| `CoverageBusinessRule` / `CoverageAsyncBusinessRule` | `IExplainableDecoratedBusinessRule` / `IExplainableDecoratedAsyncBusinessRule` recording each verdict per `Code` (a `COVERAGE` node in explain trees); forward all seven metadata members; `InnerRule`, `Session`, `EvaluateDecorated` / `EvaluateDecoratedAsync` |
+| `.WithCoverage(session)` | Extensions on `IBusinessRule` / `IAsyncBusinessRule` returning the coverage decorator |
+| `RuleCoverageReport` | `Entries`, `RuleCount`, `FullyCoveredCount`, `CoveredOutcomes`, `TotalOutcomes`, `OutcomeCoverage`, `IsComplete`, `NeverBroken`, `NeverPassed`, `NeverEvaluated`, `Find(code)`, `AssertMinimum(outcomeCoverage)` (throws `RuleAssertionException`), `ToText()` |
+| `RuleCoverageEntry` | `Code`, `Name`, `BrokenCount`, `PassedCount`, `SeenBroken`, `SeenPassed`, `WasEvaluated`, `IsFullyCovered`, `CoveredOutcomes`; `OutcomesPerRule` (2) |
+| `RuleBoundaryFinder` | `Find<T>(factory, from, to, step)`, `FindAsync<T>(factory, from, to, step, ct)` for `T : INumber<T>`; `MonotonicitySampleCount` (32) |
+| `RuleBoundary<T>` | `LastPassing`, `FirstBroken`, `Monotonicity`, `ProbeCount`, `Step`; `ToString()` renders `passes up to …, breaks from …` |
+| `Monotonicity` | `BrokenAbove`, `BrokenBelow` |
+| `RuleProperties` | `For<T>(Func<T, IBusinessRule>, Gen<T>)` returns `RuleProperties<T>`; `For<T>(Func<T, IAsyncBusinessRule>, Gen<T>)` returns `AsyncRuleProperties<T>`; `DefaultIterations` (100) |
+| `RuleProperties<T>` / `AsyncRuleProperties<T>` | `MonotoneIn(monotonicity, comparer?)`, `ContextPure()`, `ContextPure(contextFactory)`, `LawCount`, `LawNames`, `Verify(iterations, seed?)` / `VerifyAsync(iterations, seed?, ct)` |
+| `InvertedBusinessRule` / `InvertedAsyncBusinessRule` | Smoke-mode mutant, broken exactly when the inner rule passes; keeps all metadata; an `INVERTED` explain node |
+| `AlwaysPassingBusinessRule` / `AlwaysPassingAsyncBusinessRule` | Smoke-mode mutant that never breaks and never evaluates the inner rule; an `ALWAYS PASSING` explain node over a `NotEvaluated` inner rule |
+| `.Invert()`, `.AlwaysPass()`, `.DowngradeSeverity()` | Extensions on `IBusinessRule` / `IAsyncBusinessRule`; `DowngradeSeverity` returns a severity-override decorator one level lower (`Info` is the floor) |
 
 ### Packages
 
 | Package | Contents |
 |---------|----------|
 | `Masterly.BusinessRules` | The core: every type listed above; no dependencies |
-| `Masterly.BusinessRules.Diagnostics` | `ILogger` observer and OpenTelemetry tracing/metrics observers and decorators |
-| `Masterly.BusinessRules.Expressions` | Rule expression parser, expression rules and bound-value explanations |
-| `Masterly.BusinessRules.DependencyInjection` | `IServiceCollection` registration, rule runners and the scoped rule registry |
-| `Masterly.BusinessRules.Testing` | Outcome coverage, boundary finder and CsCheck-backed rule properties |
+| `Masterly.BusinessRules.Diagnostics` | `ILogger` observers, OpenTelemetry tracing/metrics observers and the `Traced()` decorators (see [Diagnostics: Logging, Tracing and Metrics](#diagnostics-logging-tracing-and-metrics)) |
+| `Masterly.BusinessRules.Expressions` | Rule expression parser, expression rules and bound-value explanations (see [Rule Expressions](#rule-expressions)) |
+| `Masterly.BusinessRules.DependencyInjection` | `IServiceCollection` registration, rule runners and the scoped rule registry (see [Dependency Injection](#dependency-injection)) |
+| `Masterly.BusinessRules.Testing` | Outcome coverage, boundary finder, CsCheck-backed rule properties and smoke-mode mutants (see [Testing Package: Coverage, Boundaries and Properties](#testing-package-coverage-boundaries-and-properties)) |
 | `Masterly.BusinessRules.FeatureManagement` | `IRuleFeatureFlagProvider` / `IAsyncRuleFeatureFlagProvider` over `Microsoft.FeatureManagement` |
 
 ---

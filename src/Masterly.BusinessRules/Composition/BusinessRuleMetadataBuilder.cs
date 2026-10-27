@@ -274,6 +274,15 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Snapshots the whole configuration for an <see cref="IBuiltRuleFactory"/> or <see cref="IAsyncBuiltRuleFactory"/>;
+        /// the async builder passes the async provider it accepted.
+        /// </summary>
+        internal BuiltRuleDefinition BuildDefinition(IAsyncRuleParameterProvider? asyncProvider)
+        {
+            return new BuiltRuleDefinition(BuildMetadata(), BuildParameterBinding(asyncProvider), BuildDescriptor());
+        }
+
+        /// <summary>
         /// Snapshots the configured context-aware detail functions for the rule being built.
         /// </summary>
         internal BuiltRuleDescriptor BuildDescriptor()

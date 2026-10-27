@@ -7,7 +7,8 @@ namespace Masterly.BusinessRules
 {
     /// <summary>
     /// Evaluates an asynchronous rule node exactly once and, when a trace is supplied, records its explanation.
-    /// In-library composed and decorated rules are routed through <see cref="IExplainableAsyncBusinessRule.EvaluateCoreAsync"/>;
+    /// In-library composed and decorated rules are routed through <see cref="IExplainableAsyncBusinessRule.EvaluateCoreAsync"/>,
+    /// decorators from outside the library through <see cref="IExplainableDecoratedAsyncBusinessRule.EvaluateDecoratedAsync"/>;
     /// every other rule is treated as a leaf and evaluated with <see cref="IAsyncBusinessRule.EvaluateAsync"/>.
     /// </summary>
     internal static class AsyncBusinessRuleWalker
@@ -128,6 +129,11 @@ namespace Masterly.BusinessRules
                 return explainable.EvaluateCoreAsync(context, null, cancellationToken);
             }
 
+            if (rule is IExplainableDecoratedAsyncBusinessRule decorated)
+            {
+                return decorated.EvaluateDecoratedAsync(new AsyncDecoratedRuleEvaluation(decorated.InnerRule, context, null), cancellationToken);
+            }
+
             return rule.EvaluateAsync(context, cancellationToken);
         }
 
@@ -142,9 +148,32 @@ namespace Masterly.BusinessRules
                 return await explainable.EvaluateCoreAsync(context, trace, cancellationToken);
             }
 
+            if (rule is IExplainableDecoratedAsyncBusinessRule decorated)
+            {
+                return await EvaluateDecoratedTracedAsync(decorated, context, trace, cancellationToken);
+            }
+
             long start = RuleExplanationTrace.StartTiming();
             BusinessRuleResult? result = await rule.EvaluateAsync(context, cancellationToken);
             trace.Add(Leaf(rule, result, RuleExplanationTrace.ElapsedSince(start)));
+            return result;
+        }
+
+        private static async Task<BusinessRuleResult?> EvaluateDecoratedTracedAsync(
+            IExplainableDecoratedAsyncBusinessRule rule,
+            BusinessRuleContext context,
+            RuleExplanationTrace trace,
+            CancellationToken cancellationToken)
+        {
+            RuleExplanationTrace children = trace.Branch();
+            long start = RuleExplanationTrace.StartTiming();
+            AsyncDecoratedRuleEvaluation evaluation = new AsyncDecoratedRuleEvaluation(rule.InnerRule, context, children);
+            BusinessRuleResult? result = await rule.EvaluateDecoratedAsync(evaluation, cancellationToken);
+
+            IReadOnlyList<RuleExplanation> innerNodes = evaluation.IsInnerEvaluated
+                ? children.Nodes
+                : new[] { NotEvaluated(evaluation.InnerRule, RuleExplanationText.DecoratorSkippedReason) };
+            trace.Add(Evaluated(rule, result != null, rule.ExplanationOperator, RuleExplanationTrace.ElapsedSince(start), innerNodes));
             return result;
         }
 

@@ -25,10 +25,12 @@ namespace Masterly.BusinessRules
     {
         private const string DefaultMessage = "Async business rule violated.";
         private const string MissingConditionMessage = "Must specify a condition using WhenAsync()";
+        private const string NullFactoryRuleMessage = "The rule factory returned a null rule.";
 
         private Func<BusinessRuleContext, CancellationToken, Task<bool>>? _isBrokenFunc;
         private Func<BusinessRuleContext, RuleParameters, CancellationToken, Task<bool>>? _isBrokenWithParametersFunc;
         private IAsyncRuleParameterProvider? _asyncParameterProvider;
+        private IAsyncBuiltRuleFactory? _ruleFactory;
 
         private AsyncBusinessRuleBuilder(string code) : base(code, DefaultMessage)
         {
@@ -53,6 +55,7 @@ namespace Masterly.BusinessRules
         {
             _isBrokenFunc = isBrokenCondition;
             _isBrokenWithParametersFunc = null;
+            _ruleFactory = null;
             return this;
         }
 
@@ -65,6 +68,7 @@ namespace Masterly.BusinessRules
         {
             _isBrokenFunc = (ctx, _) => isBrokenCondition(ctx);
             _isBrokenWithParametersFunc = null;
+            _ruleFactory = null;
             return this;
         }
 
@@ -85,6 +89,7 @@ namespace Masterly.BusinessRules
         {
             _isBrokenWithParametersFunc = isBrokenCondition ?? throw new ArgumentNullException(nameof(isBrokenCondition));
             _isBrokenFunc = null;
+            _ruleFactory = null;
             return this;
         }
 
@@ -110,6 +115,7 @@ namespace Masterly.BusinessRules
 
             _isBrokenFunc = compiler.Compile(expression) ?? throw new ArgumentNullException(nameof(compiler), "The condition compiler returned a null delegate.");
             _isBrokenWithParametersFunc = null;
+            _ruleFactory = null;
             return this;
         }
 
@@ -128,12 +134,35 @@ namespace Masterly.BusinessRules
         }
 
         /// <summary>
+        /// Hands rule creation to <paramref name="factory"/>: <see cref="Build"/> passes it a <see cref="BuiltRuleDefinition"/>
+        /// with the configured metadata, details and parameters (including the async provider) and returns the rule it
+        /// creates. The factory replaces any condition set so far, and a later <c>WhenAsync</c> call replaces the factory.
+        /// This is the seam a sibling package uses to return its own rule type from <c>Build()</c>, for example
+        /// <c>WhenExpression</c> returning an expression rule.
+        /// </summary>
+        /// <param name="factory">The factory that creates the built rule.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="factory"/> is null.</exception>
+        public AsyncBusinessRuleBuilder WithRuleFactory(IAsyncBuiltRuleFactory factory)
+        {
+            _ruleFactory = factory ?? throw new ArgumentNullException(nameof(factory));
+            _isBrokenFunc = null;
+            _isBrokenWithParametersFunc = null;
+            return this;
+        }
+
+        /// <summary>
         /// Builds and returns the configured async business rule.
         /// </summary>
         /// <returns>A new async business rule instance with the configured settings.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when no condition has been specified via <c>WhenAsync</c>.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when no condition has been specified via <c>WhenAsync</c> and no factory via <see cref="WithRuleFactory"/>, or when the factory returned null.</exception>
         public IAsyncBusinessRule Build()
         {
+            if (_ruleFactory != null)
+            {
+                return _ruleFactory.Create(BuildDefinition(_asyncParameterProvider)) ?? throw new InvalidOperationException(NullFactoryRuleMessage);
+            }
+
             if (_isBrokenFunc == null && _isBrokenWithParametersFunc == null)
             {
                 throw new InvalidOperationException(MissingConditionMessage);

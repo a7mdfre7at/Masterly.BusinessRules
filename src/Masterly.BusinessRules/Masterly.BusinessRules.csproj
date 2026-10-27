@@ -3,9 +3,8 @@
   <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <Description>
-      A clean, composable, and extensible business rule engine for .NET.</Description>
-    <PackageTags>Rule;Business;Engine;Exception;Maserly;Csharp;DotNet;Handle</PackageTags>
+    <Description>A clean, composable and extensible business rule engine for .NET: sync and async rules, structural composition and rule groups, explain trees, an evaluation ledger, subject-typed and specification rules, feature-gated rollout and scoped parameters, with zero dependencies.</Description>
+    <PackageTags>Rule;Business;Engine;Exception;Specification;Validation;Masterly;Csharp;DotNet;Handle</PackageTags>
   </PropertyGroup>
 
 </Project>

@@ -24,10 +24,12 @@ namespace Masterly.BusinessRules
     {
         private const string DefaultMessage = "Business rule violated.";
         private const string MissingConditionMessage = "Must specify a condition using When()";
+        private const string NullFactoryRuleMessage = "The rule factory returned a null rule.";
 
         private Func<bool>? _isBrokenFunc;
         private Func<BusinessRuleContext, bool>? _isBrokenWithContextFunc;
         private Func<BusinessRuleContext, RuleParameters, bool>? _isBrokenWithParametersFunc;
+        private IBuiltRuleFactory? _ruleFactory;
 
         private BusinessRuleBuilder(string code) : base(code, DefaultMessage)
         {
@@ -51,6 +53,7 @@ namespace Masterly.BusinessRules
         public BusinessRuleBuilder When(Func<bool> isBrokenCondition)
         {
             _isBrokenFunc = isBrokenCondition;
+            _ruleFactory = null;
             return this;
         }
 
@@ -62,6 +65,7 @@ namespace Masterly.BusinessRules
         public BusinessRuleBuilder When(Func<BusinessRuleContext, bool> isBrokenCondition)
         {
             _isBrokenWithContextFunc = isBrokenCondition;
+            _ruleFactory = null;
             return this;
         }
 
@@ -77,6 +81,7 @@ namespace Masterly.BusinessRules
         public BusinessRuleBuilder When(Func<BusinessRuleContext, RuleParameters, bool> isBrokenCondition)
         {
             _isBrokenWithParametersFunc = isBrokenCondition ?? throw new ArgumentNullException(nameof(isBrokenCondition));
+            _ruleFactory = null;
             return this;
         }
 
@@ -101,6 +106,25 @@ namespace Masterly.BusinessRules
             }
 
             _isBrokenWithContextFunc = compiler.Compile(expression) ?? throw new ArgumentNullException(nameof(compiler), "The condition compiler returned a null delegate.");
+            _ruleFactory = null;
+            return this;
+        }
+
+        /// <summary>
+        /// Hands rule creation to <paramref name="factory"/>: <see cref="Build"/> passes it a <see cref="BuiltRuleDefinition"/>
+        /// with the configured metadata, details and parameters and returns the rule it creates. The factory replaces any
+        /// condition set so far, and a later <c>When</c> call replaces the factory. This is the seam a sibling package uses
+        /// to return its own rule type from <c>Build()</c>, for example <c>WhenExpression</c> returning an expression rule.
+        /// </summary>
+        /// <param name="factory">The factory that creates the built rule.</param>
+        /// <returns>This builder for method chaining.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when <paramref name="factory"/> is null.</exception>
+        public BusinessRuleBuilder WithRuleFactory(IBuiltRuleFactory factory)
+        {
+            _ruleFactory = factory ?? throw new ArgumentNullException(nameof(factory));
+            _isBrokenFunc = null;
+            _isBrokenWithContextFunc = null;
+            _isBrokenWithParametersFunc = null;
             return this;
         }
 
@@ -108,9 +132,14 @@ namespace Masterly.BusinessRules
         /// Builds and returns the configured business rule.
         /// </summary>
         /// <returns>A new business rule instance with the configured settings.</returns>
-        /// <exception cref="InvalidOperationException">Thrown when no condition has been specified via <see cref="When(Func{bool})"/>, <see cref="When(Func{BusinessRuleContext, bool})"/> or <see cref="When(Func{BusinessRuleContext, RuleParameters, bool})"/>.</exception>
+        /// <exception cref="InvalidOperationException">Thrown when no condition has been specified via <see cref="When(Func{bool})"/>, <see cref="When(Func{BusinessRuleContext, bool})"/> or <see cref="When(Func{BusinessRuleContext, RuleParameters, bool})"/> and no factory via <see cref="WithRuleFactory"/>, or when the factory returned null.</exception>
         public IBusinessRule Build()
         {
+            if (_ruleFactory != null)
+            {
+                return _ruleFactory.Create(BuildDefinition(null)) ?? throw new InvalidOperationException(NullFactoryRuleMessage);
+            }
+
             if (_isBrokenFunc == null && _isBrokenWithContextFunc == null && _isBrokenWithParametersFunc == null)
             {
                 throw new InvalidOperationException(MissingConditionMessage);
