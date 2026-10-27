@@ -12,6 +12,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
       <PrivateAssets>all</PrivateAssets>
@@ -26,6 +27,9 @@
 
   <ItemGroup>
     <Using Include="Xunit" />
+    <Using Include="Masterly.BusinessRules" />
+    <Using Include="Masterly.BusinessRules.DependencyInjection" />
+    <Using Include="Microsoft.Extensions.DependencyInjection" />
   </ItemGroup>
 
 </Project>
