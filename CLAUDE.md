@@ -40,7 +40,7 @@ There is no linter step. `.editorconfig` only silences Roslynator `RCS1194`. A r
 
 ## Release process
 
-A successful `Build` workflow on `master` triggers `publish.yml`, which reads `<Version>` from the root `Directory.Build.props`, packs and pushes every packable project under `src/` (`--skip-duplicate`) and creates a GitHub Release `v{Version}` unless the tag exists. Bumping `<Version>` plus a `CHANGELOG.md` entry is therefore the release act; do not bump it casually. `Directory.Build.props` also supplies authors, repository, licence, icon, `Nullable` and the packed `README.md` / `LICENSE.txt` / `repo_image.png` for every project; each `src/*.csproj` keeps only `TargetFramework`, `Description` and `PackageTags` (plus its own package references). Test projects set `IsPackable=false`.
+A successful `Build` workflow on `master` triggers `publish.yml`, which reads `<Version>` from the root `Directory.Build.props`, packs every packable project under `src/`, pushes the core package first and then the others (`--skip-duplicate`, `.snupkg` symbols alongside), and creates the GitHub Release `v{Version}` with the packages as assets and that version's `CHANGELOG.md` section as the body (a re-run only uploads missing assets). Bumping `<Version>` plus a `CHANGELOG.md` entry is therefore the release act; do not bump it casually. `Directory.Build.props` also supplies authors, repository, the `MIT` licence expression, copyright, release-notes link, icon, symbols/SourceLink settings, `Nullable` and the packed `README.md` (`$(PackageReadmeSource)`, overridden per companion package) / `repo_image.png` for every project; each `src/*.csproj` keeps only `TargetFramework`, `Description` and `PackageTags` (plus its own package references). Test projects set `IsPackable=false`.
 
 ## Core architecture
 
@@ -96,4 +96,4 @@ One test class per feature under `tests/<Package>.UnitTests/`, mirroring the `sr
 
 ## Documentation
 
-`README.md` is packed into every package and is the user-facing reference: when public surface changes, update the feature section, the Features list, the API Reference table of the right package, and add a `CHANGELOG.md` entry (grouped Breaking Changes / Added (core, then per package) / Changed / Fixed). The 2.0.0 changelog names a few members that differ from the code (`AllRulesPassed`, `GetBrokenByCode`): trust the source.
+`README.md` is packed into the core package (each companion package packs its own `src/<Package>/README.md`) and is the user-facing reference: when public surface changes, update the feature section, the Features list, the API Reference table of the right package, and add a `CHANGELOG.md` entry (grouped Breaking Changes / Added (core, then per package) / Changed / Fixed). Each version section opens with a one-line summary, because `publish.yml` uses the section verbatim as the GitHub Release body.
