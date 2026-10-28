@@ -2,7 +2,7 @@
 
 A composable business rule engine for .NET.
 
-<img src="https://raw.githubusercontent.com/a7mdfre7at/Masterly.BusinessRules/master/repo_image.png" alt="Masterly.BusinessRules logo" width="200" height="180">
+![Masterly.BusinessRules logo](https://raw.githubusercontent.com/a7mdfre7at/Masterly.BusinessRules/master/repo_image.png)
 
 [![Nuget](https://img.shields.io/nuget/v/Masterly.BusinessRules?style=flat-square)](https://www.nuget.org/packages/Masterly.BusinessRules) ![Nuget](https://img.shields.io/nuget/dt/Masterly.BusinessRules?style=flat-square) ![GitHub last commit](https://img.shields.io/github/last-commit/a7mdfre7at/Masterly.BusinessRules?style=flat-square) ![GitHub](https://img.shields.io/github/license/a7mdfre7at/Masterly.BusinessRules) [![Build](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/build.yml) [![CodeQL Analysis](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/codeql.yml) [![Publish to NuGet](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/publish.yml/badge.svg?branch=master)](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/publish.yml)
 
@@ -725,26 +725,26 @@ RuleExplanation explanation = bound.Explain(context);
 
 > **Note:** `.For(order)` returns a new rule each time. A cache added with `.Cached(...)` belongs to that bound instance, so it caches the verdict for that one subject.
 
-**Checking a subject directly.** You do not have to bind rules yourself. The checkers have overloads that take the subject and a list of typed rules, and bind them for you. Options, fault policy, severity threshold and observers work exactly as in the untyped overloads.
+**Checking a subject directly.** You do not have to bind rules yourself. `BusinessRuleChecker.For(subject)` and `AsyncBusinessRuleChecker.For(subject)` return a checker bound to that subject. Its methods take a list of typed rules and bind them for you. Options, fault policy, severity threshold and observers work exactly as in the untyped overloads.
 
 ```csharp
 // order and context come from your application; OrderTotalMustBePositiveRule is another BaseBusinessRule<Order>
 IBusinessRule<Order>[] rules = { new OrderItemsRequiredRule(), new OrderTotalMustBePositiveRule() };
 
-BusinessRuleChecker.CheckAll(order, rules, context); // throws when any rule is broken
-RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(order, rules);
+BusinessRuleChecker.For(order).CheckAll(rules, context); // throws when any rule is broken
+RuleEvaluationResult result = BusinessRuleChecker.For(order).EvaluateAll(rules);
 
 // Rules of different classes can be passed directly
-BusinessRuleChecker.CheckAll(order, new OrderItemsRequiredRule(), new OrderTotalMustBePositiveRule());
+BusinessRuleChecker.For(order).CheckAll(new OrderItemsRequiredRule(), new OrderTotalMustBePositiveRule());
 ```
 
 | You want to | Sync | Async |
 |-------------|------|-------|
-| Check and throw | `CheckAll(order, rules, context)` | `CheckAllAsync(context, order, rules, cancellationToken)` |
-| Get the result | `EvaluateAll(order, rules, context)` | `EvaluateAllAsync(context, order, rules, cancellationToken)` |
+| Check and throw | `For(order).CheckAll(rules, context)` | `For(order).CheckAllAsync(context, rules, cancellationToken)` |
+| Get the result | `For(order).EvaluateAll(rules, context)` | `For(order).EvaluateAllAsync(context, rules, cancellationToken)` |
 | Check many subjects | `EvaluateEach(orders, rules, context)` | `EvaluateEachAsync(context, orders, rules, cancellationToken)` |
 
-The context and the options are optional in every call. `CheckBySeverity`, `CheckByCategory` and `CheckByTags` also have subject overloads.
+The context and the options are optional in every call. `CheckBySeverity`, `CheckByCategory` and `CheckByTags` are on `For(subject)` too.
 
 - The sync overloads take the context after the rules. The async overloads take it first.
 - `CheckByTags` runs the rules that have at least one of the tags. Tag matching ignores case. `CheckByCategory` matches the category exactly.
@@ -754,10 +754,10 @@ The context and the options are optional in every call. `CheckBySeverity`, `Chec
 // customer, customerRepository, context and cancellationToken come from your application
 IAsyncBusinessRule<Customer>[] customerRules = { new CustomerEmailMustBeUniqueRule(customerRepository) };
 
-await AsyncBusinessRuleChecker.CheckAllAsync(context, customer, customerRules, cancellationToken);
+await AsyncBusinessRuleChecker.For(customer).CheckAllAsync(context, customerRules, cancellationToken);
 ```
 
-> **Note:** If you pass a bare `null` as the context to an untyped checker, for example `EvaluateAll(rules, null)`, C# picks the typed overload and treats your rules as the subject. The call then throws `ArgumentNullException`. Leave the context out, or write `(BusinessRuleContext?)null`.
+> **Note:** Subject-typed batches live behind `For(subject)` on purpose. A 2.x-style call that passes a positional `null` or `default` after the rules, such as `EvaluateAll(rules, null)`, still means the context, the flag or the cancellation token, exactly as in 2.x.
 
 **Validating many subjects with `EvaluateEach`.** Use `EvaluateEach` to run one rule set against a list of subjects, such as every line of an import file. Each result carries the position of its subject.
 
@@ -1316,7 +1316,7 @@ AsyncRuleEvaluationResult asyncResult = await AsyncBusinessRuleChecker.EvaluateA
 
 - An async call without a context runs the rules against a new, empty `BusinessRuleContext`.
 - The async checker accepts only async rules. Convert a sync rule with `.ToAsync()` to run it in the same batch (see [Mixing sync and async rules](#mixing-sync-and-async-rules)).
-- Subject-typed rules have matching overloads that take the subject first (see [Subject-Typed Rules](#subject-typed-rules)).
+- Subject-typed rules use the same methods on `BusinessRuleChecker.For(subject)` and `AsyncBusinessRuleChecker.For(subject)` (see [Subject-Typed Rules](#subject-typed-rules)).
 - For fault handling, severity thresholds and observers, pass an options object instead of the boolean parameters (see [Options](#options)).
 
 ### Filtering by severity, category or tags
@@ -2298,7 +2298,7 @@ How a specification behaves:
 
 - You override `BrokenWhen` instead of `IsBroken`. Like every rule, the condition is true when the rule is **broken**.
 - In memory, the expression is compiled on first use and the compiled delegate is reused.
-- `Code`, `Message` and `Severity` work as on any other rule, so a specification can go straight into `BusinessRuleChecker.CheckAll(order, overdue)`.
+- `Code`, `Message` and `Severity` work as on any other rule, so a specification can go straight into `BusinessRuleChecker.For(order).CheckAll(overdue)`.
 - `WhereBroken` returns the rows that break the rule. `WhereSatisfies` returns the rows that pass it.
 - If you need the raw predicates, read `BrokenExpression` or `SatisfiedExpression`.
 - If `BrokenWhen` returns `null`, the first use throws `RuleConfigurationException`.
@@ -2349,7 +2349,7 @@ Those results still work in memory. Passing them to `WhereBroken` is a compile-t
 // overdue is from the first example; order, context and cancellationToken come from your application
 IAsyncBusinessRule<Order> asyncOverdue = overdue.ToAsync();
 
-await AsyncBusinessRuleChecker.CheckAllAsync(context, order, new[] { asyncOverdue }, cancellationToken);
+await AsyncBusinessRuleChecker.For(order).CheckAllAsync(context, new[] { asyncOverdue }, cancellationToken);
 ```
 
 **Existence checks are not specifications.** "The customer must exist" or "the email must not already be taken" need a repository call, not a predicate over the row. Write them as an async builder rule:
@@ -2362,7 +2362,7 @@ IAsyncBusinessRule<Order> customerMustExist = AsyncBusinessRuleBuilder<Order>.Cr
     .WhenAsync(async (o, ctx, ct) => !await customers.ExistsAsync(o.CustomerId, ct))
     .Build();
 
-await AsyncBusinessRuleChecker.CheckAllAsync(context, order, new[] { asyncOverdue, customerMustExist }, cancellationToken);
+await AsyncBusinessRuleChecker.For(order).CheckAllAsync(context, new[] { asyncOverdue, customerMustExist }, cancellationToken);
 ```
 
 ---
@@ -3613,7 +3613,6 @@ If you skip it, code compiled against 2.x fails at run time with `MissingMethodE
 | `And`, `Or` and `Not` return new node types (`AndBusinessRule` and so on). The result's `Name` is now the node type name, and its `Description` describes the operator. | Do not cast combined rules to `SimpleBusinessRule` or `CompositeAsyncBusinessRule`, and do not rely on their `Name`. Codes and messages are unchanged. | Code that inspects the type or `Name` of a combined rule. |
 | The checkers wrap a failure to read the context in `BusinessRuleContextException`. The original exception is its `InnerException`. | Catch `BusinessRuleContextException` instead of `KeyNotFoundException` or `InvalidCastException` around checker calls. | Code that catches context errors around `CheckAll` / `EvaluateAll`. |
 | `BusinessRuleContext.Get<T>` throws `ContextKeyNotFoundException` or `ContextValueTypeMismatchException`. Both derive from the old exception types, so existing `catch` blocks still work. A stored `null` read as a non-nullable value type is now a type mismatch, and a `null` key throws `ArgumentNullException`. | Usually nothing. Review code that relied on a `NullReferenceException` for a stored `null`. | Code that reads a stored `null` as a value type. |
-| A bare `null` context now selects the subject-typed checker overloads. `EvaluateAll(rules, null)` and `CheckAll(rules, null, options)` throw `ArgumentNullException`. | Leave the context out, or type the literal: `(BusinessRuleContext?)null`. A typed variable is fine. | Calls that pass the `null` literal as the context. |
 | `new BusinessRuleResult(code, message, severity, null)` no longer compiles: the call is ambiguous between two new overloads. Both throw for `null`. | Use the three-argument constructor. | Code that constructs `BusinessRuleResult` directly. |
 | The metadata members are declared on `IBusinessRuleMetadata`. | Look them up on the base interface. | Code that finds rule members by reflection. |
 | Smaller fixes you might notice: a null rule in a batch throws `ArgumentException` instead of `NullReferenceException`; `CheckBySeverityAsync` and `CheckByCategoryAsync` honour their cancellation token; a built rule no longer sees later `WithTags` calls on its builder; group and composite results carry their broken members in `Details`. | Usually nothing. | Code or tests that depended on the old behaviour. |
@@ -3676,6 +3675,7 @@ The core package. It has no dependencies.
 | `BusinessRuleChecker.CheckAll(...)` | Evaluate every rule and throw `BusinessRuleValidationException` if any is broken. |
 | `BusinessRuleChecker.EvaluateAll(...)` | Evaluate every rule and return a `RuleEvaluationResult`. Does not throw for broken rules. |
 | `BusinessRuleChecker.CheckBySeverity` / `CheckByCategory` / `CheckByTags` | Check only the rules that match a severity, a category or any of the tags. |
+| `BusinessRuleChecker.For(subject)` | Return a `SubjectRuleChecker<TSubject>` bound to the subject, with `CheckAll`, `EvaluateAll`, `CheckBySeverity`, `CheckByCategory` and `CheckByTags` over subject-typed rules. `AsyncBusinessRuleChecker.For(subject)` returns the async `AsyncSubjectRuleChecker<TSubject>`. |
 | `BusinessRuleChecker.EvaluateEach(subjects, rules)` | Evaluate subject-typed rules for each subject. Returns a `SubjectEvaluationCollection<TSubject>`. |
 | `AsyncBusinessRuleChecker` | The async versions: `CheckAllAsync`, `EvaluateAllAsync`, `CheckBySeverityAsync`, `CheckByCategoryAsync`, `CheckByTagsAsync`, `EvaluateEachAsync`. |
 | `RuleEvaluationOptions` / `AsyncRuleEvaluationOptions` | `StopOnFirstFailure`, `OnFault` (default `Throw`), `ThrowOn` (default `Info`, used by `CheckAll` only) and `Observer`. Async adds `RunInParallel`. |
@@ -3684,7 +3684,7 @@ The core package. It has no dependencies.
 | `.Explain(context, captureExceptions)` / `.ExplainAsync(context, captureExceptions, token)` | Evaluate once and return a `RuleExplanation` tree. All arguments except the async context are optional. |
 | `IRuleExecutionObserver` / `IAsyncRuleExecutionObserver` | Receive callbacks while a batch runs: before and after each rule, broken, faulted and cancelled rules, batch start and end, shadow results. |
 
-> **Note:** On the async checker, the context always comes first: `CheckAllAsync(context, subject, rules)`. The sync subject-typed overloads take it last: `CheckAll(subject, rules, context)`.
+> **Note:** On the async checker, the context always comes first: `AsyncBusinessRuleChecker.For(subject).CheckAllAsync(context, rules)`. The sync checker takes it after the rules: `BusinessRuleChecker.For(subject).CheckAll(rules, context)`.
 
 **Results**
 

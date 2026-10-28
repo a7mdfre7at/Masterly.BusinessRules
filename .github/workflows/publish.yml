@@ -8,7 +8,8 @@ on:
     types: [completed]
 
 # Two publish runs never overlap, so package pushes and the GitHub Release cannot race. A run that has started is
-# never cancelled: a half-finished push is repaired only by a later complete run.
+# never cancelled: a half-finished push is repaired only by a later complete run. GitHub replaces a run that is still
+# queued when a newer one arrives, which is safe because the newer run publishes the newer commit.
 concurrency:
   group: publish-nuget
   cancel-in-progress: false
@@ -130,7 +131,9 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
-          awk -v version="$VERSION" '/^## \[/{ if (f) exit; if (index($0, "## [" version "]") == 1) f=1 } f' CHANGELOG.md > release-notes.md
+          # The section heading is dropped (the release title already names the version), as are leading blank lines.
+          awk -v version="$VERSION" '/^## \[/{ if (f) exit; if (index($0, "## [" version "]") == 1) { f=1; next } } f' CHANGELOG.md \
+            | sed '/./,$!d' > release-notes.md
           if [ ! -s release-notes.md ]; then
             echo "::error::CHANGELOG.md has no '## [$VERSION]' section."
             exit 1

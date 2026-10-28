@@ -7,8 +7,9 @@ on:
   pull_request:
     branches: [master]
 
-# One Build per ref at a time. A newer push to a pull request cancels the older run; master runs are never cancelled,
-# because a successful master Build is what triggers publish.yml.
+# One Build per ref at a time. A newer push to a pull request cancels the older run. A master run that has started is
+# never cancelled, because a successful master Build is what triggers publish.yml. GitHub still replaces a master run
+# that is only queued when an even newer push arrives; the newer run then builds and publishes instead.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

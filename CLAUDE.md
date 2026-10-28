@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Testing is not `netstandard2.1` on purpose: CsCheck has no .NET Standard build and the boundary finder constrains `T : INumber<T>` (static abstract interface members). It multi-targets `net8.0` and `net10.0` because CsCheck 5 ships only `net10.0`+ assets; the csproj picks CsCheck 4.9.1 or 5.0.0 per framework. Every test project targets `net10.0` (the Testing test project also `net8.0`, so both CsCheck lines are exercised), uses xunit.v3 4.x and has `ImplicitUsings`; `src/` has none.
 
-Tests run on Microsoft.Testing.Platform, not VSTest: the root `global.json` sets `"test": { "runner": "Microsoft.Testing.Platform" }`, which the .NET 10 SDK requires for xunit.v3 4.x. Consequences: `dotnet test` needs `--solution`/`--project`, VSTest options (`--filter`, `--collect`, `--logger`) do not exist, and coverage comes from `coverlet.MTP` (`--coverlet`), not `coverlet.collector`. CI installs SDK 10.0.x plus the 8.0.x runtime.
+Tests run on Microsoft.Testing.Platform, not VSTest: the root `global.json` sets `"test": { "runner": "Microsoft.Testing.Platform" }`, which the .NET 10 SDK requires for xunit.v3 4.x. Consequences: `dotnet test` needs `--solution`/`--project`, VSTest options (`--filter`, `--collect`, `--logger`) do not exist, and coverage comes from `coverlet.MTP` (`--coverlet`), not `coverlet.collector`. Both `build.yml` and `publish.yml` install the 8.0.x and 10.0.x SDKs; dropping 8.0.x breaks the solution build (MSB3030, missing net8.0 apphost for the Testing test project).
 
 ## Code rules for `src/`
 
@@ -96,4 +96,4 @@ One test class per feature under `tests/<Package>.UnitTests/`, mirroring the `sr
 
 ## Documentation
 
-`README.md` is packed into the core package (each companion package packs its own `src/<Package>/README.md`) and is the user-facing reference: when public surface changes, update the feature section, the Features list, the API Reference table of the right package, and add a `CHANGELOG.md` entry (grouped Breaking Changes / Added (core, then per package) / Changed / Fixed). Each version section opens with a one-line summary, because `publish.yml` uses the section verbatim as the GitHub Release body.
+`README.md` is packed into the core package (each companion package packs its own `src/<Package>/README.md`) and is the user-facing reference: when public surface changes, update the feature section, the Features list, the API Reference table of the right package, and add a `CHANGELOG.md` entry (grouped Breaking Changes / Added (core, then per package) / Changed / Fixed). Each version section opens with a one-line summary, because `publish.yml` uses the section, minus its `## [x.y.z]` heading, as the GitHub Release body.

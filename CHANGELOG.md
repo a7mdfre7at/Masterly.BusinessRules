@@ -262,4 +262,4 @@ Namespace `Masterly.BusinessRules.Testing`; `net8.0` and `net10.0` (CsCheck ship
 ### Changed
 
 - Comprehensive XML documentation added to all public APIs
-- All interfaces now inherit from `IBusinessRuleMetadata` for consistent metadata
+- `IBusinessRule` and `IAsyncBusinessRule` declare the metadata members (`Severity`, `Name`, `Description`, `Category`, `Tags`) with default implementations, so only `Code` and `Message` are required
