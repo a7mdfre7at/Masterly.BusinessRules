@@ -1,5 +1,9 @@
 namespace Masterly.BusinessRules.UnitTests;
 
+/// <summary>
+/// The async subject checker reached through <see cref="AsyncBusinessRuleChecker.For{TSubject}(TSubject)"/>
+/// (<see cref="AsyncSubjectRuleChecker{TSubject}"/>) and <c>EvaluateEachAsync</c>.
+/// </summary>
 public class AsyncBusinessRuleCheckerTypedTests
 {
     private const string NoItemsCode = "ORDER.NO_ITEMS";
@@ -12,6 +16,31 @@ public class AsyncBusinessRuleCheckerTypedTests
     private static CancellationToken TestToken => TestContext.Current.CancellationToken;
 
     // ---------------------------------------------------------------------
+    // For
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void For_ExposesTheSubject()
+    {
+        Order order = new Order(1, 1m);
+
+        AsyncSubjectRuleChecker<Order> checker = AsyncBusinessRuleChecker.For(order);
+
+        Assert.Same(order, checker.Subject);
+    }
+
+#pragma warning disable xUnit1051 // the positional default token is the call shape under test
+    [Fact]
+    public async Task For_CheckAllAsyncWithADefaultToken_BindsTheTokenOverload()
+    {
+        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
+            () => AsyncBusinessRuleChecker.For(new Order(0, 1m)).CheckAllAsync(new BusinessRuleContext(), Rules(), default));
+
+        Assert.Equal(NoItemsCode, Assert.Single(exception.BrokenRules).Code);
+    }
+#pragma warning restore xUnit1051
+
+    // ---------------------------------------------------------------------
     // CheckAllAsync
     // ---------------------------------------------------------------------
 
@@ -20,7 +49,7 @@ public class AsyncBusinessRuleCheckerTypedTests
     {
         Order order = new Order(0, 500m);
 
-        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(() => AsyncBusinessRuleChecker.CheckAllAsync(order, Rules(), TestToken));
+        BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(() => AsyncBusinessRuleChecker.For(order).CheckAllAsync(Rules(), TestToken));
 
         Assert.Equal(new[] { NoItemsCode, TooExpensiveCode }, exception.BrokenRules.Select(r => r.Code));
     }
@@ -28,7 +57,7 @@ public class AsyncBusinessRuleCheckerTypedTests
     [Fact]
     public async Task CheckAllAsync_WhenRulesPass_DoesNotThrow()
     {
-        await AsyncBusinessRuleChecker.CheckAllAsync(new Order(2, 10m), Rules(), TestToken);
+        await AsyncBusinessRuleChecker.For(new Order(2, 10m)).CheckAllAsync(Rules(), TestToken);
     }
 
     [Fact]
@@ -36,9 +65,9 @@ public class AsyncBusinessRuleCheckerTypedTests
     {
         Order order = new Order(2, 50m);
 
-        await AsyncBusinessRuleChecker.CheckAllAsync(RuleTestHelper.CreateContext((LimitKey, 60m)), order, Rules(), TestToken);
+        await AsyncBusinessRuleChecker.For(order).CheckAllAsync(RuleTestHelper.CreateContext((LimitKey, 60m)), Rules(), TestToken);
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckAllAsync(RuleTestHelper.CreateContext((LimitKey, 40m)), order, Rules(), TestToken));
+            () => AsyncBusinessRuleChecker.For(order).CheckAllAsync(RuleTestHelper.CreateContext((LimitKey, 40m)), Rules(), TestToken));
 
         Assert.Equal(TooExpensiveCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -48,9 +77,9 @@ public class AsyncBusinessRuleCheckerTypedTests
     {
         Order order = new Order(2, 500m);
 
-        await AsyncBusinessRuleChecker.CheckAllAsync(order, Rules(), new AsyncRuleEvaluationOptions { ThrowOn = RuleSeverity.Error }, TestToken);
+        await AsyncBusinessRuleChecker.For(order).CheckAllAsync(Rules(), new AsyncRuleEvaluationOptions { ThrowOn = RuleSeverity.Error }, TestToken);
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckAllAsync(order, Rules(), new AsyncRuleEvaluationOptions { ThrowOn = RuleSeverity.Warning }, TestToken));
+            () => AsyncBusinessRuleChecker.For(order).CheckAllAsync(Rules(), new AsyncRuleEvaluationOptions { ThrowOn = RuleSeverity.Warning }, TestToken));
 
         Assert.Equal(TooExpensiveCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -61,7 +90,7 @@ public class AsyncBusinessRuleCheckerTypedTests
         Order order = new Order(0, 500m);
 
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), order, Rules(), new AsyncRuleEvaluationOptions { StopOnFirstFailure = true }, TestToken));
+            () => AsyncBusinessRuleChecker.For(order).CheckAllAsync(new BusinessRuleContext(), Rules(), new AsyncRuleEvaluationOptions { StopOnFirstFailure = true }, TestToken));
 
         Assert.Equal(NoItemsCode, Assert.Single(exception.BrokenRules).Code);
         Assert.Equal(new[] { RuleOutcome.Broken, RuleOutcome.NotEvaluated }, exception.Entries.Select(e => e.Outcome));
@@ -73,7 +102,7 @@ public class AsyncBusinessRuleCheckerTypedTests
         Order order = new Order(0, 500m);
 
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckAllAsync(order, Rules(), new AsyncRuleEvaluationOptions { RunInParallel = true }, TestToken));
+            () => AsyncBusinessRuleChecker.For(order).CheckAllAsync(Rules(), new AsyncRuleEvaluationOptions { RunInParallel = true }, TestToken));
 
         Assert.Equal(2, exception.BrokenRules.Count);
     }
@@ -84,7 +113,7 @@ public class AsyncBusinessRuleCheckerTypedTests
         Order order = new Order(0, 10m);
         RecordingObserver observer = new RecordingObserver();
 
-        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => AsyncBusinessRuleChecker.CheckAllAsync(order, Rules(), new AsyncRuleEvaluationOptions { Observer = observer }, TestToken));
+        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => AsyncBusinessRuleChecker.For(order).CheckAllAsync(Rules(), new AsyncRuleEvaluationOptions { Observer = observer }, TestToken));
 
         Assert.Equal(new[] { NoItemsCode, TooExpensiveCode }, observer.Seen.Select(r => r.Code));
         Assert.All(observer.Seen, rule => Assert.Same(order, Assert.IsType<BoundAsyncBusinessRule<Order>>(rule).Subject));
@@ -96,7 +125,7 @@ public class AsyncBusinessRuleCheckerTypedTests
     {
         IEnumerable<IAsyncBusinessRule<Order>> rules = null!;
 
-        ArgumentNullException exception = await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.CheckAllAsync(new Order(1, 1m), rules, TestToken));
+        ArgumentNullException exception = await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.For(new Order(1, 1m)).CheckAllAsync(rules, TestToken));
 
         Assert.Equal("rules", exception.ParamName);
     }
@@ -106,7 +135,7 @@ public class AsyncBusinessRuleCheckerTypedTests
     {
         IAsyncBusinessRule<Order>[] rules = { NoItems(), null!, TooExpensive() };
 
-        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(() => AsyncBusinessRuleChecker.CheckAllAsync(new Order(1, 1m), rules, TestToken));
+        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(() => AsyncBusinessRuleChecker.For(new Order(1, 1m)).CheckAllAsync(rules, TestToken));
 
         Assert.Equal("rules", exception.ParamName);
         Assert.Contains("position 1", exception.Message);
@@ -115,19 +144,19 @@ public class AsyncBusinessRuleCheckerTypedTests
     [Fact]
     public async Task CheckAllAsync_NullContext_ThrowsArgumentNullException()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.CheckAllAsync((BusinessRuleContext)null!, new Order(1, 1m), Rules(), TestToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.For(new Order(1, 1m)).CheckAllAsync((BusinessRuleContext)null!, Rules(), TestToken));
     }
 
     [Fact]
     public async Task CheckAllAsync_NullOptions_ThrowsArgumentNullException()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.CheckAllAsync(new Order(1, 1m), Rules(), (AsyncRuleEvaluationOptions)null!, TestToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.For(new Order(1, 1m)).CheckAllAsync(Rules(), (AsyncRuleEvaluationOptions)null!, TestToken));
     }
 
     [Fact]
     public async Task CheckAllAsync_EmptyRules_DoesNotThrow()
     {
-        await AsyncBusinessRuleChecker.CheckAllAsync(new Order(0, 0m), Array.Empty<IAsyncBusinessRule<Order>>(), TestToken);
+        await AsyncBusinessRuleChecker.For(new Order(0, 0m)).CheckAllAsync(Array.Empty<IAsyncBusinessRule<Order>>(), TestToken);
     }
 
     [Fact]
@@ -136,7 +165,7 @@ public class AsyncBusinessRuleCheckerTypedTests
         using CancellationTokenSource source = new CancellationTokenSource();
         source.Cancel();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.CheckAllAsync(new Order(0, 0m), Rules(), source.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.For(new Order(0, 0m)).CheckAllAsync(Rules(), source.Token));
     }
 
     [Fact]
@@ -144,8 +173,8 @@ public class AsyncBusinessRuleCheckerTypedTests
     {
         IAsyncBusinessRule<int> negative = AsyncBusinessRuleBuilder<int>.Create("NEG").WithMessage("m").WhenAsync(value => Task.FromResult(value < 0)).Build();
 
-        await AsyncBusinessRuleChecker.CheckAllAsync(1, new[] { negative }, TestToken);
-        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => AsyncBusinessRuleChecker.CheckAllAsync(-1, new[] { negative }, TestToken));
+        await AsyncBusinessRuleChecker.For(1).CheckAllAsync(new[] { negative }, TestToken);
+        await Assert.ThrowsAsync<BusinessRuleValidationException>(() => AsyncBusinessRuleChecker.For(-1).CheckAllAsync(new[] { negative }, TestToken));
     }
 
     // ---------------------------------------------------------------------
@@ -157,7 +186,7 @@ public class AsyncBusinessRuleCheckerTypedTests
     {
         Order order = new Order(0, 10m);
 
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(order, Rules(), TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(order).EvaluateAllAsync(Rules(), TestToken);
 
         Assert.Equal(NoItemsCode, Assert.Single(result.BrokenRules).Code);
         Assert.Equal(new[] { RuleOutcome.Broken, RuleOutcome.Passed }, result.Entries.Select(e => e.Outcome));
@@ -167,7 +196,7 @@ public class AsyncBusinessRuleCheckerTypedTests
     [Fact]
     public async Task EvaluateAllAsync_WithContext_ForwardsTheContext()
     {
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(RuleTestHelper.CreateContext((LimitKey, 40m)), new Order(1, 50m), Rules(), TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(new Order(1, 50m)).EvaluateAllAsync(RuleTestHelper.CreateContext((LimitKey, 40m)), Rules(), TestToken);
 
         Assert.Equal(TooExpensiveCode, Assert.Single(result.BrokenRules).Code);
     }
@@ -177,7 +206,7 @@ public class AsyncBusinessRuleCheckerTypedTests
     {
         IAsyncBusinessRule<Order>[] rules = { Throwing(), NoItems() };
 
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new Order(0, 1m), rules, new AsyncRuleEvaluationOptions { OnFault = FaultPolicy.Record }, TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(new Order(0, 1m)).EvaluateAllAsync(rules, new AsyncRuleEvaluationOptions { OnFault = FaultPolicy.Record }, TestToken);
 
         Assert.Equal(ThrowingCode, Assert.Single(result.Faulted).Code);
         Assert.Equal(NoItemsCode, Assert.Single(result.BrokenRules).Code);
@@ -186,7 +215,7 @@ public class AsyncBusinessRuleCheckerTypedTests
     [Fact]
     public async Task EvaluateAllAsync_WithContextAndOptions_RunsInParallelAndNeverThrowsForBrokenRules()
     {
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), new Order(0, 500m), Rules(), new AsyncRuleEvaluationOptions { RunInParallel = true, ThrowOn = RuleSeverity.Info }, TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(new Order(0, 500m)).EvaluateAllAsync(new BusinessRuleContext(), Rules(), new AsyncRuleEvaluationOptions { RunInParallel = true, ThrowOn = RuleSeverity.Info }, TestToken);
 
         Assert.Equal(2, result.BrokenRules.Count);
     }
@@ -194,13 +223,13 @@ public class AsyncBusinessRuleCheckerTypedTests
     [Fact]
     public async Task EvaluateAllAsync_NullRules_ThrowsArgumentNullException()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.EvaluateAllAsync(new Order(1, 1m), (IEnumerable<IAsyncBusinessRule<Order>>)null!, TestToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.For(new Order(1, 1m)).EvaluateAllAsync((IEnumerable<IAsyncBusinessRule<Order>>)null!, TestToken));
     }
 
     [Fact]
     public async Task EvaluateAllAsync_EmptyRules_ReturnsEmptyResult()
     {
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new Order(1, 1m), Array.Empty<IAsyncBusinessRule<Order>>(), TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(new Order(1, 1m)).EvaluateAllAsync(Array.Empty<IAsyncBusinessRule<Order>>(), TestToken);
 
         Assert.True(result.AllPassed);
         Assert.Empty(result.Entries);
@@ -212,7 +241,7 @@ public class AsyncBusinessRuleCheckerTypedTests
         IAsyncBusinessRule<object> notNull = AsyncBusinessRuleBuilder<object>.Create("NULL").WithMessage("m").WhenAsync(value => Task.FromResult(value == null)).Build();
         IEnumerable<IAsyncBusinessRule<Order>> rules = new List<IAsyncBusinessRule<object>> { notNull };
 
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new Order(1, 1m), rules, TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(new Order(1, 1m)).EvaluateAllAsync(rules, TestToken);
 
         Assert.True(result.AllPassed);
     }
@@ -227,9 +256,9 @@ public class AsyncBusinessRuleCheckerTypedTests
         Order order = new Order(0, 500m);
         BusinessRuleContext context = new BusinessRuleContext();
 
-        await AsyncBusinessRuleChecker.CheckBySeverityAsync(context, order, Rules(), TestToken, RuleSeverity.Info);
+        await AsyncBusinessRuleChecker.For(order).CheckBySeverityAsync(context, Rules(), TestToken, RuleSeverity.Info);
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckBySeverityAsync(context, order, Rules(), TestToken, RuleSeverity.Warning));
+            () => AsyncBusinessRuleChecker.For(order).CheckBySeverityAsync(context, Rules(), TestToken, RuleSeverity.Warning));
 
         Assert.Equal(TooExpensiveCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -240,9 +269,9 @@ public class AsyncBusinessRuleCheckerTypedTests
         Order order = new Order(0, 500m);
         BusinessRuleContext context = new BusinessRuleContext();
 
-        await AsyncBusinessRuleChecker.CheckByCategoryAsync(context, order, Rules(), "Nothing", TestToken);
+        await AsyncBusinessRuleChecker.For(order).CheckByCategoryAsync(context, Rules(), "Nothing", TestToken);
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckByCategoryAsync(context, order, Rules(), "Money", TestToken));
+            () => AsyncBusinessRuleChecker.For(order).CheckByCategoryAsync(context, Rules(), "Money", TestToken));
 
         Assert.Equal(TooExpensiveCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -253,9 +282,9 @@ public class AsyncBusinessRuleCheckerTypedTests
         Order order = new Order(0, 500m);
         BusinessRuleContext context = new BusinessRuleContext();
 
-        await AsyncBusinessRuleChecker.CheckByTagsAsync(context, order, Rules(), TestToken, "nothing");
+        await AsyncBusinessRuleChecker.For(order).CheckByTagsAsync(context, Rules(), TestToken, "nothing");
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckByTagsAsync(context, order, Rules(), TestToken, "ITEMS"));
+            () => AsyncBusinessRuleChecker.For(order).CheckByTagsAsync(context, Rules(), TestToken, "ITEMS"));
 
         Assert.Equal(NoItemsCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -280,9 +309,9 @@ public class AsyncBusinessRuleCheckerTypedTests
         Order order = new Order(1, 1m);
         BusinessRuleContext context = new BusinessRuleContext();
 
-        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.CheckBySeverityAsync(context, order, rules, TestToken, RuleSeverity.Error));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.CheckByCategoryAsync(context, order, rules, "Money", TestToken));
-        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.CheckByTagsAsync(context, order, rules, TestToken, "items"));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.For(order).CheckBySeverityAsync(context, rules, TestToken, RuleSeverity.Error));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.For(order).CheckByCategoryAsync(context, rules, "Money", TestToken));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.For(order).CheckByTagsAsync(context, rules, TestToken, "items"));
     }
 
     [Fact]
@@ -293,9 +322,9 @@ public class AsyncBusinessRuleCheckerTypedTests
         Order order = new Order(0, 500m);
         BusinessRuleContext context = new BusinessRuleContext();
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.CheckBySeverityAsync(context, order, Rules(), source.Token, RuleSeverity.Error));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.CheckByCategoryAsync(context, order, Rules(), "Orders", source.Token));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.CheckByTagsAsync(context, order, Rules(), source.Token, "items"));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.For(order).CheckBySeverityAsync(context, Rules(), source.Token, RuleSeverity.Error));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.For(order).CheckByCategoryAsync(context, Rules(), "Orders", source.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => AsyncBusinessRuleChecker.For(order).CheckByTagsAsync(context, Rules(), source.Token, "items"));
     }
 
     // ---------------------------------------------------------------------

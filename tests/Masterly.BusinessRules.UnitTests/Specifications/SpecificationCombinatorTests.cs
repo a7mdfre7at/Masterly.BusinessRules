@@ -370,7 +370,7 @@ public class SpecificationCombinatorTests
         ISpecificationRule<Order> composed = new OrderIsOverdueRule().AllOf(new OrderIsBigRule());
 
         BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(
-            () => BusinessRuleChecker.CheckAll(SpecificationSamples.OverdueSmall(), new[] { composed }));
+            () => BusinessRuleChecker.For(SpecificationSamples.OverdueSmall()).CheckAll(new[] { composed }));
 
         Assert.Equal(composed.Code, Assert.Single(exception.BrokenRules).Code);
     }

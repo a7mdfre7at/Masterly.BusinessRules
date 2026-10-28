@@ -417,7 +417,7 @@ public class ParameterizedBusinessRuleBuilderTests
             .When((amount, ctx, p) => amount > p.Get<decimal>(LimitName))
             .Build();
 
-        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(GlobalLimit + 1, new[] { rule }, RuleTestHelper.CreateContext((RuleParameters.ScopeKey, Acme)));
+        RuleEvaluationResult result = BusinessRuleChecker.For(GlobalLimit + 1).EvaluateAll(new[] { rule }, RuleTestHelper.CreateContext((RuleParameters.ScopeKey, Acme)));
 
         Assert.True(result.AllPassed);
     }

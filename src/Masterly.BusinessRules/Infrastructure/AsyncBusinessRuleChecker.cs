@@ -134,16 +134,20 @@ namespace Masterly.BusinessRules
         /// Checks all async rules with the supplied options against a fresh context and throws if any broken rule is
         /// at or above <see cref="AsyncRuleEvaluationOptions.ThrowOn"/>.
         /// </summary>
+        /// <typeparam name="TOptions">Inferred from <paramref name="options"/>. The overload is generic so that a bare
+        /// <c>null</c> or <c>default</c> literal, which has no type to infer from, never selects it over the 2.x
+        /// overloads: <c>CheckAllAsync(rules, default)</c> keeps meaning <c>stopOnFirstFailure: false</c>.</typeparam>
         /// <param name="rules">The async rules to check.</param>
         /// <param name="options">The evaluation options: fail-fast, parallel, fault policy, severity threshold and observer.</param>
         /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
         /// <exception cref="BusinessRuleValidationException">Thrown when a broken rule is at or above the threshold; broken rules below it are in <see cref="BusinessRuleValidationException.CollectedRules"/>.</exception>
         /// <returns>A task representing the asynchronous operation.</returns>
-        public static Task CheckAllAsync(
+        public static Task CheckAllAsync<TOptions>(
             IEnumerable<IAsyncBusinessRule> rules,
-            AsyncRuleEvaluationOptions options,
+            TOptions options,
             CancellationToken cancellationToken = default)
+            where TOptions : AsyncRuleEvaluationOptions
         {
             return CheckAllAsyncCore(new BusinessRuleContext(), rules, options, cancellationToken);
         }
@@ -152,6 +156,9 @@ namespace Masterly.BusinessRules
         /// Checks all async rules using context with the supplied options and throws if any broken rule is at or above
         /// <see cref="AsyncRuleEvaluationOptions.ThrowOn"/>.
         /// </summary>
+        /// <typeparam name="TOptions">Inferred from <paramref name="options"/>. The overload is generic so that a bare
+        /// <c>null</c> or <c>default</c> literal, which has no type to infer from, never selects it over the 2.x
+        /// overloads: <c>CheckAllAsync(context, rules, default)</c> keeps meaning <c>stopOnFirstFailure: false</c>.</typeparam>
         /// <param name="context">The context containing data for rule evaluation.</param>
         /// <param name="rules">The async rules to check.</param>
         /// <param name="options">The evaluation options: fail-fast, parallel, fault policy, severity threshold and observer.</param>
@@ -159,11 +166,12 @@ namespace Masterly.BusinessRules
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="context"/>, <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
         /// <exception cref="BusinessRuleValidationException">Thrown when a broken rule is at or above the threshold; broken rules below it are in <see cref="BusinessRuleValidationException.CollectedRules"/>.</exception>
         /// <returns>A task representing the asynchronous operation.</returns>
-        public static Task CheckAllAsync(
+        public static Task CheckAllAsync<TOptions>(
             BusinessRuleContext context,
             IEnumerable<IAsyncBusinessRule> rules,
-            AsyncRuleEvaluationOptions options,
+            TOptions options,
             CancellationToken cancellationToken = default)
+            where TOptions : AsyncRuleEvaluationOptions
         {
             return CheckAllAsyncCore(context, rules, options, cancellationToken);
         }
@@ -226,15 +234,19 @@ namespace Masterly.BusinessRules
         /// its evaluation ledger. Never throws for broken rules: <see cref="AsyncRuleEvaluationOptions.ThrowOn"/> is
         /// ignored, faults follow <see cref="AsyncRuleEvaluationOptions.OnFault"/> and the observer receives every callback.
         /// </summary>
+        /// <typeparam name="TOptions">Inferred from <paramref name="options"/>. The overload is generic so that a bare
+        /// <c>null</c> or <c>default</c> literal, which has no type to infer from, never selects it over the 2.x
+        /// overloads: <c>EvaluateAllAsync(rules, default)</c> keeps meaning <c>runInParallel: false</c>.</typeparam>
         /// <param name="rules">The async rules to evaluate.</param>
         /// <param name="options">The evaluation options: fail-fast, parallel, fault policy and observer.</param>
         /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
         /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
-        public static Task<AsyncRuleEvaluationResult> EvaluateAllAsync(
+        public static Task<AsyncRuleEvaluationResult> EvaluateAllAsync<TOptions>(
             IEnumerable<IAsyncBusinessRule> rules,
-            AsyncRuleEvaluationOptions options,
+            TOptions options,
             CancellationToken cancellationToken = default)
+            where TOptions : AsyncRuleEvaluationOptions
         {
             return EvaluateAllAsyncCore(new BusinessRuleContext(), rules, options, RuleSeverity.Info, cancellationToken);
         }
@@ -244,17 +256,21 @@ namespace Masterly.BusinessRules
         /// evaluation ledger. Never throws for broken rules: <see cref="AsyncRuleEvaluationOptions.ThrowOn"/> is
         /// ignored, faults follow <see cref="AsyncRuleEvaluationOptions.OnFault"/> and the observer receives every callback.
         /// </summary>
+        /// <typeparam name="TOptions">Inferred from <paramref name="options"/>. The overload is generic so that a bare
+        /// <c>null</c> or <c>default</c> literal, which has no type to infer from, never selects it over the 2.x
+        /// overloads: <c>EvaluateAllAsync(context, rules, default)</c> keeps meaning <c>runInParallel: false</c>.</typeparam>
         /// <param name="context">The context containing data for rule evaluation.</param>
         /// <param name="rules">The async rules to evaluate.</param>
         /// <param name="options">The evaluation options: fail-fast, parallel, fault policy and observer.</param>
         /// <param name="cancellationToken">A token to cancel the asynchronous operation.</param>
         /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="context"/>, <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
-        public static Task<AsyncRuleEvaluationResult> EvaluateAllAsync(
+        public static Task<AsyncRuleEvaluationResult> EvaluateAllAsync<TOptions>(
             BusinessRuleContext context,
             IEnumerable<IAsyncBusinessRule> rules,
-            AsyncRuleEvaluationOptions options,
+            TOptions options,
             CancellationToken cancellationToken = default)
+            where TOptions : AsyncRuleEvaluationOptions
         {
             return EvaluateAllAsyncCore(context, rules, options, RuleSeverity.Info, cancellationToken);
         }
@@ -317,24 +333,7 @@ namespace Masterly.BusinessRules
             await CheckAllAsyncCore(context, filteredRules.ToArray(), LegacyOptions(stopOnFirstFailure: false, runInParallel: false, observer: null), cancellationToken);
         }
 
-        /// <summary>
-        /// Checks only async rules that have any of the listed tags, without a cancellation token, so the tags follow
-        /// the rules directly as in the sync <c>CheckByTags</c>.
-        /// </summary>
-        /// <param name="context">The context containing data for rule evaluation.</param>
-        /// <param name="rules">The async rules to filter and check.</param>
-        /// <param name="tags">The tags to filter by (case-insensitive).</param>
-        /// <exception cref="BusinessRuleValidationException">Thrown when any matching rules are broken.</exception>
-        /// <returns>A task representing the asynchronous operation.</returns>
-        public static Task CheckByTagsAsync(
-            BusinessRuleContext context,
-            IEnumerable<IAsyncBusinessRule> rules,
-            params string[] tags)
-        {
-            return CheckByTagsAsync(context, rules, CancellationToken.None, tags);
-        }
-
-        private static AsyncRuleEvaluationOptions LegacyOptions(bool stopOnFirstFailure, bool runInParallel, IAsyncRuleExecutionObserver? observer)
+        internal static AsyncRuleEvaluationOptions LegacyOptions(bool stopOnFirstFailure, bool runInParallel, IAsyncRuleExecutionObserver? observer)
         {
             return new AsyncRuleEvaluationOptions
             {
@@ -344,7 +343,7 @@ namespace Masterly.BusinessRules
             };
         }
 
-        private static async Task CheckAllAsyncCore(
+        internal static async Task CheckAllAsyncCore(
             BusinessRuleContext context,
             IEnumerable<IAsyncBusinessRule> rules,
             AsyncRuleEvaluationOptions options,
@@ -365,7 +364,7 @@ namespace Masterly.BusinessRules
         /// the search for one that would) and <see cref="RuleSeverity.Info"/> for <c>EvaluateAllAsync</c>.
         /// Fail-fast forces sequential evaluation even when parallel evaluation was requested.
         /// </summary>
-        private static async Task<AsyncRuleEvaluationResult> EvaluateAllAsyncCore(
+        internal static async Task<AsyncRuleEvaluationResult> EvaluateAllAsyncCore(
             BusinessRuleContext context,
             IEnumerable<IAsyncBusinessRule> rules,
             AsyncRuleEvaluationOptions options,

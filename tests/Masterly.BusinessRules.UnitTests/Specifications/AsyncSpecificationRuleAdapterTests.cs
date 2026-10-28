@@ -162,7 +162,7 @@ public class AsyncSpecificationRuleAdapterTests
         IAsyncBusinessRule<Order>[] rules = { new OrderIsOverdueRule().ToAsync(), new OrderIsBigRule().ToAsync() };
 
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), SpecificationSamples.OverdueBig(), rules, TestToken));
+            () => AsyncBusinessRuleChecker.For(SpecificationSamples.OverdueBig()).CheckAllAsync(new BusinessRuleContext(), rules, TestToken));
 
         Assert.Equal(new[] { OrderIsOverdueRule.RuleCode, OrderIsBigRule.RuleCode }, exception.BrokenRules.Select(r => r.Code));
     }
@@ -172,7 +172,7 @@ public class AsyncSpecificationRuleAdapterTests
     {
         IAsyncBusinessRule<Order>[] rules = { new OrderIsOverdueRule().ToAsync(), new OrderIsBigRule().ToAsync() };
 
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(SpecificationSamples.CurrentSmall(), rules, TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(SpecificationSamples.CurrentSmall()).EvaluateAllAsync(rules, TestToken);
 
         Assert.True(result.AllPassed);
         Assert.Equal(2, result.PassedRules.Count);

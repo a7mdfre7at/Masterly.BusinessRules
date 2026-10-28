@@ -4,6 +4,11 @@ namespace Masterly.BusinessRules
     /// Options for the batch methods of <see cref="BusinessRuleChecker"/> that take an options object
     /// instead of boolean parameters.
     /// </summary>
+    /// <remarks>
+    /// The class is not sealed because the checker overloads that take it constrain a type parameter to it
+    /// (<c>where TOptions : RuleEvaluationOptions</c>): a bare <c>null</c> or <c>default</c> argument cannot infer that
+    /// parameter, so it keeps binding to the 2.x boolean and context overloads instead of this options form.
+    /// </remarks>
     /// <example>
     /// <code>
     /// RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(rules, context, new RuleEvaluationOptions
@@ -15,7 +20,7 @@ namespace Masterly.BusinessRules
     /// BusinessRuleChecker.CheckAll(rules, context, new RuleEvaluationOptions { ThrowOn = RuleSeverity.Error });
     /// </code>
     /// </example>
-    public sealed class RuleEvaluationOptions
+    public class RuleEvaluationOptions
     {
         /// <summary>
         /// Gets or sets whether the batch stops at the first broken rule. In <c>CheckAll</c> only a rule at or above

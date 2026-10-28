@@ -91,7 +91,7 @@ public class SpecificationQueryableExtensionsTests
 
         foreach (Order order in source)
         {
-            RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(order, new[] { rule });
+            RuleEvaluationResult result = BusinessRuleChecker.For(order).EvaluateAll(new[] { rule });
             Assert.Equal(violators.Contains(order.Id), result.HasBrokenRules);
         }
     }

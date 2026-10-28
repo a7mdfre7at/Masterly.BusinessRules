@@ -103,11 +103,15 @@ namespace Masterly.BusinessRules
         /// Checks all rules with the supplied options and throws if any broken rule is at or above
         /// <see cref="RuleEvaluationOptions.ThrowOn"/>.
         /// </summary>
+        /// <typeparam name="TOptions">Inferred from <paramref name="options"/>. The overload is generic so that a bare
+        /// <c>null</c> or <c>default</c> literal, which has no type to infer from, never selects it over the 2.x
+        /// overloads: <c>CheckAll(rules, default)</c> keeps meaning <c>stopOnFirstFailure: false</c>.</typeparam>
         /// <param name="rules">The rules to check.</param>
         /// <param name="options">The evaluation options: fail-fast, fault policy, severity threshold and observer.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
         /// <exception cref="BusinessRuleValidationException">Thrown when a broken rule is at or above the threshold; broken rules below it are in <see cref="BusinessRuleValidationException.CollectedRules"/>.</exception>
-        public static void CheckAll(IEnumerable<IBusinessRule> rules, RuleEvaluationOptions options)
+        public static void CheckAll<TOptions>(IEnumerable<IBusinessRule> rules, TOptions options)
+            where TOptions : RuleEvaluationOptions
         {
             CheckAllCore(rules, null, options);
         }
@@ -116,12 +120,16 @@ namespace Masterly.BusinessRules
         /// Checks all rules using context with the supplied options and throws if any broken rule is at or above
         /// <see cref="RuleEvaluationOptions.ThrowOn"/>.
         /// </summary>
+        /// <typeparam name="TOptions">Inferred from <paramref name="options"/>. The overload is generic so that a bare
+        /// <c>null</c> or <c>default</c> literal, which has no type to infer from, never selects it over the 2.x
+        /// overloads: <c>CheckAll(rules, default, null)</c> keeps meaning <c>stopOnFirstFailure: false, observer: null</c>.</typeparam>
         /// <param name="rules">The rules to check.</param>
         /// <param name="context">Optional context containing data for rule evaluation.</param>
         /// <param name="options">The evaluation options: fail-fast, fault policy, severity threshold and observer.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
         /// <exception cref="BusinessRuleValidationException">Thrown when a broken rule is at or above the threshold; broken rules below it are in <see cref="BusinessRuleValidationException.CollectedRules"/>.</exception>
-        public static void CheckAll(IEnumerable<IBusinessRule> rules, BusinessRuleContext? context, RuleEvaluationOptions options)
+        public static void CheckAll<TOptions>(IEnumerable<IBusinessRule> rules, BusinessRuleContext? context, TOptions options)
+            where TOptions : RuleEvaluationOptions
         {
             CheckAllCore(rules, context, options);
         }
@@ -165,11 +173,15 @@ namespace Masterly.BusinessRules
         /// Never throws for broken rules: <see cref="RuleEvaluationOptions.ThrowOn"/> is ignored, faults follow
         /// <see cref="RuleEvaluationOptions.OnFault"/> and the observer receives every callback.
         /// </summary>
+        /// <typeparam name="TOptions">Inferred from <paramref name="options"/>. The overload is generic so that a bare
+        /// <c>null</c> or <c>default</c> literal, which has no type to infer from, never selects it over the 2.x
+        /// overloads: <c>EvaluateAll(rules, null)</c> keeps meaning a null context.</typeparam>
         /// <param name="rules">The rules to evaluate.</param>
         /// <param name="options">The evaluation options: fail-fast, fault policy and observer.</param>
         /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
-        public static RuleEvaluationResult EvaluateAll(IEnumerable<IBusinessRule> rules, RuleEvaluationOptions options)
+        public static RuleEvaluationResult EvaluateAll<TOptions>(IEnumerable<IBusinessRule> rules, TOptions options)
+            where TOptions : RuleEvaluationOptions
         {
             return EvaluateAllCore(rules, null, options, RuleSeverity.Info);
         }
@@ -179,12 +191,15 @@ namespace Masterly.BusinessRules
         /// Never throws for broken rules: <see cref="RuleEvaluationOptions.ThrowOn"/> is ignored, faults follow
         /// <see cref="RuleEvaluationOptions.OnFault"/> and the observer receives every callback.
         /// </summary>
+        /// <typeparam name="TOptions">Inferred from <paramref name="options"/>. The overload is generic so that a bare
+        /// <c>null</c> or <c>default</c> literal, which has no type to infer from, never selects it.</typeparam>
         /// <param name="rules">The rules to evaluate.</param>
         /// <param name="context">Optional context containing data for rule evaluation.</param>
         /// <param name="options">The evaluation options: fail-fast, fault policy and observer.</param>
         /// <returns>A result object containing broken and passed rules and the per-rule ledger.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="rules"/> or <paramref name="options"/> is null.</exception>
-        public static RuleEvaluationResult EvaluateAll(IEnumerable<IBusinessRule> rules, BusinessRuleContext? context, RuleEvaluationOptions options)
+        public static RuleEvaluationResult EvaluateAll<TOptions>(IEnumerable<IBusinessRule> rules, BusinessRuleContext? context, TOptions options)
+            where TOptions : RuleEvaluationOptions
         {
             return EvaluateAllCore(rules, context, options, RuleSeverity.Info);
         }
@@ -232,7 +247,7 @@ namespace Masterly.BusinessRules
             CheckAll(filteredRules.ToArray());
         }
 
-        private static RuleEvaluationOptions LegacyOptions(bool stopOnFirstFailure, IRuleExecutionObserver? observer)
+        internal static RuleEvaluationOptions LegacyOptions(bool stopOnFirstFailure, IRuleExecutionObserver? observer)
         {
             return new RuleEvaluationOptions
             {
@@ -241,7 +256,7 @@ namespace Masterly.BusinessRules
             };
         }
 
-        private static void CheckAllCore(IEnumerable<IBusinessRule> rules, BusinessRuleContext? context, RuleEvaluationOptions options)
+        internal static void CheckAllCore(IEnumerable<IBusinessRule> rules, BusinessRuleContext? context, RuleEvaluationOptions options)
         {
             if (options == null)
             {
@@ -257,7 +272,7 @@ namespace Masterly.BusinessRules
         /// stops a fail-fast batch: <c>ThrowOn</c> for <c>CheckAll</c> (a rule that would not throw must not stop the
         /// search for one that would) and <see cref="RuleSeverity.Info"/> for <c>EvaluateAll</c>.
         /// </summary>
-        private static RuleEvaluationResult EvaluateAllCore(
+        internal static RuleEvaluationResult EvaluateAllCore(
             IEnumerable<IBusinessRule> rules,
             BusinessRuleContext? context,
             RuleEvaluationOptions options,

@@ -4,7 +4,8 @@ using System.Collections.Generic;
 namespace Masterly.BusinessRules
 {
     /// <summary>
-    /// Projects subject-typed rule sets onto the non-generic hierarchies for the typed checker overloads:
+    /// Projects subject-typed rule sets onto the non-generic hierarchies for the subject checkers
+    /// (<see cref="SubjectRuleChecker{TSubject}"/>, <see cref="AsyncSubjectRuleChecker{TSubject}"/>) and <c>EvaluateEach</c>:
     /// every rule becomes a <see cref="BoundBusinessRule{TSubject}"/> / <see cref="BoundAsyncBusinessRule{TSubject}"/>
     /// over the same subject, so the existing evaluation cores run unchanged. A null rule set is rejected with
     /// <see cref="ArgumentNullException"/> and a null rule inside it with the same positional

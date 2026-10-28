@@ -9,8 +9,9 @@ using System.Threading.Tasks;
 namespace Masterly.BusinessRules.DependencyInjection
 {
     /// <summary>
-    /// The default <see cref="IRuleRunner{TSubject}"/>: a thin projection of the registered typed rules onto the typed
-    /// checker overloads. Registered as an open generic by <c>AddBusinessRules</c> with the configured lifetime; it can
+    /// The default <see cref="IRuleRunner{TSubject}"/>: a thin projection of the registered typed rules onto
+    /// <c>BusinessRuleChecker.For(subject)</c> and the async checker. Registered as an open generic by
+    /// <c>AddBusinessRules</c> with the configured lifetime; it can
     /// also be constructed directly from two rule collections, which is how tests and non-container code use it.
     /// </summary>
     /// <typeparam name="TSubject">The subject type the rules validate.</typeparam>
@@ -58,7 +59,7 @@ namespace Masterly.BusinessRules.DependencyInjection
         public void CheckAll(TSubject subject, BusinessRuleContext? context = null)
         {
             RequireSynchronousOnly();
-            BusinessRuleChecker.CheckAll(subject, _rules, context);
+            BusinessRuleChecker.For(subject).CheckAll(_rules, context);
         }
 
         /// <inheritdoc />
@@ -67,14 +68,14 @@ namespace Masterly.BusinessRules.DependencyInjection
         {
             RequireOptions(options);
             RequireSynchronousOnly();
-            BusinessRuleChecker.CheckAll(subject, _rules, context, options);
+            BusinessRuleChecker.For(subject).CheckAll(_rules, context, options);
         }
 
         /// <inheritdoc />
         public RuleEvaluationResult EvaluateAll(TSubject subject, BusinessRuleContext? context = null)
         {
             RequireSynchronousOnly();
-            return BusinessRuleChecker.EvaluateAll(subject, _rules, context);
+            return BusinessRuleChecker.For(subject).EvaluateAll(_rules, context);
         }
 
         /// <inheritdoc />
@@ -83,7 +84,7 @@ namespace Masterly.BusinessRules.DependencyInjection
         {
             RequireOptions(options);
             RequireSynchronousOnly();
-            return BusinessRuleChecker.EvaluateAll(subject, _rules, context, options);
+            return BusinessRuleChecker.For(subject).EvaluateAll(_rules, context, options);
         }
 
         /// <inheritdoc />

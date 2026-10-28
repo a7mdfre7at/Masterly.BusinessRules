@@ -355,7 +355,7 @@ public class TypedAsyncCompositionTests
     {
         IAsyncBusinessRule<int>[] rules = { SyncRule("S", true).ToAsync(), Rule("A", false) };
 
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(7, rules, TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(7).EvaluateAllAsync(rules, TestToken);
 
         Assert.Equal("S", Assert.Single(result.BrokenRules).Code);
     }
@@ -433,7 +433,7 @@ public class TypedAsyncCompositionTests
 
         await Assert.ThrowsAsync<BusinessRuleValidationException>(() => composed.For(500).CheckAsync(new BusinessRuleContext(), TestToken));
         await composed.For(50).CheckAsync(new BusinessRuleContext(), TestToken);
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(500, new[] { composed }, TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(500).EvaluateAllAsync(new[] { composed }, TestToken);
         Assert.Equal("BIG+HUGE", Assert.Single(result.BrokenRules).Code);
     }
 

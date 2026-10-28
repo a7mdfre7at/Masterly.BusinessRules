@@ -1,5 +1,9 @@
 namespace Masterly.BusinessRules.UnitTests;
 
+/// <summary>
+/// The subject checker reached through <see cref="BusinessRuleChecker.For{TSubject}(TSubject)"/>
+/// (<see cref="SubjectRuleChecker{TSubject}"/>) and <c>EvaluateEach</c>.
+/// </summary>
 public class BusinessRuleCheckerTypedTests
 {
     private const string NoItemsCode = "ORDER.NO_ITEMS";
@@ -10,6 +14,46 @@ public class BusinessRuleCheckerTypedTests
     private const decimal DefaultLimit = 100m;
 
     // ---------------------------------------------------------------------
+    // For
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    public void For_ExposesTheSubject()
+    {
+        Order order = new Order(1, 1m);
+
+        SubjectRuleChecker<Order> checker = BusinessRuleChecker.For(order);
+
+        Assert.Same(order, checker.Subject);
+    }
+
+    [Fact]
+    public void For_NullSubject_IsHandedToTheRules()
+    {
+        IBusinessRule<Order> missing = BusinessRuleBuilder<Order>.Create("MISSING").WithMessage("m").When(order => order == null).Build();
+
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.For((Order)null!).CheckAll(new[] { missing }));
+
+        Assert.Equal("MISSING", Assert.Single(exception.BrokenRules).Code);
+    }
+
+    [Fact]
+    public void For_EvaluateAllWithABareNullContext_BindsTheContextOverload()
+    {
+        RuleEvaluationResult result = BusinessRuleChecker.For(new Order(0, 1m)).EvaluateAll(Rules(), null);
+
+        Assert.Equal(NoItemsCode, Assert.Single(result.BrokenRules).Code);
+    }
+
+    [Fact]
+    public void For_CheckAllWithADefaultContext_BindsTheContextOverload()
+    {
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.For(new Order(0, 1m)).CheckAll(Rules(), default));
+
+        Assert.Equal(NoItemsCode, Assert.Single(exception.BrokenRules).Code);
+    }
+
+    // ---------------------------------------------------------------------
     // CheckAll
     // ---------------------------------------------------------------------
 
@@ -18,7 +62,7 @@ public class BusinessRuleCheckerTypedTests
     {
         Order order = new Order(0, 500m);
 
-        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.CheckAll(order, Rules()));
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.For(order).CheckAll(Rules()));
 
         Assert.Equal(new[] { NoItemsCode, TooExpensiveCode }, exception.BrokenRules.Select(r => r.Code));
     }
@@ -26,7 +70,7 @@ public class BusinessRuleCheckerTypedTests
     [Fact]
     public void CheckAll_WhenRulesPass_DoesNotThrow()
     {
-        BusinessRuleChecker.CheckAll(new Order(2, 10m), Rules());
+        BusinessRuleChecker.For(new Order(2, 10m)).CheckAll(Rules());
     }
 
     [Fact]
@@ -34,9 +78,9 @@ public class BusinessRuleCheckerTypedTests
     {
         Order order = new Order(2, 50m);
 
-        BusinessRuleChecker.CheckAll(order, Rules(), RuleTestHelper.CreateContext((LimitKey, 60m)));
+        BusinessRuleChecker.For(order).CheckAll(Rules(), RuleTestHelper.CreateContext((LimitKey, 60m)));
         BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(
-            () => BusinessRuleChecker.CheckAll(order, Rules(), RuleTestHelper.CreateContext((LimitKey, 40m))));
+            () => BusinessRuleChecker.For(order).CheckAll(Rules(), RuleTestHelper.CreateContext((LimitKey, 40m))));
 
         Assert.Equal(TooExpensiveCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -46,9 +90,9 @@ public class BusinessRuleCheckerTypedTests
     {
         Order order = new Order(2, 500m);
 
-        BusinessRuleChecker.CheckAll(order, Rules(), new RuleEvaluationOptions { ThrowOn = RuleSeverity.Error });
+        BusinessRuleChecker.For(order).CheckAll(Rules(), new RuleEvaluationOptions { ThrowOn = RuleSeverity.Error });
         BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(
-            () => BusinessRuleChecker.CheckAll(order, Rules(), new RuleEvaluationOptions { ThrowOn = RuleSeverity.Warning }));
+            () => BusinessRuleChecker.For(order).CheckAll(Rules(), new RuleEvaluationOptions { ThrowOn = RuleSeverity.Warning }));
 
         Assert.Equal(TooExpensiveCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -59,7 +103,7 @@ public class BusinessRuleCheckerTypedTests
         Order order = new Order(0, 500m);
 
         BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(
-            () => BusinessRuleChecker.CheckAll(order, Rules(), new BusinessRuleContext(), new RuleEvaluationOptions { StopOnFirstFailure = true }));
+            () => BusinessRuleChecker.For(order).CheckAll(Rules(), new BusinessRuleContext(), new RuleEvaluationOptions { StopOnFirstFailure = true }));
 
         Assert.Equal(NoItemsCode, Assert.Single(exception.BrokenRules).Code);
         Assert.Equal(new[] { RuleOutcome.Broken, RuleOutcome.NotEvaluated }, exception.Entries.Select(e => e.Outcome));
@@ -71,7 +115,7 @@ public class BusinessRuleCheckerTypedTests
         Order order = new Order(0, 10m);
         RecordingObserver observer = new RecordingObserver();
 
-        Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.CheckAll(order, Rules(), new RuleEvaluationOptions { Observer = observer }));
+        Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.For(order).CheckAll(Rules(), new RuleEvaluationOptions { Observer = observer }));
 
         Assert.Equal(new[] { NoItemsCode, TooExpensiveCode }, observer.Seen.Select(r => r.Code));
         Assert.All(observer.Seen, rule => Assert.Same(order, Assert.IsType<BoundBusinessRule<Order>>(rule).Subject));
@@ -83,7 +127,7 @@ public class BusinessRuleCheckerTypedTests
     {
         IEnumerable<IBusinessRule<Order>> rules = null!;
 
-        ArgumentNullException exception = Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.CheckAll(new Order(1, 1m), rules));
+        ArgumentNullException exception = Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.For(new Order(1, 1m)).CheckAll(rules));
 
         Assert.Equal("rules", exception.ParamName);
     }
@@ -93,7 +137,7 @@ public class BusinessRuleCheckerTypedTests
     {
         IBusinessRule<Order>[] rules = { NoItems(), null!, TooExpensive() };
 
-        ArgumentException exception = Assert.Throws<ArgumentException>(() => BusinessRuleChecker.CheckAll(new Order(1, 1m), rules));
+        ArgumentException exception = Assert.Throws<ArgumentException>(() => BusinessRuleChecker.For(new Order(1, 1m)).CheckAll(rules));
 
         Assert.Equal("rules", exception.ParamName);
         Assert.Contains("position 1", exception.Message);
@@ -102,13 +146,13 @@ public class BusinessRuleCheckerTypedTests
     [Fact]
     public void CheckAll_NullOptions_ThrowsArgumentNullException()
     {
-        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.CheckAll(new Order(1, 1m), Rules(), (RuleEvaluationOptions)null!));
+        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.For(new Order(1, 1m)).CheckAll(Rules(), (RuleEvaluationOptions)null!));
     }
 
     [Fact]
     public void CheckAll_EmptyRules_DoesNotThrow()
     {
-        BusinessRuleChecker.CheckAll(new Order(0, 0m), Array.Empty<IBusinessRule<Order>>());
+        BusinessRuleChecker.For(new Order(0, 0m)).CheckAll(Array.Empty<IBusinessRule<Order>>());
     }
 
     [Fact]
@@ -116,8 +160,8 @@ public class BusinessRuleCheckerTypedTests
     {
         IBusinessRule<int> negative = BusinessRuleBuilder<int>.Create("NEG").WithMessage("m").When(value => value < 0).Build();
 
-        BusinessRuleChecker.CheckAll(1, new[] { negative });
-        Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.CheckAll(-1, new[] { negative }));
+        BusinessRuleChecker.For(1).CheckAll(new[] { negative });
+        Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.For(-1).CheckAll(new[] { negative }));
     }
 
     // ---------------------------------------------------------------------
@@ -129,7 +173,7 @@ public class BusinessRuleCheckerTypedTests
     {
         Order order = new Order(0, 10m);
 
-        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(order, Rules());
+        RuleEvaluationResult result = BusinessRuleChecker.For(order).EvaluateAll(Rules());
 
         Assert.Equal(NoItemsCode, Assert.Single(result.BrokenRules).Code);
         Assert.Equal(2, result.Entries.Count);
@@ -140,7 +184,7 @@ public class BusinessRuleCheckerTypedTests
     [Fact]
     public void EvaluateAll_WithContext_ForwardsTheContext()
     {
-        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new Order(1, 50m), Rules(), RuleTestHelper.CreateContext((LimitKey, 40m)));
+        RuleEvaluationResult result = BusinessRuleChecker.For(new Order(1, 50m)).EvaluateAll(Rules(), RuleTestHelper.CreateContext((LimitKey, 40m)));
 
         Assert.Equal(TooExpensiveCode, Assert.Single(result.BrokenRules).Code);
     }
@@ -150,7 +194,7 @@ public class BusinessRuleCheckerTypedTests
     {
         IBusinessRule<Order>[] rules = { Throwing(), NoItems() };
 
-        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new Order(0, 1m), rules, new RuleEvaluationOptions { OnFault = FaultPolicy.Record });
+        RuleEvaluationResult result = BusinessRuleChecker.For(new Order(0, 1m)).EvaluateAll(rules, new RuleEvaluationOptions { OnFault = FaultPolicy.Record });
 
         Assert.Equal(ThrowingCode, Assert.Single(result.Faulted).Code);
         Assert.Equal(NoItemsCode, Assert.Single(result.BrokenRules).Code);
@@ -159,7 +203,7 @@ public class BusinessRuleCheckerTypedTests
     [Fact]
     public void EvaluateAll_WithContextAndOptions_NeverThrowsForBrokenRules()
     {
-        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new Order(0, 500m), Rules(), new BusinessRuleContext(), new RuleEvaluationOptions { ThrowOn = RuleSeverity.Info });
+        RuleEvaluationResult result = BusinessRuleChecker.For(new Order(0, 500m)).EvaluateAll(Rules(), new BusinessRuleContext(), new RuleEvaluationOptions { ThrowOn = RuleSeverity.Info });
 
         Assert.Equal(2, result.BrokenRules.Count);
     }
@@ -167,13 +211,13 @@ public class BusinessRuleCheckerTypedTests
     [Fact]
     public void EvaluateAll_NullRules_ThrowsArgumentNullException()
     {
-        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.EvaluateAll(new Order(1, 1m), (IEnumerable<IBusinessRule<Order>>)null!));
+        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.For(new Order(1, 1m)).EvaluateAll((IEnumerable<IBusinessRule<Order>>)null!));
     }
 
     [Fact]
     public void EvaluateAll_EmptyRules_ReturnsEmptyResult()
     {
-        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new Order(1, 1m), Array.Empty<IBusinessRule<Order>>());
+        RuleEvaluationResult result = BusinessRuleChecker.For(new Order(1, 1m)).EvaluateAll(Array.Empty<IBusinessRule<Order>>());
 
         Assert.True(result.AllPassed);
         Assert.Empty(result.Entries);
@@ -185,7 +229,7 @@ public class BusinessRuleCheckerTypedTests
         IBusinessRule<object> notNull = BusinessRuleBuilder<object>.Create("NULL").WithMessage("m").When(value => value == null).Build();
         IEnumerable<IBusinessRule<Order>> rules = new List<IBusinessRule<object>> { notNull };
 
-        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(new Order(1, 1m), rules);
+        RuleEvaluationResult result = BusinessRuleChecker.For(new Order(1, 1m)).EvaluateAll(rules);
 
         Assert.True(result.AllPassed);
     }
@@ -209,8 +253,8 @@ public class BusinessRuleCheckerTypedTests
     {
         Order order = new Order(0, 500m);
 
-        BusinessRuleChecker.CheckBySeverity(order, Rules(), RuleSeverity.Info);
-        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.CheckBySeverity(order, Rules(), RuleSeverity.Warning));
+        BusinessRuleChecker.For(order).CheckBySeverity(Rules(), RuleSeverity.Info);
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.For(order).CheckBySeverity(Rules(), RuleSeverity.Warning));
 
         Assert.Equal(TooExpensiveCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -220,8 +264,8 @@ public class BusinessRuleCheckerTypedTests
     {
         Order order = new Order(0, 500m);
 
-        BusinessRuleChecker.CheckByCategory(order, Rules(), "Nothing");
-        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.CheckByCategory(order, Rules(), "Money"));
+        BusinessRuleChecker.For(order).CheckByCategory(Rules(), "Nothing");
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.For(order).CheckByCategory(Rules(), "Money"));
 
         Assert.Equal(TooExpensiveCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -231,8 +275,8 @@ public class BusinessRuleCheckerTypedTests
     {
         Order order = new Order(0, 500m);
 
-        BusinessRuleChecker.CheckByTags(order, Rules(), "nothing");
-        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.CheckByTags(order, Rules(), "ITEMS"));
+        BusinessRuleChecker.For(order).CheckByTags(Rules(), "nothing");
+        BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.For(order).CheckByTags(Rules(), "ITEMS"));
 
         Assert.Equal(NoItemsCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -243,9 +287,9 @@ public class BusinessRuleCheckerTypedTests
         IEnumerable<IBusinessRule<Order>> rules = null!;
         Order order = new Order(1, 1m);
 
-        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.CheckBySeverity(order, rules, RuleSeverity.Error));
-        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.CheckByCategory(order, rules, "Money"));
-        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.CheckByTags(order, rules, "items"));
+        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.For(order).CheckBySeverity(rules, RuleSeverity.Error));
+        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.For(order).CheckByCategory(rules, "Money"));
+        Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.For(order).CheckByTags(rules, "items"));
     }
 
     // ---------------------------------------------------------------------

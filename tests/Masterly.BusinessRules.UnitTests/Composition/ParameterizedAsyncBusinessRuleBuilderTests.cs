@@ -435,7 +435,7 @@ public class ParameterizedAsyncBusinessRuleBuilderTests
             .WhenAsync((amount, ctx, p, ct) => Task.FromResult(amount > p.Get<decimal>(LimitName)))
             .Build();
 
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(RuleTestHelper.CreateContext((RuleParameters.ScopeKey, Acme)), GlobalLimit + 1, new[] { rule }, cancellationToken: TestToken);
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(GlobalLimit + 1).EvaluateAllAsync(RuleTestHelper.CreateContext((RuleParameters.ScopeKey, Acme)), new[] { rule }, cancellationToken: TestToken);
 
         Assert.True(result.AllPassed);
     }

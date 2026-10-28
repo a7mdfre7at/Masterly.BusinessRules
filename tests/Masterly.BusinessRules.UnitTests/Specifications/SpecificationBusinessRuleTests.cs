@@ -274,7 +274,7 @@ public class SpecificationBusinessRuleTests
         ISpecificationRule<Order>[] rules = { new OrderIsOverdueRule(), new OrderIsBigRule() };
 
         BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(
-            () => BusinessRuleChecker.CheckAll(SpecificationSamples.OverdueBig(), rules));
+            () => BusinessRuleChecker.For(SpecificationSamples.OverdueBig()).CheckAll(rules));
 
         Assert.Equal(new[] { OrderIsOverdueRule.RuleCode, OrderIsBigRule.RuleCode }, exception.BrokenRules.Select(r => r.Code));
     }
@@ -284,7 +284,7 @@ public class SpecificationBusinessRuleTests
     {
         ISpecificationRule<Order>[] rules = { new OrderIsOverdueRule(), new OrderIsBigRule() };
 
-        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(SpecificationSamples.CurrentSmall(), rules);
+        RuleEvaluationResult result = BusinessRuleChecker.For(SpecificationSamples.CurrentSmall()).EvaluateAll(rules);
 
         Assert.True(result.AllPassed);
         Assert.Equal(2, result.PassedRules.Count);

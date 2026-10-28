@@ -311,7 +311,7 @@ public class TypedCompositionTests
 
         Assert.Throws<BusinessRuleValidationException>(() => composed.For(500).Check());
         composed.For(50).Check();
-        Assert.Equal("BIG+HUGE", Assert.Single(BusinessRuleChecker.EvaluateAll(500, new[] { composed }).BrokenRules).Code);
+        Assert.Equal("BIG+HUGE", Assert.Single(BusinessRuleChecker.For(500).EvaluateAll(new[] { composed }).BrokenRules).Code);
     }
 
     [Fact]

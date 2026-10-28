@@ -7,6 +7,9 @@ namespace Masterly.BusinessRules
     /// <remarks>
     /// Fail-fast and parallel evaluation are mutually exclusive: when <see cref="StopOnFirstFailure"/> is true the
     /// batch is evaluated sequentially even if <see cref="RunInParallel"/> is also true.
+    /// <para>The class is not sealed because the checker overloads that take it constrain a type parameter to it
+    /// (<c>where TOptions : AsyncRuleEvaluationOptions</c>): a bare <c>null</c> or <c>default</c> argument cannot infer
+    /// that parameter, so it keeps binding to the 2.x boolean and token overloads instead of this options form.</para>
     /// </remarks>
     /// <example>
     /// <code>
@@ -18,7 +21,7 @@ namespace Masterly.BusinessRules
     /// }, cancellationToken);
     /// </code>
     /// </example>
-    public sealed class AsyncRuleEvaluationOptions
+    public class AsyncRuleEvaluationOptions
     {
         /// <summary>
         /// Gets or sets whether the batch stops at the first broken rule. In <c>CheckAllAsync</c> only a rule at or above

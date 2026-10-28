@@ -1,8 +1,9 @@
 namespace Masterly.BusinessRules.UnitTests;
 
 /// <summary>
-/// The params forms of the typed checkers (rules of different classes listed directly) and the token-free filtered
-/// async overloads, plus the overload-resolution cases they must not disturb.
+/// The params forms of the subject checkers (<c>For(subject)</c> with rules of different classes listed directly) and
+/// the filtered async overloads with their severities or tags after the token, plus the overload-resolution cases they
+/// must not disturb.
 /// </summary>
 public class BusinessRuleCheckerParamsOverloadTests
 {
@@ -10,7 +11,7 @@ public class BusinessRuleCheckerParamsOverloadTests
     public void CheckAll_SubjectWithRulesOfDifferentClasses_ThrowsWithTheBrokenCodes()
     {
         BusinessRuleValidationException exception = Assert.Throws<BusinessRuleValidationException>(
-            () => BusinessRuleChecker.CheckAll(50, new OverLimitRule(10), new NegativeRule()));
+            () => BusinessRuleChecker.For(50).CheckAll(new OverLimitRule(10), new NegativeRule()));
 
         Assert.Equal(OverLimitRule.RuleCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -18,7 +19,7 @@ public class BusinessRuleCheckerParamsOverloadTests
     [Fact]
     public void CheckAll_SubjectWithPassingRules_DoesNotThrow()
     {
-        Exception? exception = Record.Exception(() => BusinessRuleChecker.CheckAll(5, new OverLimitRule(10), new NegativeRule()));
+        Exception? exception = Record.Exception(() => BusinessRuleChecker.For(5).CheckAll(new OverLimitRule(10), new NegativeRule()));
 
         Assert.Null(exception);
     }
@@ -26,13 +27,13 @@ public class BusinessRuleCheckerParamsOverloadTests
     [Fact]
     public void CheckAll_SubjectWithASingleTypedRule_ChecksIt()
     {
-        Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.CheckAll(-1, new NegativeRule()));
+        Assert.Throws<BusinessRuleValidationException>(() => BusinessRuleChecker.For(-1).CheckAll(new NegativeRule()));
     }
 
     [Fact]
     public void EvaluateAll_SubjectWithRulesOfDifferentClasses_ReportsEveryRuleInOrder()
     {
-        RuleEvaluationResult result = BusinessRuleChecker.EvaluateAll(-5, new NegativeRule(), new OverLimitRule(10));
+        RuleEvaluationResult result = BusinessRuleChecker.For(-5).EvaluateAll(new NegativeRule(), new OverLimitRule(10));
 
         Assert.Equal(new[] { NegativeRule.RuleCode, OverLimitRule.RuleCode }, result.Entries.Select(entry => entry.Code));
         Assert.Equal(NegativeRule.RuleCode, Assert.Single(result.BrokenRules).Code);
@@ -58,7 +59,7 @@ public class BusinessRuleCheckerParamsOverloadTests
     [Fact]
     public void CheckAll_ParamsWithANullRule_ThrowsArgumentExceptionNamingThePosition()
     {
-        ArgumentException exception = Assert.Throws<ArgumentException>(() => BusinessRuleChecker.CheckAll(1, new NegativeRule(), (IBusinessRule<int>)null!));
+        ArgumentException exception = Assert.Throws<ArgumentException>(() => BusinessRuleChecker.For(1).CheckAll(new NegativeRule(), (IBusinessRule<int>)null!));
 
         Assert.Equal("rules", exception.ParamName);
         Assert.Contains("position 1", exception.Message);
@@ -67,7 +68,7 @@ public class BusinessRuleCheckerParamsOverloadTests
     [Fact]
     public void EvaluateAll_ParamsWithANullArray_ThrowsArgumentNullException()
     {
-        ArgumentNullException exception = Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.EvaluateAll(1, new NegativeRule(), (IBusinessRule<int>[])null!));
+        ArgumentNullException exception = Assert.Throws<ArgumentNullException>(() => BusinessRuleChecker.For(1).EvaluateAll(new NegativeRule(), (IBusinessRule<int>[])null!));
 
         Assert.Equal("others", exception.ParamName);
     }
@@ -116,7 +117,7 @@ public class AsyncBusinessRuleCheckerParamsOverloadTests
     public async Task CheckAllAsync_SubjectWithRulesOfDifferentClasses_ThrowsWithTheBrokenCodes()
     {
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckAllAsync(new BusinessRuleContext(), 50, new OverLimitAsyncRule(10), new NegativeAsyncRule()));
+            () => AsyncBusinessRuleChecker.For(50).CheckAllAsync(new BusinessRuleContext(), new OverLimitAsyncRule(10), new NegativeAsyncRule()));
 
         Assert.Equal(OverLimitAsyncRule.RuleCode, Assert.Single(exception.BrokenRules).Code);
     }
@@ -124,7 +125,7 @@ public class AsyncBusinessRuleCheckerParamsOverloadTests
     [Fact]
     public async Task EvaluateAllAsync_SubjectWithRulesOfDifferentClasses_ReportsEveryRuleInOrder()
     {
-        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), -5, new NegativeAsyncRule(), new OverLimitAsyncRule(10));
+        AsyncRuleEvaluationResult result = await AsyncBusinessRuleChecker.For(-5).EvaluateAllAsync(new BusinessRuleContext(), new NegativeAsyncRule(), new OverLimitAsyncRule(10));
 
         Assert.Equal(new[] { NegativeAsyncRule.RuleCode, OverLimitAsyncRule.RuleCode }, result.Entries.Select(entry => entry.Code));
         Assert.Equal(NegativeAsyncRule.RuleCode, Assert.Single(result.BrokenRules).Code);
@@ -142,24 +143,24 @@ public class AsyncBusinessRuleCheckerParamsOverloadTests
     [Fact]
     public async Task CheckAllAsync_ParamsWithANullContext_ThrowsArgumentNullException()
     {
-        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.CheckAllAsync(null!, 1, new NegativeAsyncRule(), new OverLimitAsyncRule(1)));
+        await Assert.ThrowsAsync<ArgumentNullException>(() => AsyncBusinessRuleChecker.For(1).CheckAllAsync(null!, new NegativeAsyncRule(), new OverLimitAsyncRule(1)));
     }
 
     [Fact]
     public async Task EvaluateAllAsync_ParamsWithANullRule_ThrowsArgumentExceptionNamingThePosition()
     {
-        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(() => AsyncBusinessRuleChecker.EvaluateAllAsync(new BusinessRuleContext(), 1, new NegativeAsyncRule(), (IAsyncBusinessRule<int>)null!));
+        ArgumentException exception = await Assert.ThrowsAsync<ArgumentException>(() => AsyncBusinessRuleChecker.For(1).EvaluateAllAsync(new BusinessRuleContext(), new NegativeAsyncRule(), (IAsyncBusinessRule<int>)null!));
 
         Assert.Equal("rules", exception.ParamName);
     }
 
     [Fact]
-    public async Task CheckByTagsAsync_TagsListedAfterTheRules_ChecksOnlyTheTaggedRules()
+    public async Task CheckByTagsAsync_TagsListedAfterTheToken_ChecksOnlyTheTaggedRules()
     {
         IAsyncBusinessRule[] rules = { Tagged("PCI.RULE", Pci), Tagged("GDPR.RULE", Gdpr), Tagged("OTHER.RULE", "other") };
 
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckByTagsAsync(new BusinessRuleContext(), rules, Pci, Gdpr));
+            () => AsyncBusinessRuleChecker.CheckByTagsAsync(new BusinessRuleContext(), rules, TestToken, Pci, Gdpr));
 
         Assert.Equal(new[] { "PCI.RULE", "GDPR.RULE" }, exception.BrokenRules.Select(result => result.Code));
     }
@@ -169,7 +170,7 @@ public class AsyncBusinessRuleCheckerParamsOverloadTests
     {
         IAsyncBusinessRule[] rules = { Tagged("PCI.RULE", Pci) };
 
-        Exception? exception = await Record.ExceptionAsync(() => AsyncBusinessRuleChecker.CheckByTagsAsync(new BusinessRuleContext(), rules));
+        Exception? exception = await Record.ExceptionAsync(() => AsyncBusinessRuleChecker.CheckByTagsAsync(new BusinessRuleContext(), rules, TestToken));
 
         Assert.Null(exception);
     }
@@ -185,33 +186,33 @@ public class AsyncBusinessRuleCheckerParamsOverloadTests
     }
 
     [Fact]
-    public async Task TypedCheckByTagsAsync_TagsListedAfterTheRules_ChecksOnlyTheTaggedRules()
+    public async Task SubjectCheckByTagsAsync_TagsListedAfterTheToken_ChecksOnlyTheTaggedRules()
     {
         IAsyncBusinessRule<int>[] rules = { TypedTagged("PCI.RULE", Pci), TypedTagged("OTHER.RULE", "other") };
 
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckByTagsAsync(new BusinessRuleContext(), 1, rules, Pci));
+            () => AsyncBusinessRuleChecker.For(1).CheckByTagsAsync(new BusinessRuleContext(), rules, TestToken, Pci));
 
         Assert.Equal("PCI.RULE", Assert.Single(exception.BrokenRules).Code);
     }
 
     [Fact]
-    public async Task TypedCheckBySeverityAsync_SeveritiesListedAfterTheRules_ChecksOnlyThoseSeverities()
+    public async Task SubjectCheckBySeverityAsync_SeveritiesListedAfterTheToken_ChecksOnlyThoseSeverities()
     {
         IAsyncBusinessRule<int>[] rules = { TypedWithSeverity("WARN.RULE", RuleSeverity.Warning), TypedWithSeverity("ERR.RULE", RuleSeverity.Error) };
 
         BusinessRuleValidationException exception = await Assert.ThrowsAsync<BusinessRuleValidationException>(
-            () => AsyncBusinessRuleChecker.CheckBySeverityAsync(new BusinessRuleContext(), 1, rules, RuleSeverity.Error, RuleSeverity.Info));
+            () => AsyncBusinessRuleChecker.For(1).CheckBySeverityAsync(new BusinessRuleContext(), rules, TestToken, RuleSeverity.Error, RuleSeverity.Info));
 
         Assert.Equal("ERR.RULE", Assert.Single(exception.BrokenRules).Code);
     }
 
     [Fact]
-    public async Task TypedCheckBySeverityAsync_TokenThenSeverities_StillBindsToTheTokenOverload()
+    public async Task SubjectCheckBySeverityAsync_TokenThenSeverities_FiltersBySeverity()
     {
         IAsyncBusinessRule<int>[] rules = { TypedWithSeverity("WARN.RULE", RuleSeverity.Warning) };
 
-        Exception? exception = await Record.ExceptionAsync(() => AsyncBusinessRuleChecker.CheckBySeverityAsync(new BusinessRuleContext(), 1, rules, TestToken, RuleSeverity.Error));
+        Exception? exception = await Record.ExceptionAsync(() => AsyncBusinessRuleChecker.For(1).CheckBySeverityAsync(new BusinessRuleContext(), rules, TestToken, RuleSeverity.Error));
 
         Assert.Null(exception);
     }
