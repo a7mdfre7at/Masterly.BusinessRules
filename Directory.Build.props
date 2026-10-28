@@ -9,13 +9,34 @@
   <PropertyGroup>
     <Version>3.0.0</Version>
     <Authors>Ahmad Omar Al-Freihat</Authors>
+    <Copyright>Copyright (c) 2025-2026 Ahmad Omar Al-Freihat</Copyright>
     <PackageProjectUrl>https://github.com/a7mdfre7at/Masterly.BusinessRules</PackageProjectUrl>
     <RepositoryUrl>https://github.com/a7mdfre7at/Masterly.BusinessRules</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReleaseNotes>Release notes for version $(Version): https://github.com/a7mdfre7at/Masterly.BusinessRules/blob/master/CHANGELOG.md</PackageReleaseNotes>
     <PackageIcon>repo_image.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <!-- The packed README.md. A companion package overrides this with its own src/<Package>/README.md. -->
+    <PackageReadmeSource>$(MSBuildThisFileDirectory)README.md</PackageReadmeSource>
     <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <!--
+    Symbols and reproducible builds. SourceLink for GitHub ships with the .NET 8+ SDK, so no package reference is needed.
+    ContinuousIntegrationBuild normalises the PDB source paths, so it is on only in GitHub Actions: local builds keep
+    real paths for debugging.
+  -->
+  <PropertyGroup>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <Deterministic>true</Deterministic>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <!-- Every packed project ships its XML documentation so consumers get IntelliSense; test projects do not need it. -->
@@ -23,9 +44,9 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!-- Items are evaluated after every property, so a PackageReadmeSource set in a .csproj takes effect here. -->
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
-    <None Include="$(MSBuildThisFileDirectory)LICENSE.txt" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(PackageReadmeSource)" Pack="true" PackagePath="\README.md" Visible="false" />
     <None Include="$(MSBuildThisFileDirectory)repo_image.png" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
 

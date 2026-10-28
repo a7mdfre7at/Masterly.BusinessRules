@@ -2,6 +2,8 @@
 
   <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
   <PropertyGroup>
+    <!-- This package ships its own README.md; only the core package packs the repository README.md. -->
+    <PackageReadmeSource>$(MSBuildProjectDirectory)/README.md</PackageReadmeSource>
     <TargetFramework>netstandard2.1</TargetFramework>
     <Description>Microsoft.FeatureManagement adapter supplying Masterly.BusinessRules feature-gated rules with their rollout state.</Description>
     <PackageTags>Rule;Business;Engine;FeatureManagement;FeatureFlags;Rollout;Masterly;Csharp;DotNet</PackageTags>

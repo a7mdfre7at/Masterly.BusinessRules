@@ -7,6 +7,12 @@ on:
   pull_request:
     branches: [master]
 
+# One Build per ref at a time. A newer push to a pull request cancels the older run; master runs are never cancelled,
+# because a successful master Build is what triggers publish.yml.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -44,5 +50,6 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         with:
           directory: ./TestResults
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
         continue-on-error: true

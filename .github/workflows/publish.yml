@@ -7,17 +7,25 @@ on:
     branches: [master]
     types: [completed]
 
+# Two publish runs never overlap, so package pushes and the GitHub Release cannot race. A run that has started is
+# never cancelled: a half-finished push is repaired only by a later complete run.
+concurrency:
+  group: publish-nuget
+  cancel-in-progress: false
+
 env:
   NUGET_SOURCE: https://api.nuget.org/v3/index.json
   PACKAGE_OUTPUT: artifacts/packages
+  # The core package is pushed first, so a sibling never reaches nuget.org without the core version it depends on.
+  CORE_PACKAGE_ID: Masterly.BusinessRules
 
 jobs:
   publish:
     name: Publish to NuGet
     runs-on: ubuntu-latest
     # Only a successful Build of a push to master publishes: a pull_request Build (including one from a fork's own
-    # 'master' branch) never reaches the NuGet key.
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master') }}
+    # 'master' branch) never reaches the NuGet key. A manual run publishes only from master, and runs the tests itself.
+    if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master') }}
     permissions:
       contents: write
     env:
@@ -30,10 +38,13 @@ jobs:
         with:
           ref: ${{ env.PUBLISH_SHA }}
 
+      # The same SDKs as build.yml: the solution build includes the net8.0 Testing test project.
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Cache NuGet packages
         uses: actions/cache@v6
@@ -58,25 +69,20 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Resolved package version: $VERSION"
 
-      - name: Check whether release tag already exists
-        id: tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          if git ls-remote --exit-code --tags origin "refs/tags/v${{ steps.version.outputs.version }}" > /dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Tag v${{ steps.version.outputs.version }} already exists; the GitHub Release step will be skipped."
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Restore dependencies
         run: dotnet restore
 
+      # The whole solution, as the Build workflow built and tested it.
       - name: Build
         run: dotnet build --configuration Release --no-restore
 
-      # Every project under src/ is packed; projects that set IsPackable=false produce nothing.
+      # A workflow_run publish follows a green Build of this exact commit; a manual run has no such Build, so it tests here.
+      - name: Test (manual run only)
+        if: github.event_name == 'workflow_dispatch'
+        run: dotnet test --solution Masterly.BusinessRules.sln --configuration Release --no-build
+
+      # Only the projects under src/ ship; projects that set IsPackable=false produce nothing.
+      # Each package gets a sibling .snupkg symbol package.
       - name: Pack all packable projects under src/
         shell: bash
         run: |
@@ -86,22 +92,40 @@ jobs:
             dotnet pack "$project" --configuration Release --no-build --output "$PACKAGE_OUTPUT"
           done
           echo "Packages produced:"
-          ls -1 "$PACKAGE_OUTPUT"/*.nupkg
+          ls -1 "$PACKAGE_OUTPUT"/*.nupkg "$PACKAGE_OUTPUT"/*.snupkg
 
+      # Core first, then the siblings in sorted order, one push each. Pushing a .nupkg also pushes the .snupkg next to
+      # it, so the symbol packages are not listed separately (the *.nupkg glob does not match *.snupkg).
+      # --skip-duplicate makes a re-run after a partial failure push only what is missing.
       - name: Push packages to NuGet
         shell: bash
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
         run: |
           set -euo pipefail
-          dotnet nuget push "$PACKAGE_OUTPUT/*.nupkg" \
-            --api-key "$NUGET_API_KEY" \
-            --source "$NUGET_SOURCE" \
-            --skip-duplicate
+          VERSION="${{ steps.version.outputs.version }}"
+          CORE_PACKAGE="$PACKAGE_OUTPUT/$CORE_PACKAGE_ID.$VERSION.nupkg"
+          if [ ! -f "$CORE_PACKAGE" ]; then
+            echo "::error::Core package $CORE_PACKAGE was not produced."
+            exit 1
+          fi
+          PUSH_LIST=("$CORE_PACKAGE")
+          while IFS= read -r package; do
+            if [ "$package" != "$CORE_PACKAGE" ]; then
+              PUSH_LIST+=("$package")
+            fi
+          done < <(printf '%s\n' "$PACKAGE_OUTPUT"/*.nupkg | LC_ALL=C sort)
+          echo "Push order:"
+          printf '  %s\n' "${PUSH_LIST[@]}"
+          for package in "${PUSH_LIST[@]}"; do
+            dotnet nuget push "$package" \
+              --api-key "$NUGET_API_KEY" \
+              --source "$NUGET_SOURCE" \
+              --skip-duplicate
+          done
 
       # The release body is only this version's CHANGELOG section, not the whole history.
       - name: Extract this version's release notes
-        if: steps.tag.outputs.exists == 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -112,18 +136,38 @@ jobs:
             exit 1
           fi
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        if: steps.tag.outputs.exists == 'false'
-        with:
-          name: Release v${{ steps.version.outputs.version }}
-          tag_name: v${{ steps.version.outputs.version }}
-          target_commitish: ${{ env.PUBLISH_SHA }}
-          body_path: release-notes.md
-          generate_release_notes: false
-          files: artifacts/packages/*.nupkg
+      # Idempotent: creates the release when it does not exist, otherwise uploads only the assets it is missing (an
+      # earlier run that failed mid-upload). Existing assets are never replaced, so a later commit at the same version
+      # cannot swap the released packages for different builds.
+      - name: Create or complete the GitHub Release
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TAG="v${{ steps.version.outputs.version }}"
+          ASSETS=("$PACKAGE_OUTPUT"/*.nupkg "$PACKAGE_OUTPUT"/*.snupkg)
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            EXISTING="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+            MISSING=()
+            for asset in "${ASSETS[@]}"; do
+              if ! grep -Fxq -- "$(basename "$asset")" <<< "$EXISTING"; then
+                MISSING+=("$asset")
+              fi
+            done
+            if [ "${#MISSING[@]}" -eq 0 ]; then
+              echo "Release $TAG already has every asset; nothing to do."
+            else
+              echo "Release $TAG exists; uploading ${#MISSING[@]} missing asset(s)."
+              gh release upload "$TAG" "${MISSING[@]}"
+            fi
+          else
+            gh release create "$TAG" "${ASSETS[@]}" \
+              --title "Release $TAG" \
+              --notes-file release-notes.md \
+              --target "$PUBLISH_SHA"
+          fi
 
   on-failure:
     name: Build Failed

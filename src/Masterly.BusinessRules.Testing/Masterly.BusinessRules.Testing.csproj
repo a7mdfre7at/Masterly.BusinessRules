@@ -2,6 +2,8 @@
 
   <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
   <PropertyGroup>
+    <!-- This package ships its own README.md; only the core package packs the repository README.md. -->
+    <PackageReadmeSource>$(MSBuildProjectDirectory)/README.md</PackageReadmeSource>
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <Description>Testing utilities for Masterly.BusinessRules: outcome coverage, boundary finder and CsCheck-backed rule properties.</Description>
     <PackageTags>Rule;Business;Engine;Testing;Coverage;PropertyBased;CsCheck;Masterly;Csharp;DotNet</PackageTags>
