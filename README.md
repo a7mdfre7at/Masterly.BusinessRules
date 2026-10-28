@@ -113,7 +113,7 @@ Install-Package Masterly.BusinessRules
 | `Masterly.BusinessRules.Diagnostics` | `netstandard2.1` | `Microsoft.Extensions.Logging.Abstractions`, `System.Diagnostics.DiagnosticSource` |
 | `Masterly.BusinessRules.DependencyInjection` | `netstandard2.1` | `Microsoft.Extensions.DependencyInjection.Abstractions` |
 | `Masterly.BusinessRules.FeatureManagement` | `netstandard2.1` | `Microsoft.FeatureManagement` |
-| `Masterly.BusinessRules.Testing` | `net8.0` (CsCheck ships no .NET Standard build, and the boundary finder uses `INumber<T>`) | `CsCheck` |
+| `Masterly.BusinessRules.Testing` | `net8.0`, `net10.0` (CsCheck ships no .NET Standard build, and the boundary finder uses `INumber<T>`) | `CsCheck` (4.9.1 on `net8.0`, 5.0.0 on `net10.0`) |
 
 Each companion package is documented in its own section of this README.
 
@@ -2022,7 +2022,7 @@ How each outcome surfaces:
 
 Neither of the last two is reported as a failed law. There are no deterministic or idempotent laws, because they don't hold for repository-backed async rules or for `CachedBusinessRule`.
 
-> **CsCheck caveat:** in CsCheck 4.9.1, `Gen.Decimal[start, finish]` can't generate values when a bound is exactly `0m`; it fails with "Failing Where max count". `Verify` reports this as an `InvalidOperationException`. Use a bound such as `0.01m`, or build amounts from an integer generator: `Gen.Long[0L, 10_000_000L].Select(cents => cents / 100m)`.
+> **CsCheck caveat (`net8.0` only):** CsCheck 5 dropped `net8.0`, so `net8.0` projects get CsCheck 4.9.1. In that version `Gen.Decimal[start, finish]` can't generate values when a bound is exactly `0m`; it fails with "Failing Where max count". `Verify` reports this as an `InvalidOperationException`. Use a bound such as `0.01m`, or build amounts from an integer generator: `Gen.Long[0L, 10_000_000L].Select(cents => cents / 100m)`.
 
 **Smoke-mode mutants.** `.Invert()`, `.AlwaysPass()` and `.DowngradeSeverity()` (sync and async) wrap a rule so it misbehaves in a known way while keeping its `Code`, `Message` and other metadata:
 

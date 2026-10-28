@@ -2,7 +2,7 @@
 
   <!-- Version, authors, repository, licence, icon and packed files come from Directory.Build.props. -->
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <Description>Testing utilities for Masterly.BusinessRules: outcome coverage, boundary finder and CsCheck-backed rule properties.</Description>
     <PackageTags>Rule;Business;Engine;Testing;Coverage;PropertyBased;CsCheck;Masterly;Csharp;DotNet</PackageTags>
   </PropertyGroup>
@@ -11,8 +11,13 @@
     <ProjectReference Include="..\Masterly.BusinessRules\Masterly.BusinessRules.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
+  <!-- CsCheck 5 ships only net10.0+ assets, so net8.0 consumers stay on the 4.x line. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0'">
     <PackageReference Include="CsCheck" Version="4.9.1" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+    <PackageReference Include="CsCheck" Version="5.0.0" />
   </ItemGroup>
 
 </Project>

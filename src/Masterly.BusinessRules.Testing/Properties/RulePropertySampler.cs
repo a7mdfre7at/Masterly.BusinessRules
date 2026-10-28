@@ -10,8 +10,7 @@ namespace Masterly.BusinessRules.Testing
     /// contexts are not thread-safe) and driven by one <see cref="PCG"/> seeded from the caller's integer seed, so a run
     /// with the same seed is fully reproducible. Once a counter-example is found, later inputs are only evaluated when
     /// their CsCheck <see cref="Size"/> is smaller, so the reported counter-example is the smallest one seen.
-    /// <see cref="Check.Sample{T}(Gen{T}, Action{T}, Action{string}, string, long, int, int, Func{T, string}, ILogger)"/>
-    /// is not used because its seed only fixes the first iteration and it hides the original exception.
+    /// CsCheck's <c>Check.Sample</c> is not used because its seed only fixes the first iteration and it hides the original exception.
     /// Cancellation surfaces as <see cref="OperationCanceledException"/> and a misconfigured set (including a generator
     /// that cannot produce a value) as <see cref="RulePropertySetupException"/>, never as a failed law.
     /// </summary>

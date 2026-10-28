@@ -121,7 +121,7 @@ Namespace `Masterly.BusinessRules.Expressions`; `netstandard2.1`; depends on the
 
 #### Masterly.BusinessRules.Diagnostics
 
-Namespace `Masterly.BusinessRules.Diagnostics`; `netstandard2.1`; depends on Microsoft.Extensions.Logging.Abstractions 8.0.3 and System.Diagnostics.DiagnosticSource 8.0.1.
+Namespace `Masterly.BusinessRules.Diagnostics`; `netstandard2.1`; depends on Microsoft.Extensions.Logging.Abstractions 10.0.14 and System.Diagnostics.DiagnosticSource 10.0.14.
 
 - `LoggingRuleExecutionObserver` / `LoggingAsyncRuleExecutionObserver`: one structured `ILogger` line per rule (`RuleCode`, `RuleName`, `Category`, `Severity`, `Outcome`, `ElapsedMs`, `Message`) plus batch, fault and shadow lines, generated with `[LoggerMessage]`; `RuleLogEvents` (`RuleBroken` 1 … `ShadowViolation` 6) and `LoggingRuleObserverOptions` (`LogPassedRules`, `PassedLevel`, `BrokenLevelBySeverity`, `DefaultBrokenLevel`, `BrokenLevelFor`, `FaultedLevel`, `LogBatches`, `BatchLevel`, `ShadowViolationLevel`, `IncludeMessage`, `RedactedMessage`)
 - `TracingRuleExecutionObserver` / `TracingAsyncRuleExecutionObserver`: a `BusinessRules.Batch` span with a `BusinessRule.Evaluate` child per rule from the `ActivitySource` `Masterly.BusinessRules` (`BusinessRulesActivitySource`), attributes and events in `BusinessRuleSpanAttributes`, and the rule span as `Activity.Current` while the rule runs; `TracingRuleObserverOptions` (`MessageAsEvent`, `CodeTagSelector` with the default `LeafCodeTagSelector`, `RecordMetrics`, `Metrics`)
@@ -131,7 +131,7 @@ Namespace `Masterly.BusinessRules.Diagnostics`; `netstandard2.1`; depends on Mic
 
 #### Masterly.BusinessRules.DependencyInjection
 
-Namespace `Masterly.BusinessRules.DependencyInjection`; `netstandard2.1`; depends on Microsoft.Extensions.DependencyInjection.Abstractions 8.0.2.
+Namespace `Masterly.BusinessRules.DependencyInjection`; `netstandard2.1`; depends on Microsoft.Extensions.DependencyInjection.Abstractions 10.0.14.
 
 - `services.AddBusinessRules(params Assembly[])` / `services.AddBusinessRules(Action<BusinessRuleOptions>)`: deterministic assembly scanning for `IBusinessRule<T>` / `IAsyncBusinessRule<T>` (and, with `IncludeUntypedRules = true`, plain `IBusinessRule` / `IAsyncBusinessRule`; off by default because a plain rule that takes its subject in the constructor cannot be built by the container and would fail `ValidateOnBuild`) types registered with `TryAddEnumerable`, plus `IRuleRunner<>` and `IRuleRegistry` with `TryAdd`; `BusinessRuleOptions` (`Lifetime`, `IncludeNonPublicTypes`, `IncludeUntypedRules`, `TypeFilter`, `AddAssembly`, `AddAssemblies`, `AddAssemblyContaining<T>`, `Assemblies`, `AddRuleSet`, `RuleSetCount`)
 - `IRuleRunner<TSubject>` / `RuleRunner<TSubject>` (`Rules`, `AsyncRules`, `HasAsyncRules` (on the interface), `CheckAll`, `EvaluateAll`, `CheckAllAsync`, `EvaluateAllAsync`), projecting onto the typed checker overloads
@@ -149,7 +149,7 @@ Namespace `Masterly.BusinessRules.FeatureManagement`; `netstandard2.1`; depends 
 
 #### Masterly.BusinessRules.Testing
 
-Namespace `Masterly.BusinessRules.Testing`; `net8.0` (CsCheck ships no .NET Standard build and the boundary finder uses `INumber<T>`); depends on CsCheck 4.9.1.
+Namespace `Masterly.BusinessRules.Testing`; `net8.0` and `net10.0` (CsCheck ships no .NET Standard build and the boundary finder uses `INumber<T>`); depends on CsCheck 4.9.1 on `net8.0` and CsCheck 5.0.0 on `net10.0` (CsCheck 5 ships only `net10.0`+ assets and fixes the zero-bound `Gen.Decimal` failure).
 
 - Outcome coverage: `RuleCoverage.Begin()` → `RuleCoverageSession` (`Register`, `Record`, `Report`, `Reset`, `RuleCount`, `IsEnded`), `rule.WithCoverage(session)` → `CoverageBusinessRule` / `CoverageAsyncBusinessRule`, `RuleCoverageReport` (`Entries`, `OutcomeCoverage`, `NeverBroken`, `NeverPassed`, `NeverEvaluated`, `Find`, `ToText`, `AssertMinimum`) and `RuleCoverageEntry`. The decorators implement the core `IExplainableDecoratedBusinessRule` / `IExplainableDecoratedAsyncBusinessRule` seam: they record through the single walker evaluation inside compositions and groups, and appear as `COVERAGE` nodes over the wrapped rule's own explanation tree
 - Boundary finder: `RuleBoundaryFinder.Find<T>(factory, from, to, step)` / `FindAsync<T>(..., ct)` for `T : INumber<T>`, returning `RuleBoundary<T>` (`LastPassing`, `FirstBroken`, `Monotonicity`, `ProbeCount`, `Step`; `ToString()` renders `passes up to 10000.00, breaks from 10000.01 (… probes)`) and throwing `RuleAssertionException` for a non-monotone or flat range; `Monotonicity` (`BrokenAbove`, `BrokenBelow`)
@@ -158,6 +158,9 @@ Namespace `Masterly.BusinessRules.Testing`; `net8.0` (CsCheck ships no .NET Stan
 
 ### Changed
 
+- Dependencies bumped to their latest stable versions: Microsoft.Extensions.Logging.Abstractions, System.Diagnostics.DiagnosticSource and Microsoft.Extensions.DependencyInjection.Abstractions 10.0.14 (all still `netstandard2.0`-compatible), CsCheck 5.0.0 on `net10.0`
+- `Masterly.BusinessRules.Testing` multi-targets `net8.0` and `net10.0`; `net8.0` consumers keep CsCheck 4.9.1
+- Repository build: test projects target `net10.0` (.NET 9 is out of support) on xunit.v3 4.x and Microsoft.Testing.Platform via `global.json`, coverage moved from `coverlet.collector` to `coverlet.MTP`, and the GitHub Actions moved to checkout v7, setup-dotnet v6, cache v6, codeql-action v4, codecov-action v7 and action-gh-release v3
 - And/Or/Not nodes, groups, composites, the in-library decorators, both adapters and the checkers route evaluation through one internal `EvaluateCore` per node, so `Check`, `Evaluate`, the checkers and `Explain` share a single evaluation path; timing and explanation nodes are allocated only inside an `Explain` walk
 - `SimpleBusinessRule` is no longer used by the composition operators but remains available as a public type
 - Observers fire from `EvaluateAll`/`EvaluateAllAsync` through the options-taking overloads; the boolean `EvaluateAll` overloads still have no observer. `OnBatchCompleted` is raised before `CheckAll` throws; a batch that ends by an exception (a fault propagating under `FaultPolicy.Throw`, a cancellation, a null rule) raises `OnBatchAborted` instead
