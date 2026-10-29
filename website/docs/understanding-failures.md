@@ -1,6 +1,7 @@
 ---
 id: understanding-failures
 title: "Understanding Failures"
+description: "Explain trees show which part of a combined rule failed; rich results say exactly what was wrong."
 ---
 
 When a rule fails, you usually want two answers. Which part of a combined rule failed? And what exactly was wrong? Explain trees answer the first question. Rich results answer the second.

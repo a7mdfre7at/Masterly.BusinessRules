@@ -1,6 +1,7 @@
 ---
 id: feature-flags
 title: "Feature Flags and Shadow Rollout"
+description: "Gate rules behind feature flags, run them in shadow mode, ramp by percentage, and use Microsoft.FeatureManagement."
 sidebar_label: "Feature Flags"
 ---
 

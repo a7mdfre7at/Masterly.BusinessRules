@@ -6,11 +6,13 @@ on:
     branches: [master]
     paths:
       - 'website/**'
+      - 'Directory.Build.props'
       - '.github/workflows/docs.yml'
   pull_request:
     branches: [master]
     paths:
       - 'website/**'
+      - 'Directory.Build.props'
       - '.github/workflows/docs.yml'
 
 permissions:
@@ -32,6 +34,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Full history, so each page can show when it was last updated.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v7

@@ -1,6 +1,7 @@
 ---
 id: rule-expressions
 title: "Rule Expressions"
+description: "Write conditions as text such as amount > @maxOrderAmount, and explain every verdict with its bound values."
 ---
 
 The `Masterly.BusinessRules.Expressions` package lets you write a rule's condition as text, such as `amount > @maxOrderAmount && customer.Tier != 'VIP'`. Use it when conditions live in configuration, a database or an admin screen, and when you want to explain a verdict with the actual values that produced it.

@@ -1,6 +1,7 @@
 ---
 id: writing-rules
 title: "Writing Rules"
+description: "Sync and async rule classes, the three ways to run a rule, metadata, and passing data with a context."
 ---
 
 A rule is a small class that answers one question: is this business rule broken? You give it a code, a message and a condition. The rule is broken when the condition returns `true`.

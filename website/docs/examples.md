@@ -1,6 +1,7 @@
 ---
 id: examples
 title: "Real-World Examples"
+description: "End-to-end examples: checkout, user registration, API validation and multi-tenant order approval."
 sidebar_label: "Real-World Examples"
 ---
 

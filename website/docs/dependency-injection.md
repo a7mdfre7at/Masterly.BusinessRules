@@ -1,6 +1,7 @@
 ---
 id: dependency-injection
 title: "Dependency Injection"
+description: "Scan assemblies for rules, inject IRuleRunner<T>, and register per-tenant rule sets."
 ---
 
 `Masterly.BusinessRules.DependencyInjection` registers your rules in `Microsoft.Extensions.DependencyInjection`. Use it when you want the container to find your rules by assembly scanning and inject them into your handlers as one runner.

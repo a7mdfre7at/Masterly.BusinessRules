@@ -1,13 +1,14 @@
 ---
 id: quick-start
 title: "Quick Start"
+description: "Define two rules, check one, then check both together. Your first working rule in five minutes."
 ---
 
 This example defines two rules for an order, checks one of them, and then checks both together.
 
 **1. Define a rule.** Derive from `BaseBusinessRule` and supply a code, a message and the condition. A rule is *broken* when `IsBroken()` returns `true`. Write the condition that describes the violation, not the valid state.
 
-```csharp
+```csharp title="OrderRules.cs"
 using Masterly.BusinessRules;
 
 // Order and Customer are your own domain classes.
@@ -47,7 +48,7 @@ public sealed class CustomerMustBeActiveRule : BaseBusinessRule
 
 **2. Check one rule.** `IsBroken()` answers the question. `Check()` throws a `BusinessRuleValidationException` when the rule is broken and does nothing when it passes.
 
-```csharp
+```csharp title="Check one rule"
 // order comes from your application
 OrderMustHaveItemsRule rule = new OrderMustHaveItemsRule(order);
 
@@ -58,7 +59,7 @@ rule.Check();
 
 **3. Check several rules.** `BusinessRuleChecker.CheckAll` evaluates every rule you pass. If any are broken, it throws one exception that lists all of them.
 
-```csharp
+```csharp title="Check several rules"
 // order and customer come from your application
 try
 {
@@ -77,7 +78,7 @@ catch (BusinessRuleValidationException exception)
 
 With an empty order and an inactive customer, this prints:
 
-```text
+```text title="Console output"
 ORDER.NO_ITEMS (Error): An order must contain at least one item.
 CUSTOMER.INACTIVE (Error): The customer account must be active.
 ```

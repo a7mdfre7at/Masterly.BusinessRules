@@ -1,6 +1,7 @@
 ---
 id: specifications
 title: "Specifications and Database Queries"
+description: "Write a rule as an expression tree and use it both in memory and as a database filter on IQueryable."
 sidebar_label: "Specifications"
 ---
 

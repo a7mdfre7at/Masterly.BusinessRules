@@ -1,0 +1,51 @@
+---
+id: overview
+title: "Overview"
+description: "What Masterly.BusinessRules is, the six packages, and a map of everything you can do with it."
+sidebar_label: "Overview"
+---
+
+import ConceptFlow from '@site/src/components/docs/ConceptFlow';
+import LinkCards from '@site/src/components/docs/LinkCards';
+
+Masterly.BusinessRules is a business rule engine for .NET. You write each rule, such as "an order must contain at least one item", as a small named unit with a code and a message. You then check one rule or many, and you get back a clear list of every rule that failed.
+
+Every feature works with both synchronous and asynchronous rules. The one exception is specifications: an expression tree has no async form, so you use `.ToAsync()` to run a specification in async code (see [Specifications and database queries](./specifications.md)). The core package has no dependencies. Five optional packages add text expressions, logging and tracing, dependency injection, feature management and test tools.
+
+## How it works
+
+Working with rules has four stages. Each stage builds on the one before it, and every stage works the same way for sync and async rules. Select a stage to read its guide.
+
+<ConceptFlow />
+
+## What you can do
+
+<LinkCards
+  columns={3}
+  items={[
+    {icon: 'box', title: 'Write rules', text: 'A small class, an inline lambda, or one stateless rule for every subject.', to: '/docs/writing-rules'},
+    {icon: 'layers', title: 'Combine rules', text: 'And, Or and Not, or groups such as "all", "any" and "at least 2 of".', to: '/docs/combining-rules'},
+    {icon: 'checks', title: 'Check many at once', text: 'Check many rules in one call. Collect every failure or stop at the first one.', to: '/docs/running-many-rules'},
+    {icon: 'tree', title: 'Explain failures', text: 'See exactly which part of a combined rule failed, as a printable tree.', to: '/docs/understanding-failures'},
+    {icon: 'clock', title: 'Conditional and cached', text: 'Run a rule only when a condition holds, and cache the verdict of a slow rule.', to: '/docs/conditional-and-cached-rules'},
+    {icon: 'flag', title: 'Shadow rollout', text: 'Ship a rule in shadow mode behind a flag, then enforce it for a percentage of callers.', to: '/docs/feature-flags'},
+    {icon: 'building', title: 'Per-tenant limits', text: 'Give each tenant its own limits, such as a maximum order amount, without changing code.', to: '/docs/per-tenant-rules'},
+    {icon: 'database', title: 'Query the database', text: 'Use the same rule to check one object in memory and to find every violating row.', to: '/docs/specifications'},
+    {icon: 'braces', title: 'Text expressions', text: 'Write amount > @maxOrderAmount as text and see the values it was evaluated with.', to: '/docs/rule-expressions'},
+    {icon: 'activity', title: 'Logs, traces, metrics', text: 'Log, trace and measure every evaluation with ILogger, OpenTelemetry and metrics.', to: '/docs/logging-tracing-metrics'},
+    {icon: 'plug', title: 'Dependency injection', text: 'Register your rules in a DI container by assembly scanning and inject one runner.', to: '/docs/dependency-injection'},
+    {icon: 'flask', title: 'Test your rules', text: 'Assert verdicts, measure outcome coverage, find boundaries, run property checks.', to: '/docs/testing'},
+  ]}
+/>
+
+## Where to go next
+
+<LinkCards
+  columns={2}
+  items={[
+    {eyebrow: 'New here', title: 'Quick Start', text: 'Define two rules, check one, then check both together.', to: '/docs/quick-start'},
+    {eyebrow: 'See it in context', title: 'Real-world examples', text: 'Checkout, user registration, API validation and multi-tenant approval.', to: '/docs/examples'},
+    {eyebrow: 'Coming from 2.x', title: 'Upgrading from 2.x', text: 'Why 3.0 needs a rebuild, and which behaviours changed.', to: '/docs/upgrading-from-2x'},
+    {eyebrow: 'Looking something up', title: 'API reference', text: 'Every public type and member, one package at a time.', to: '/docs/api-reference'},
+  ]}
+/>

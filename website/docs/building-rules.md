@@ -1,6 +1,7 @@
 ---
 id: building-rules
 title: "Building Rules Without Classes"
+description: "Build rules inline from lambdas with BusinessRuleBuilder and AsyncBusinessRuleBuilder, without writing a class."
 sidebar_label: "Building Rules"
 ---
 

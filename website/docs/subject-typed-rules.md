@@ -1,6 +1,7 @@
 ---
 id: subject-typed-rules
 title: "Subject-Typed Rules"
+description: "Stateless rules that receive their subject at evaluation time: one instance validates every order."
 ---
 
 A subject-typed rule receives the object it validates (the *subject*) when you evaluate it, not in its constructor. One instance can therefore validate every order in your system. This makes the rule a good fit for dependency injection: register it once as a singleton, inject its repositories, and reuse it.

@@ -1,10 +1,18 @@
 ---
 id: logging-tracing-metrics
 title: "Logging, Tracing and Metrics"
+description: "Observers, structured ILogger logging, OpenTelemetry spans and Meter metrics for rule evaluation."
 sidebar_label: "Logging and Tracing"
 ---
 
 You can watch every rule a checker evaluates. Write your own observer for custom needs such as an audit trail. Or install `Masterly.BusinessRules.Diagnostics` to get ready-made logging, OpenTelemetry tracing and metrics.
+
+:::tip[What needs which package]
+
+- [Observers](#observers) are part of the core package.
+- [Structured logging](#structured-logging) and [OpenTelemetry tracing and metrics](#opentelemetry-tracing-and-metrics) need `Masterly.BusinessRules.Diagnostics` (`netstandard2.1`).
+
+:::
 
 ## Observers
 

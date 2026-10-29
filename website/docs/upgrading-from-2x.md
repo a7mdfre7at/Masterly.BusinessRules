@@ -1,6 +1,7 @@
 ---
 id: upgrading-from-2x
 title: "Upgrading from 2.x"
+description: "What changed in 3.0, why you must recompile, and which behaviour changes need your attention."
 sidebar_label: "Upgrading from 2.x"
 ---
 

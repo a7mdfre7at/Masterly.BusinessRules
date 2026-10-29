@@ -1,6 +1,7 @@
 ---
 id: combining-rules
 title: "Combining Rules"
+description: "Combine rules with And, Or and Not, with All / Any / AtLeast / Exactly groups, and with composites."
 ---
 
 Real validation is rarely a single check. You can build one rule out of several in three ways: the `And`, `Or` and `Not` operators, rule groups, and composite rules. A combined rule is itself a rule, so you can check it, nest it or pass it to a checker like any other rule.

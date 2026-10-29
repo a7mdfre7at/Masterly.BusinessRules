@@ -1,6 +1,7 @@
 ---
 id: api-reference
 title: "API Reference"
+description: "Every public type and member you use in application code, package by package."
 sidebar_label: "API Reference"
 ---
 

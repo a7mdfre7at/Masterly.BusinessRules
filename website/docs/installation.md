@@ -1,6 +1,7 @@
 ---
 id: installation
 title: "Installation"
+description: "Install the core package and only the companion packages you need. Targets, dependencies and supported runtimes."
 ---
 
 Install the core package first. Then add only the companion packages you need. All six packages ship together with the same version number.

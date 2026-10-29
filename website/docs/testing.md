@@ -1,10 +1,18 @@
 ---
 id: testing
 title: "Testing Your Rules"
+description: "Test helpers, outcome coverage, the boundary finder, CsCheck property checks and smoke-test mutants."
 sidebar_label: "Testing Your Rules"
 ---
 
 The library gives you two levels of test support. `RuleTestHelper` in the core package covers everyday assertions. The optional `Masterly.BusinessRules.Testing` package adds rule coverage, boundary search, property-based checks and smoke-test mutants.
+
+:::tip[What needs which package]
+
+- [Built-in test helpers](#built-in-test-helpers) (`RuleTestHelper`) are part of the core package.
+- [Rule coverage](#rule-coverage), [the boundary finder](#finding-a-rules-boundary), [property-based checks](#property-based-checks) and [smoke-test mutants](#smoke-test-mutants) need `Masterly.BusinessRules.Testing`, which targets `net8.0` and `net10.0`.
+
+:::
 
 The examples in this section test these two rules:
 

@@ -1,6 +1,7 @@
 ---
 id: per-tenant-rules
 title: "Per-Tenant Rules and Parameters"
+description: "Rule scopes, externalized parameters and rule registries: different limits and rule sets per tenant."
 sidebar_label: "Per-Tenant Rules"
 ---
 

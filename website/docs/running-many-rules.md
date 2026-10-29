@@ -1,6 +1,7 @@
 ---
 id: running-many-rules
 title: "Running Many Rules"
+description: "Check or evaluate many rules in one call: filtering, options, fault policies, warnings and the evaluation ledger."
 ---
 
 Most operations need more than one rule. `BusinessRuleChecker` runs a batch of sync rules and `AsyncBusinessRuleChecker` runs a batch of async rules. You can stop at the first problem, collect every problem, or decide per severity what blocks the operation.

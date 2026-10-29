@@ -1,6 +1,7 @@
 ---
 id: conditional-and-cached-rules
 title: "Conditional and Cached Rules"
+description: "Run a rule only when a precondition holds, cache slow verdicts, and mix sync and async rules."
 ---
 
 These wrappers change *when* a rule runs, not *what* it checks. Use them to skip a rule that does not apply, to avoid repeating an expensive check, or to run a sync rule where async code expects an async one (and the other way round).
