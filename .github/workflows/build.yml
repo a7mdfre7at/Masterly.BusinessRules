@@ -4,8 +4,15 @@ on:
   workflow_dispatch:
   push:
     branches: [master]
+    # The docs site has its own workflow (docs.yml); a docs-only change neither builds nor publishes packages.
+    paths-ignore:
+      - 'website/**'
+      - '.github/workflows/docs.yml'
   pull_request:
     branches: [master]
+    paths-ignore:
+      - 'website/**'
+      - '.github/workflows/docs.yml'
 
 # One Build per ref at a time. A newer push to a pull request cancels the older run. A master run that has started is
 # never cancelled, because a successful master Build is what triggers publish.yml. GitHub still replaces a master run

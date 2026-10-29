@@ -49,4 +49,4 @@ For async batches use `LoggingAsyncRuleExecutionObserver`. For tracing and metri
 
 ## Documentation
 
-Log levels and options, span and metric names, and the `.Traced()` decorator are covered in the full documentation: <https://github.com/a7mdfre7at/Masterly.BusinessRules#readme>
+Log levels and options, span and metric names, and the `.Traced()` decorator are covered in the full documentation: <https://a7mdfre7at.github.io/Masterly.BusinessRules/docs/logging-tracing-metrics>

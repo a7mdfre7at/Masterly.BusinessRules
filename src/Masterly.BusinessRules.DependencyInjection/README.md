@@ -69,4 +69,4 @@ Scanning registers every concrete `IBusinessRule<T>` / `IAsyncBusinessRule<T>`, 
 
 ## Documentation
 
-Scan options, lifetimes, the rule registry and scoped parameters are covered in the full documentation: <https://github.com/a7mdfre7at/Masterly.BusinessRules#readme>
+Scan options, lifetimes, the rule registry and scoped parameters are covered in the full documentation: <https://a7mdfre7at.github.io/Masterly.BusinessRules/docs/dependency-injection>

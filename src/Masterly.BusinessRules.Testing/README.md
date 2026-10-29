@@ -55,4 +55,4 @@ public static class OrderRuleCoverage
 
 ## Documentation
 
-The boundary finder, property checks, mutants and the CsCheck version notes are covered in the full documentation: <https://github.com/a7mdfre7at/Masterly.BusinessRules#readme>
+The boundary finder, property checks, mutants and the CsCheck version notes are covered in the full documentation: <https://a7mdfre7at.github.io/Masterly.BusinessRules/docs/testing>

@@ -1,0 +1,24 @@
+/* Global styles. Infima variables are overridden here. */
+
+:root {
+  --ifm-color-primary: #512bd4;
+  --ifm-color-primary-dark: #4927bf;
+  --ifm-color-primary-darker: #4525b4;
+  --ifm-color-primary-darkest: #391e94;
+  --ifm-color-primary-light: #6340db;
+  --ifm-color-primary-lighter: #6c4add;
+  --ifm-color-primary-lightest: #8668e3;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #a08cf0;
+  --ifm-color-primary-dark: #8d74ed;
+  --ifm-color-primary-darker: #8368eb;
+  --ifm-color-primary-darkest: #6443e5;
+  --ifm-color-primary-light: #b3a4f3;
+  --ifm-color-primary-lighter: #bdb0f5;
+  --ifm-color-primary-lightest: #d9d1f9;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}

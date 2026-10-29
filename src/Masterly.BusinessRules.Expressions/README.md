@@ -37,4 +37,4 @@ An expression rule always needs a context. It works everywhere other rules do: c
 
 ## Documentation
 
-Expression syntax, comparisons, parameters, safety limits and explanations are covered in the full documentation: <https://github.com/a7mdfre7at/Masterly.BusinessRules#readme>
+Expression syntax, comparisons, parameters, safety limits and explanations are covered in the full documentation: <https://a7mdfre7at.github.io/Masterly.BusinessRules/docs/rule-expressions>

@@ -55,4 +55,4 @@ A plain flag maps to enforced when on and off when off. A variant whose configur
 
 ## Documentation
 
-Variant conventions, targeting, lifetimes and shadow results are covered in the full documentation: <https://github.com/a7mdfre7at/Masterly.BusinessRules#readme>
+Variant conventions, targeting, lifetimes and shadow results are covered in the full documentation: <https://a7mdfre7at.github.io/Masterly.BusinessRules/docs/feature-flags#using-microsoftfeaturemanagement>
