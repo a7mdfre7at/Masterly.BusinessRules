@@ -7,7 +7,7 @@
     Per-project values (Description, PackageTags, TargetFramework) stay in each .csproj.
   -->
   <PropertyGroup>
-    <Version>3.0.0</Version>
+    <Version>3.0.1</Version>
     <Authors>Ahmad Omar Al-Freihat</Authors>
     <Copyright>Copyright (c) 2025-2026 Ahmad Omar Al-Freihat</Copyright>
     <PackageProjectUrl>https://github.com/a7mdfre7at/Masterly.BusinessRules</PackageProjectUrl>

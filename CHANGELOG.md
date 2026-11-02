@@ -1,3 +1,13 @@
+## [3.0.1] - 2026-11-02
+
+Branding release: every package ships the new explain-tree icon and the refreshed README; no code changes.
+
+### Changed
+
+- All six packages pack the new Masterly.BusinessRules logo (an explain tree on an indigo tile) as their package icon, replacing the terminal glyph.
+- The core package's README opens with the new banner and links to the documentation site at https://a7mdfre7at.github.io/Masterly.BusinessRules/.
+- The publish workflow authenticates to nuget.org with Trusted Publishing (a short-lived key obtained from GitHub's OIDC token) instead of a stored API key.
+
 ## [3.0.0] - 2026-10-28
 
 Major release: composed rules become real trees you can explain, batches record an evaluation ledger, and five opt-in companion packages ship beside the zero-dependency core. Assemblies compiled against 2.x must be recompiled.

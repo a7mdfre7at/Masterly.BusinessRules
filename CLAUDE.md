@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`Masterly.BusinessRules` is a composable business-rule engine for .NET, shipped as six NuGet packages from one solution (`Masterly.BusinessRules.sln`) at one shared version (currently 3.0.0). The core is zero-dependency; five sibling packages are opt-in.
+`Masterly.BusinessRules` is a composable business-rule engine for .NET, shipped as six NuGet packages from one solution (`Masterly.BusinessRules.sln`) at one shared version (currently 3.0.1). The core is zero-dependency; five sibling packages are opt-in.
 
 | Package (`src/`) | Target | Depends on | Purpose |
 |------------------|--------|------------|---------|
