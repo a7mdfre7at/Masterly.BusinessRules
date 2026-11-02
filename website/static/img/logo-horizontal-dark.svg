@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 128" width="560" height="128" role="img" aria-label="Masterly.BusinessRules">
+  <defs>
+    <linearGradient id="mbr-bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6366F1"/>
+      <stop offset="1" stop-color="#312E81"/>
+    </linearGradient>
+  </defs>
+  <g transform="scale(0.5)">
+    <rect width="256" height="256" rx="56" fill="url(#mbr-bg)"/>
+    <path d="M128 96v28H72v30M128 124h56v30" fill="none" stroke="#C7D2FE" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="96" y="46" width="64" height="50" rx="14" fill="#FFFFFF"/>
+    <path d="M112 64h32M112 78h20" fill="none" stroke="#4F46E5" stroke-width="6" stroke-linecap="round"/>
+    <circle cx="72" cy="186" r="30" fill="#34D399"/>
+    <path d="M58 186l10 10 20-20" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="184" cy="186" r="30" fill="#FB7185"/>
+    <path d="M172 174l24 24M196 174l-24 24" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
+  </g>
+  <text x="152" y="60" font-family="'IBM Plex Sans','Segoe UI',Inter,system-ui,sans-serif" font-size="46" font-weight="600" letter-spacing="-1" fill="#FFFFFF">Masterly</text>
+  <text x="152" y="102" font-family="'IBM Plex Sans','Segoe UI',Inter,system-ui,sans-serif" font-size="32" font-weight="500" letter-spacing="-0.5" fill="#A5B4FC">BusinessRules</text>
+</svg>

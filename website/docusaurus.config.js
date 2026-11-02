@@ -8,7 +8,7 @@ import {fileURLToPath} from 'node:url';
 import {themes as prismThemes} from 'prism-react-renderer';
 
 const repositoryUrl = 'https://github.com/a7mdfre7at/Masterly.BusinessRules';
-const socialImageUrl = 'https://raw.githubusercontent.com/a7mdfre7at/Masterly.BusinessRules/master/repo_image.png';
+const socialImageUrl = 'img/social-card.png';
 
 // The package version has one source of truth: <Version> in the root Directory.Build.props.
 const siteDirectory = path.dirname(fileURLToPath(import.meta.url));

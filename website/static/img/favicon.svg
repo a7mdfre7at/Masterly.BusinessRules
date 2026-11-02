@@ -1,11 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
   <defs>
-    <linearGradient id="mbr-logo-bg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+    <linearGradient id="mbr-fav" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#6366F1"/>
       <stop offset="1" stop-color="#312E81"/>
     </linearGradient>
   </defs>
-  <rect width="32" height="32" rx="8" fill="url(#mbr-logo-bg)"/>
-  <path d="M9 10.5 14.5 16 9 21.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M17 21.5h6.5" stroke="#A5F3C4" stroke-width="2.6" stroke-linecap="round"/>
+  <rect width="32" height="32" rx="7" fill="url(#mbr-fav)"/>
+  <path d="M16 11v4.5H9V19M16 15.5h7V19" fill="none" stroke="#C7D2FE" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="11.5" y="5" width="9" height="7" rx="2" fill="#FFFFFF"/>
+  <circle cx="9" cy="23" r="4.5" fill="#34D399"/>
+  <circle cx="23" cy="23" r="4.5" fill="#FB7185"/>
 </svg>

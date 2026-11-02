@@ -2,7 +2,7 @@
 
 A composable business rule engine for .NET.
 
-![Masterly.BusinessRules logo](https://raw.githubusercontent.com/a7mdfre7at/Masterly.BusinessRules/master/repo_image.png)
+![Masterly.BusinessRules](https://raw.githubusercontent.com/a7mdfre7at/Masterly.BusinessRules/master/website/static/img/readme-banner.png)
 
 [![Nuget](https://img.shields.io/nuget/v/Masterly.BusinessRules?style=flat-square)](https://www.nuget.org/packages/Masterly.BusinessRules) ![Nuget](https://img.shields.io/nuget/dt/Masterly.BusinessRules?style=flat-square) ![GitHub last commit](https://img.shields.io/github/last-commit/a7mdfre7at/Masterly.BusinessRules?style=flat-square) ![GitHub](https://img.shields.io/github/license/a7mdfre7at/Masterly.BusinessRules) [![Build](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/build.yml) [![CodeQL Analysis](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/codeql.yml) [![Publish to NuGet](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/publish.yml/badge.svg?branch=master)](https://github.com/a7mdfre7at/Masterly.BusinessRules/actions/workflows/publish.yml) [![Docs](https://img.shields.io/badge/docs-github.io-512bd4?style=flat-square)](https://a7mdfre7at.github.io/Masterly.BusinessRules/)
 

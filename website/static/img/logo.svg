@@ -1,11 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="Masterly.BusinessRules">
   <defs>
-    <linearGradient id="mbr-logo-bg" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+    <linearGradient id="mbr-bg" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#6366F1"/>
       <stop offset="1" stop-color="#312E81"/>
     </linearGradient>
   </defs>
-  <rect width="32" height="32" rx="8" fill="url(#mbr-logo-bg)"/>
-  <path d="M9 10.5 14.5 16 9 21.5" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M17 21.5h6.5" stroke="#A5F3C4" stroke-width="2.6" stroke-linecap="round"/>
+  <rect width="256" height="256" rx="56" fill="url(#mbr-bg)"/>
+  <path d="M128 96v28H72v30M128 124h56v30" fill="none" stroke="#C7D2FE" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="96" y="46" width="64" height="50" rx="14" fill="#FFFFFF"/>
+  <path d="M112 64h32M112 78h20" fill="none" stroke="#4F46E5" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="72" cy="186" r="30" fill="#34D399"/>
+  <path d="M58 186l10 10 20-20" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="184" cy="186" r="30" fill="#FB7185"/>
+  <path d="M172 174l24 24M196 174l-24 24" fill="none" stroke="#FFFFFF" stroke-width="8" stroke-linecap="round"/>
 </svg>
