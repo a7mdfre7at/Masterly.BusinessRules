@@ -16,6 +16,8 @@ concurrency:
 
 env:
   NUGET_SOURCE: https://api.nuget.org/v3/index.json
+  # The nuget.org profile that owns the packages and the Trusted Publishing policy (a profile name, never an email).
+  NUGET_USER: a7mdfre7at
   PACKAGE_OUTPUT: artifacts/packages
   # The core package is pushed first, so a sibling never reaches nuget.org without the core version it depends on.
   CORE_PACKAGE_ID: Masterly.BusinessRules
@@ -25,10 +27,15 @@ jobs:
     name: Publish to NuGet
     runs-on: ubuntu-latest
     # Only a successful Build of a push to master publishes: a pull_request Build (including one from a fork's own
-    # 'master' branch) never reaches the NuGet key. A manual run publishes only from master, and runs the tests itself.
+    # 'master' branch) never gets to exchange an OIDC token for a NuGet API key. A manual run publishes only from
+    # master, and runs the tests itself.
     if: ${{ (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master') || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master') }}
     permissions:
       contents: write
+      # Trusted Publishing: the job presents a GitHub OIDC token to nuget.org, which exchanges it for a one-hour API
+      # key under the nuget.org policy (owner a7mdfre7at, repository Masterly.BusinessRules, workflow publish.yml).
+      # No long-lived NuGet API key is stored in the repository secrets.
+      id-token: write
     env:
       # The commit the triggering Build tested; a manual run publishes the commit it was started on.
       PUBLISH_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
@@ -95,13 +102,20 @@ jobs:
           echo "Packages produced:"
           ls -1 "$PACKAGE_OUTPUT"/*.nupkg "$PACKAGE_OUTPUT"/*.snupkg
 
+      # Requested right before the push: the temporary key lives one hour and each OIDC token buys exactly one key.
+      - name: Get a temporary NuGet API key (Trusted Publishing)
+        id: nuget-login
+        uses: NuGet/login@v1
+        with:
+          user: ${{ env.NUGET_USER }}
+
       # Core first, then the siblings in sorted order, one push each. Pushing a .nupkg also pushes the .snupkg next to
       # it, so the symbol packages are not listed separately (the *.nupkg glob does not match *.snupkg).
       # --skip-duplicate makes a re-run after a partial failure push only what is missing.
       - name: Push packages to NuGet
         shell: bash
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
