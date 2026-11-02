@@ -1,0 +1,102 @@
+{
+  "docs": [
+    {
+      "type": "category",
+      "label": "Getting Started",
+      "collapsed": false,
+      "link": {
+        "type": "generated-index",
+        "slug": "/category/getting-started",
+        "title": "Getting Started",
+        "description": "Install the packages and write your first rule."
+      },
+      "items": [
+        "overview",
+        "installation",
+        "quick-start"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Writing Rules",
+      "collapsed": false,
+      "link": {
+        "type": "generated-index",
+        "slug": "/category/writing-rules",
+        "title": "Writing Rules",
+        "description": "Every way to define a rule, and how to combine rules into bigger ones."
+      },
+      "items": [
+        "writing-rules",
+        "building-rules",
+        "subject-typed-rules",
+        "combining-rules"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Running Rules",
+      "collapsed": false,
+      "link": {
+        "type": "generated-index",
+        "slug": "/category/running-rules",
+        "title": "Running Rules",
+        "description": "Check rules one at a time or in batches, and read what failed and why."
+      },
+      "items": [
+        "running-many-rules",
+        "understanding-failures",
+        "conditional-and-cached-rules"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Advanced Topics",
+      "collapsed": false,
+      "link": {
+        "type": "generated-index",
+        "slug": "/category/advanced-topics",
+        "title": "Advanced Topics",
+        "description": "Feature-flag rollout, per-tenant parameters, database specifications and text expressions."
+      },
+      "items": [
+        "feature-flags",
+        "per-tenant-rules",
+        "specifications",
+        "rule-expressions"
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Integrations",
+      "collapsed": false,
+      "link": {
+        "type": "generated-index",
+        "slug": "/category/integrations",
+        "title": "Integrations",
+        "description": "Logging and tracing, dependency injection, and test tools."
+      },
+      "items": [
+        "logging-tracing-metrics",
+        "dependency-injection",
+        "testing"
+      ]
+    },
+    "examples",
+    {
+      "type": "category",
+      "label": "Reference",
+      "collapsed": false,
+      "link": {
+        "type": "generated-index",
+        "slug": "/category/reference",
+        "title": "Reference",
+        "description": "The public API of every package, and the 2.x to 3.0 upgrade guide."
+      },
+      "items": [
+        "api-reference",
+        "upgrading-from-2x"
+      ]
+    }
+  ]
+}

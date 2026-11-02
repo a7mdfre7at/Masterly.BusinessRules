@@ -75,6 +75,13 @@ const config = {
           sidebarPath: './sidebars.js',
           editUrl: `${repositoryUrl}/tree/master/website/`,
           showLastUpdateTime: true,
+          // The docs are versioned per minor release. website/docs is the unreleased "Next" line (served at
+          // /docs/next); versioned_docs/version-<major.minor> holds the frozen pages of each released line, and the
+          // first entry of versions.json is the latest release, which owns /docs. A new minor release freezes the
+          // current pages with `npm run docusaurus docs:version <major.minor>`.
+          versions: {
+            current: {label: 'Next', path: 'next', banner: 'unreleased'},
+          },
         },
         blog: false,
         theme: {
@@ -139,6 +146,15 @@ const config = {
           {type: 'docSidebar', sidebarId: 'docs', position: 'left', label: 'Docs'},
           {to: '/docs/examples', label: 'Examples', position: 'left'},
           {to: '/docs/api-reference', label: 'API', position: 'left'},
+          {
+            type: 'docsVersionDropdown',
+            position: 'right',
+            dropdownActiveClassDisabled: true,
+            dropdownItemsAfter: [
+              {type: 'html', value: '<hr class="dropdown-separator">'},
+              {href: `${repositoryUrl}/blob/master/CHANGELOG.md`, label: 'Changelog'},
+            ],
+          },
           {
             type: 'html',
             position: 'right',

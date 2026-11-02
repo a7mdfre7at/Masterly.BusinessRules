@@ -1,5 +1,6 @@
 import React from 'react';
 import Link from '@docusaurus/Link';
+import useVersionedDocLink from './useVersionedDocLink';
 import styles from './ConceptFlow.module.css';
 
 const stages = [
@@ -55,12 +56,13 @@ function withBreaksAfterDots(api) {
  * The four stages of working with rules, plus the wrappers that apply to any rule.
  */
 export default function ConceptFlow() {
+  const versionedLink = useVersionedDocLink();
   return (
     <div className={styles.flow}>
       <ol className={styles.stages}>
         {stages.map((stage) => (
           <li key={stage.title} className={styles.stage}>
-            <Link to={stage.to} className={styles.stageLink}>
+            <Link to={versionedLink(stage.to)} className={styles.stageLink}>
               <span className={styles.step} aria-hidden="true">
                 {stage.step}
               </span>
@@ -80,7 +82,7 @@ export default function ConceptFlow() {
         <ul className={styles.wrapperList}>
           {wrappers.map((wrapper) => (
             <li key={wrapper.api}>
-              <Link to={wrapper.to} className={styles.wrapper}>
+              <Link to={versionedLink(wrapper.to)} className={styles.wrapper}>
                 <code>{wrapper.api}</code>
                 <span>{wrapper.text}</span>
               </Link>
