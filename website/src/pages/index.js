@@ -1,6 +1,7 @@
 import React from 'react';
 import clsx from 'clsx';
 import Link from '@docusaurus/Link';
+import useBaseUrl from '@docusaurus/useBaseUrl';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
@@ -383,6 +384,7 @@ function CallToAction() {
   return (
     <section className={styles.cta}>
       <div className={clsx('container', styles.ctaInner)}>
+        <img className={styles.ctaMark} src={useBaseUrl('/img/logo.svg')} alt="" width="72" height="72" />
         <Heading as="h2" className={styles.ctaTitle}>
           Write your first rule in five minutes.
         </Heading>

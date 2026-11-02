@@ -9,7 +9,7 @@
 }
 
 [data-theme='dark'] .window {
-  background: #0d1220;
+  background: #100f28;
   box-shadow: var(--mbr-shadow-lg), 0 0 0 1px rgba(165, 180, 252, 0.06), 0 30px 80px -30px rgba(99, 102, 241, 0.45);
 }
 
@@ -93,7 +93,7 @@
 }
 
 [data-theme='dark'] .console {
-  background: #090d18;
+  background: #0b0a1e;
 }
 
 .consoleHeader {

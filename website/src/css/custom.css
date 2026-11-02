@@ -6,27 +6,42 @@
 /* ---------- Tokens ---------- */
 
 :root {
+  /*
+   * Brand palette, taken from the logo: an indigo gradient tile (#6366f1 -> #312e81), pale indigo branches
+   * (#c7d2fe), a mint "passed" verdict (#34d399) and a coral "broken" verdict (#fb7185). Neutrals carry a slight
+   * indigo bias so the whole site sits in the same hue family as the mark.
+   */
+  --mbr-brand-indigo: #6366f1;
+  --mbr-brand-indigo-deep: #312e81;
+  --mbr-brand-branch: #c7d2fe;
+  --mbr-brand-pass: #34d399;
+  --mbr-brand-broken: #fb7185;
+  --mbr-gradient: linear-gradient(135deg, var(--mbr-brand-indigo) 0%, var(--mbr-brand-indigo-deep) 100%);
+  --mbr-gradient-text: linear-gradient(100deg, #4f46e5 0%, #6366f1 45%, #312e81 100%);
+
   --mbr-bg: #ffffff;
-  --mbr-surface: #f8fafc;
+  --mbr-surface: #f7f7fd;
   --mbr-surface-raised: #ffffff;
-  --mbr-surface-sunken: #f1f5f9;
-  --mbr-ink: #0f172a;
-  --mbr-ink-muted: #475569;
-  --mbr-ink-faint: #64748b;
-  --mbr-border: #e2e8f0;
-  --mbr-border-strong: #cbd5e1;
+  --mbr-surface-sunken: #efeffa;
+  --mbr-ink: #1e1b4b;
+  --mbr-ink-muted: #4b4971;
+  --mbr-ink-faint: #6e6c93;
+  --mbr-border: #e4e4f4;
+  --mbr-border-strong: #c9c9e6;
   --mbr-accent: #4f46e5;
-  --mbr-accent-soft: rgba(79, 70, 229, 0.08);
-  --mbr-accent-ring: rgba(79, 70, 229, 0.35);
-  --mbr-pass: #15803d;
-  --mbr-pass-soft: rgba(21, 128, 61, 0.1);
-  --mbr-broken: #be123c;
-  --mbr-broken-soft: rgba(190, 18, 60, 0.09);
+  --mbr-accent-soft: rgba(99, 102, 241, 0.09);
+  --mbr-accent-ring: rgba(99, 102, 241, 0.35);
+  --mbr-pass: #059669;
+  --mbr-pass-soft: rgba(52, 211, 153, 0.14);
+  --mbr-pass-fill: var(--mbr-brand-pass);
+  --mbr-broken: #e11d48;
+  --mbr-broken-soft: rgba(251, 113, 133, 0.14);
+  --mbr-broken-fill: var(--mbr-brand-broken);
   --mbr-skip: #b45309;
-  --mbr-skip-soft: rgba(180, 83, 9, 0.1);
-  --mbr-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --mbr-shadow-md: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px -8px rgba(15, 23, 42, 0.12);
-  --mbr-shadow-lg: 0 2px 4px rgba(15, 23, 42, 0.04), 0 24px 48px -16px rgba(15, 23, 42, 0.18);
+  --mbr-skip-soft: rgba(251, 191, 36, 0.14);
+  --mbr-shadow-sm: 0 1px 2px rgba(30, 27, 75, 0.06);
+  --mbr-shadow-md: 0 1px 2px rgba(30, 27, 75, 0.04), 0 8px 24px -8px rgba(30, 27, 75, 0.14);
+  --mbr-shadow-lg: 0 2px 4px rgba(30, 27, 75, 0.04), 0 24px 48px -16px rgba(30, 27, 75, 0.2);
   --mbr-radius-sm: 6px;
   --mbr-radius: 10px;
   --mbr-radius-lg: 16px;
@@ -75,29 +90,31 @@
   --ifm-menu-color: var(--mbr-ink-muted);
   --ifm-menu-color-background-active: var(--mbr-accent-soft);
   --ifm-menu-color-background-hover: var(--mbr-surface-sunken);
-  --ifm-footer-background-color: #0b1020;
+  --ifm-footer-background-color: #14122f;
   --ifm-transition-fast: var(--mbr-duration);
-  --docusaurus-highlighted-code-line-bg: rgba(79, 70, 229, 0.1);
+  --docusaurus-highlighted-code-line-bg: rgba(99, 102, 241, 0.1);
   --docusaurus-announcement-bar-height: auto;
 }
 
 [data-theme='dark'] {
-  --mbr-bg: #0a0e1a;
-  --mbr-surface: #0f1424;
-  --mbr-surface-raised: #131a2d;
-  --mbr-surface-sunken: #0c111f;
-  --mbr-ink: #e5e7eb;
-  --mbr-ink-muted: #a3b0c5;
-  --mbr-ink-faint: #7c8aa3;
-  --mbr-border: rgba(148, 163, 184, 0.14);
-  --mbr-border-strong: rgba(148, 163, 184, 0.28);
+  --mbr-gradient-text: linear-gradient(100deg, #a5b4fc 0%, #c7d2fe 50%, #818cf8 100%);
+
+  --mbr-bg: #0e0d22;
+  --mbr-surface: #14132c;
+  --mbr-surface-raised: #1a1938;
+  --mbr-surface-sunken: #0b0a1e;
+  --mbr-ink: #ecebfb;
+  --mbr-ink-muted: #aeadd0;
+  --mbr-ink-faint: #8584ad;
+  --mbr-border: rgba(165, 180, 252, 0.14);
+  --mbr-border-strong: rgba(165, 180, 252, 0.3);
   --mbr-accent: #a5b4fc;
-  --mbr-accent-soft: rgba(129, 140, 248, 0.12);
+  --mbr-accent-soft: rgba(129, 140, 248, 0.14);
   --mbr-accent-ring: rgba(165, 180, 252, 0.45);
-  --mbr-pass: #4ade80;
-  --mbr-pass-soft: rgba(74, 222, 128, 0.12);
-  --mbr-broken: #fb7185;
-  --mbr-broken-soft: rgba(251, 113, 133, 0.12);
+  --mbr-pass: var(--mbr-brand-pass);
+  --mbr-pass-soft: rgba(52, 211, 153, 0.14);
+  --mbr-broken: var(--mbr-brand-broken);
+  --mbr-broken-soft: rgba(251, 113, 133, 0.14);
   --mbr-skip: #fbbf24;
   --mbr-skip-soft: rgba(251, 191, 36, 0.12);
   --mbr-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -111,8 +128,8 @@
   --ifm-color-primary-light: #b9c4fd;
   --ifm-color-primary-lighter: #c3ccfd;
   --ifm-color-primary-lightest: #e0e7ff;
-  --ifm-navbar-background-color: rgba(10, 14, 26, 0.75);
-  --ifm-footer-background-color: #070a13;
+  --ifm-navbar-background-color: rgba(14, 13, 34, 0.75);
+  --ifm-footer-background-color: #0b0a1e;
   --docusaurus-highlighted-code-line-bg: rgba(165, 180, 252, 0.12);
 }
 
@@ -147,7 +164,7 @@ a {
 /* ---------- Announcement bar ---------- */
 
 div[class*='announcementBar_'] {
-  background: linear-gradient(90deg, #312e81, #4f46e5 50%, #312e81);
+  background: linear-gradient(90deg, var(--mbr-brand-indigo-deep), var(--mbr-brand-indigo) 50%, var(--mbr-brand-indigo-deep));
   color: #eef2ff;
   border-bottom: none;
   font-size: 0.875rem;
@@ -381,11 +398,11 @@ div[class*='announcementBar_'] button {
 }
 
 [data-theme='dark'] .theme-code-block {
-  background: #0d1220;
+  background: #100f28;
 }
 
 [data-theme='dark'] .theme-code-block pre {
-  background: #0d1220 !important;
+  background: #100f28 !important;
 }
 
 .theme-code-block [class*='codeBlockTitle_'] {
@@ -603,26 +620,26 @@ a.card:hover {
 /* ---------- Footer ---------- */
 
 .footer {
-  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  border-top: 1px solid rgba(165, 180, 252, 0.14);
 }
 
 .footer--dark {
-  --ifm-footer-background-color: #0b1020;
+  --ifm-footer-background-color: #14122f;
 }
 
 [data-theme='dark'] .footer--dark {
-  --ifm-footer-background-color: #070a13;
+  --ifm-footer-background-color: #0b0a1e;
 }
 
 .footer__title {
   font-size: 0.75rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #94a3b8;
+  color: #a5b4fc;
 }
 
 .footer__link-item {
-  color: #cbd5e1;
+  color: #d4d4f0;
   font-size: 0.9rem;
 }
 
@@ -632,7 +649,7 @@ a.card:hover {
 
 .footer__copyright {
   font-size: 0.8rem;
-  color: #94a3b8;
+  color: #8f8eb8;
 }
 
 /* ---------- Motion preferences ---------- */

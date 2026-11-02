@@ -29,8 +29,26 @@
   filter: blur(20px);
 }
 
+/* Two verdict glows, mint and coral, echo the leaves of the mark behind the demo. */
+.heroBackdrop::before {
+  content: '';
+  position: absolute;
+  right: 6%;
+  bottom: -30%;
+  width: 34%;
+  height: 70%;
+  background: radial-gradient(closest-side at 25% 60%, rgba(52, 211, 153, 0.16), transparent 70%),
+    radial-gradient(closest-side at 80% 50%, rgba(251, 113, 133, 0.14), transparent 70%);
+  filter: blur(24px);
+}
+
 [data-theme='dark'] .heroBackdrop::after {
   background: radial-gradient(closest-side, rgba(99, 102, 241, 0.35), transparent);
+}
+
+[data-theme='dark'] .heroBackdrop::before {
+  background: radial-gradient(closest-side at 25% 60%, rgba(52, 211, 153, 0.2), transparent 70%),
+    radial-gradient(closest-side at 80% 50%, rgba(251, 113, 133, 0.18), transparent 70%);
 }
 
 .heroGrid {
@@ -69,15 +87,11 @@
 .eyebrowVersion {
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
-  background: var(--ifm-color-primary);
+  background: var(--mbr-gradient);
   color: #fff;
   font-family: var(--ifm-font-family-monospace);
   font-size: 0.72rem;
   font-weight: 600;
-}
-
-[data-theme='dark'] .eyebrowVersion {
-  color: #1e1b4b;
 }
 
 .heroTitle {
@@ -89,14 +103,10 @@
 }
 
 .heroAccent {
-  background: linear-gradient(100deg, #4f46e5 0%, #7c3aed 55%, #0ea5e9 100%);
+  background: var(--mbr-gradient-text);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-}
-
-[data-theme='dark'] .heroAccent {
-  background-image: linear-gradient(100deg, #a5b4fc 0%, #c4b5fd 50%, #7dd3fc 100%);
 }
 
 .heroLead {
@@ -127,17 +137,19 @@
     border-color var(--mbr-duration) var(--mbr-ease);
 }
 
+/* The primary button wears the logo gradient in both color modes. */
 .primaryButton {
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2), 0 8px 20px -6px rgba(79, 70, 229, 0.55);
-}
-
-[data-theme='dark'] .primaryButton {
-  color: #1e1b4b;
+  border: none;
+  background: var(--mbr-gradient);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(30, 27, 75, 0.2), 0 8px 20px -6px rgba(99, 102, 241, 0.55);
 }
 
 .primaryButton:hover {
+  color: #fff;
+  filter: brightness(1.08);
   transform: translateY(-1px);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.2), 0 12px 28px -8px rgba(79, 70, 229, 0.7);
+  box-shadow: 0 1px 2px rgba(30, 27, 75, 0.2), 0 12px 28px -8px rgba(99, 102, 241, 0.7);
 }
 
 .secondaryButton {
@@ -478,17 +490,13 @@
   margin-left: 0.5rem;
   padding: 0.05rem 0.45rem;
   border-radius: 999px;
-  background: var(--mbr-pass);
-  color: #fff;
+  background: var(--mbr-pass-fill);
+  color: #052e16;
   font-family: var(--ifm-font-family-base);
   font-size: 0.68rem;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-}
-
-[data-theme='dark'] .tenantBadge {
-  color: #052e16;
 }
 
 .srOnly {
@@ -603,6 +611,14 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
+}
+
+.ctaMark {
+  width: 4.5rem;
+  height: 4.5rem;
+  margin-bottom: 1.5rem;
+  border-radius: 1rem;
+  box-shadow: 0 12px 32px -12px rgba(49, 46, 129, 0.55);
 }
 
 .ctaTitle {
